@@ -114,6 +114,12 @@ interface DramaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertRenderTask(t: RenderTaskEntity)
     @Query("SELECT * FROM render_tasks WHERE episode_id=:ep") suspend fun renderTasksOf(ep: String): List<RenderTaskEntity>
     @Query("SELECT * FROM render_tasks WHERE shot_id=:shotId") suspend fun renderTask(shotId: String): RenderTaskEntity?
+    /** RoomCheckpointStore.findAny用：一镜可能存在于多集checkpoint，取最新者 */
+    @Query("SELECT * FROM render_tasks WHERE shot_id=:shotId") suspend fun renderTasksOfShot(shotId: String): List<RenderTaskEntity>
+    /** recoverOnBoot全量扫描（P1-6） */
+    @Query("SELECT DISTINCT episode_id FROM render_tasks") suspend fun allEpisodeIds(): List<String>
+    /** 渲染队列页：某集全部镜状态实时刷新 */
+    @Query("SELECT * FROM render_tasks WHERE episode_id=:ep ORDER BY shot_id") suspend fun renderTasksOfEpOrdered(ep: String): List<RenderTaskEntity>
     /** 恢复判定：submitted且有video_id的镜全部进re-poll队头 */
     @Query("SELECT * FROM render_tasks WHERE episode_id=:ep AND state='SUBMITTED' AND provider_task_id IS NOT NULL")
     suspend fun pendingRepoll(ep: String): List<RenderTaskEntity>

@@ -42,3 +42,46 @@
 ## 关键决策说明
 - 网络层按要求Ktor Client(OkHttp engine)+MockEngine测试；429在HTTP层立即抛QuotaError、仅视频提交外层长退避——与agnes_client.py逐行语义对齐。
 - RenderQueue.enqueueEpisode签名扩展为(episodeId, shots)，shots由分镜层供给（接口其余部分保持架构§3原文）。
+
+---
+
+# 第三轮：UI层（v0.2）
+
+## 构建与测试结果（真实执行）
+- `:app:assembleDebug` → **BUILD SUCCESSFUL**，产出 app-debug.apk（约31MB，PRD≤80MB达标）
+- `:app:testDebugUnitTest` → **9/9 通过**（UiLogicTest，纯JVM无Robolectric）
+- `:core-engine:test` → UP-TO-DATE全绿（未触碰已验收引擎代码）
+- 工具链：Gradle 8.10 / Kotlin 2.0.21 / AGP 8.5.2 / Compose BOM 2024.10.01（compose 1.7.x + material3 1.3.0）/ lifecycle 2.8.6
+
+## 交付页面清单（Compose + Material3 全中文）
+| 页面 | 文件 | 要点 |
+|---|---|---|
+| 七阶段主导航 | ui/DramaApp.kt | 底部导航6项：项目→资产→分镜→渲染→成片→设置；AppNavState跨页传项目/集上下文 |
+| 项目列表（S1+S2） | ui/ProjectsPage.kt | 新建项目（名称+OpenDocument导入TXT/MD，扩展名/空文件/200万字截断校验）、进入、删除确认框 |
+| 设置页（P0） | ui/SettingsPage.kt + ui/SettingsLogic.kt | Agnes供应商卡片；Key输入（仅掩码回显sk-***abc）；「测试连通」调validateKey显示延迟/错误分类；通过后才允许保存至AndroidKeyVault；ROM保活指引卡 |
+| 资产库（S3/S4） | ui/AssetsPage.kt + ui/AssetsLogic.kt | 角色/场景/道具FilterChip分组卡片流；添加即生成（TextProvider细化prompt→ImageProvider出图）；评审勾选保留/重生成；全部keep才点亮「去渲染」（reviewPassed闸门语义） |
+| 渲染队列（S6） | ui/QueuePage.kt + ui/QueueLogic.kt | 总进度条+预算用量条；镜状态机实时刷新（Room轮询2s：SUBMITTING/SUBMITTED/POLLING(SUBMITTED)/COMPLETED/FAILED/BLOCKED/RECONCILE中文标签）；暂停/恢复/取消；预算超限自动弹确认框→resume(confirmedByUser=true)对齐budgetConfirmed一次性放行位；RECONCILE人工处置对话框（重试置回PENDING+续跑/放弃置BLOCKED终态） |
+| 成片库（S7） | ui/LibraryPage.kt | 按集完成度列表；全部COMPLETED后可导出分享（FileProvider+ACTION_SEND video/mp4） |
+| 分镜编辑（S5占位增强） | ui/StoryboardPage.kt | 只读镜头列表（台词/旁白/动作/六铁律校验位） |
+
+## 引擎接线
+- **AppGraph**（app/AppGraph.kt）：KeyVault(AndroidKeyVault)/CheckpointStore(Room版)/AgnesProvider三通道/DefaultBudgetGuard 单例依赖图
+- **RoomCheckpointStore**（app/data/RoomCheckpointStore.kt）：DefaultRenderQueue持久化后端（复审条件项）。语义严格对齐InMemory参考实现：load-or-merge权威态保留、SUBMITTING→RECONCILE、COMPLETED需file_size>0、markSubmitted同步落库video_id生死线；DAO补renderTasksOfShot/allEpisodeIds查询
+- **RenderRuntime**（app/ui/RenderRuntime.kt）：按集懒建DefaultRenderQueue（单episode单worker）；downloader落盘clip校验size>0；orchestrator(queueFor)支持recoverOnBoot多集恢复；DramaApplication.onCreate绑定appScope并开机自动恢复续跑
+- **RenderForegroundService真实接线**：订阅queue.state Flow→常驻通知实时刷新（N/M镜·ETA·暂停原因引导）；队列跑完自动撤下；START_STICKY配合checkpoint续传
+- **Manifest**：注册DramaApplication；FileProvider+res/xml/file_paths.xml供成片分享
+
+## 测试覆盖（UI层逻辑9条全绿，纯JVM）
+- 设置页(3)：测试连通成功才允许保存并清空明文+掩码正确、失败显示401且拒绝保存、空Key提示
+- 项目页(2)：TXT/MD扩展名与空文件校验、空名拒绝+成功创建刷新列表
+- 资产页(2)：全keep评审门放行+regen触发再生成落库、生成失败不拖垮状态机可重试
+- 队列页(2)：budget_exceeded弹窗→confirmBudget走confirmedByUser=true放行位（P1-5对齐）、RECONCILE重试置回PENDING/放弃置BLOCKED
+
+## Compose预览
+SettingsPage/ProjectsPage/AssetsPage(AssetCardView)/QueuePage/LibraryPage/StoryboardPage 均附@Preview(locale="zh")。
+
+## 遗留问题 / 限制（共4项，详见reports/issues.md）
+1. QueueViewModel当前绑定"default"集（分镜自动生成本体在引擎侧迭代后按集入队）；「开始渲染」按钮在无shots时禁用。
+2. AssetsPage生成结果以URL文本展示，图片缩略图加载（Coil等）留待下一迭代。
+3. FGS启动入口暂由后续渲染流程触发（通知权限运行时请求POST_NOTIFICATIONS需真机验证）。
+4. evaluateGates仍为引擎桩：评审/六铁律结果已在UI层可判定，但GateReport真实接线待编排器迭代。

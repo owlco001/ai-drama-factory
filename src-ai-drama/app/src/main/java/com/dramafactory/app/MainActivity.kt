@@ -1,19 +1,24 @@
 package com.dramafactory.app
 
-import android.app.Activity
 import android.os.Bundle
-import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import com.dramafactory.app.ui.DramaApp
 
 /**
- * UI占位Activity —— MVP核心层为管线引擎；七阶段Compose界面（F01-F05/F10）留待下一迭代。
+ * 主Activity：承载七阶段Compose导航（v0.2完整UI）。
  */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val tv = TextView(this).apply {
-            text = "「AI短剧工厂」\n管线引擎已就绪（core-engine）\nUI占位——七阶段导航下一迭代"
-            setPadding(48, 96, 48, 0); textSize = 18f
+        setContent {
+            MaterialTheme {
+                Surface {
+                    DramaApp()
+                }
+            }
         }
-        setContentView(tv)
     }
 }
