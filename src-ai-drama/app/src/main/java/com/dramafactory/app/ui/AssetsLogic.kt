@@ -42,7 +42,11 @@ class AssetsLogic {
      * 用户仍需从剧本手动/一键生成角色/场景/道具图像资产（分镜渲染依赖资产ID）。
      * 提取规则：
      * - 「角色：A、B」/「场景：…」/「道具：…」清单行 → 按类拆分为多张卡；
-     * - 场次标题行（第X场 / 场景N / SCENE N / 内景 / 外景 / INT./EXT.）→ 场景卡；
+     * - 场次标题行（第X场 / 场X / 场景N / SCENE N / 内景 / 外景 / INT./EXT.）→ 场景卡；
+     *   prompt 取去除场号后的环境描述（如「场1 漠北草原·日·外」→「漠北草原·日·外」）；
+     * - 第七轮：兼容 Markdown 加粗/标题装饰（**场1 漠北草原·日·外** / **角色：王莽** 等），
+     *   先剥掉 **、#、` 与首尾空白再按上述规则匹配；
+     * - 对白标签行首「角色名（OS/动作状态）：」且角色名2-4个汉字 → 角色卡（如 蒲奴（OS）：/ 张二（…）：）；
      * - 去重保序；无任何命中返回空列表（UI据此提示改用手动添加）。
      */
     object ScriptAssetExtractor {
@@ -52,6 +56,29 @@ class AssetsLogic {
         private val SCENE_LINE = Regex(
             """^\s*(?:第[0-9一二三四五六七八九十百]+场|场景\s*\d+|SCENE\s*\d+|内景|外景|INT\.|EXT\.)""",
             RegexOption.IGNORE_CASE)
+
+        /** 场次标题：捕获场号前缀 + 环境描述。支持 第X场 / 场X / 场景X / SCENE X */
+        private val SCENE_HEADING = Regex(
+            """^(第[0-9一二三四五六七八九十百]+场|场\s*\d+|场景\s*\d+|SCENE\s*\d+)\s*(.*)$""",
+            RegexOption.IGNORE_CASE)
+
+        /** 纯环境标识行（无场号，整行即描述） */
+        private val SCENE_PLAIN = Regex("""^(?:内景|外景|INT\.|EXT\.)""", RegexOption.IGNORE_CASE)
+
+        /** 对白标签行首：角色名（OS/动作状态）：，角色名2-4个汉字（误判如「追兵声」可接受） */
+        private val DIALOGUE_LABEL = Regex("""^([\u4e00-\u9fa5]{2,4})[（(][^）)]*[）)]\s*[:：]""")
+
+        /** 剥掉Markdown装饰（**加粗** / # 标题 / `代码`）与首尾空白后返回纯文本行 */
+        private fun plain(line: String): String =
+            line.trim().trim('*', '`', '#').trim()
+
+        /** 场次标题 → 场景卡prompt：去除场号后的环境描述；无描述则用标题本身（如「场1」/「第1场」） */
+        private fun scenePrompt(line: String): String? {
+            if (SCENE_PLAIN.containsMatchIn(line)) return line.take(60)   // 内景/外景/INT./EXT.：整行作描述
+            val m = SCENE_HEADING.matchEntire(line) ?: return null
+            val desc = m.groupValues[2].trim().trimStart('-', '—', '·', '：', ':').trim()
+            return if (desc.isNotEmpty()) desc.take(60) else m.groupValues[1].trim()
+        }
 
         /** 解析「标签：项1、项2／项3」清单行，按分隔符拆分 */
         private fun parseListLine(line: String): Pair<Kind, List<String>>? {
@@ -72,18 +99,23 @@ class AssetsLogic {
             val out = LinkedHashMap<String, Extracted>()
             fun put(e: Extracted) { out.putIfAbsent("${e.kind.name}:${e.name}", e) }
             for (raw in script.lines()) {
-                val line = raw.trim()
+                val line = plain(raw)
                 if (line.isEmpty()) continue
                 val listed = parseListLine(line)
                 if (listed != null) {
                     for (name in listed.second) put(Extracted(listed.first, name))
-                } else if (SCENE_LINE.containsMatchIn(line)) {
-                    // 场次标题整行作为场景卡prompt（含内景/外景等上下文信息）
-                    put(Extracted(Kind.SCENE, line.take(60)))
+                    continue
                 }
+                val scene = scenePrompt(line)
+                if (scene != null) { put(Extracted(Kind.SCENE, scene)); continue }
+                dialogueCharacter(line)?.let { put(Extracted(Kind.CHARACTER, it)) }
             }
             return out.values.toList()
         }
+
+        /** 对白标签「角色名（OS/动作状态）：」→ 角色卡（如 蒲奴（OS）：/ 张二（嫌弃地擦灰…）：） */
+        private fun dialogueCharacter(line: String): String? =
+            DIALOGUE_LABEL.matchAt(line, 0)?.groupValues?.get(1)
 
         /** stage_flags JSON → 是否剧本模式（宽松解析，避免引JSON库） */
         fun isScriptMode(stageFlags: String?): Boolean =

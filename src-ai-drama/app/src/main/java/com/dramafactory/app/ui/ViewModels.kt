@@ -263,7 +263,7 @@ class AssetsViewModel(private val projectId: String) : ViewModel() {
         var seq = 0
         val count = logic.extractFromScript(text) { "sa_${System.currentTimeMillis()}_${seq++}" }
         if (count == 0) {
-            _extractMessage.value = "未能从剧本识别到资产（可用下方输入框手动添加）"
+            _extractMessage.value = "未能从剧本识别到资产（支持的格式：角色：/场景：/道具：清单行，或 第X场/场X/场景X 标题行）"
             return@launch
         }
         _extractMessage.value = "已从剧本提取${count}张资产卡"
