@@ -26,6 +26,82 @@ class AssetsLogic {
     private val _assets = MutableStateFlow<List<AssetCard>>(emptyList())
     val assets: StateFlow<List<AssetCard>> get() = _assets
 
+    /**
+     * 剧本→资产卡提取器（纯函数，JVM可单测；MVP关键词/结构化解析，不依赖LLM）。
+     *
+     * 产品语义修正（v0.4 bugfix）：剧本模式只是跳过「文本分析自动建卡」，
+     * 用户仍需从剧本手动/一键生成角色/场景/道具图像资产（分镜渲染依赖资产ID）。
+     * 提取规则：
+     * - 「角色：A、B」/「场景：…」/「道具：…」清单行 → 按类拆分为多张卡；
+     * - 场次标题行（第X场 / 场景N / SCENE N / 内景 / 外景 / INT./EXT.）→ 场景卡；
+     * - 去重保序；无任何命中返回空列表（UI据此提示改用手动添加）。
+     */
+    object ScriptAssetExtractor {
+
+        data class Extracted(val kind: Kind, val name: String)
+
+        private val SCENE_LINE = Regex(
+            """^\s*(?:第[0-9一二三四五六七八九十百]+场|场景\s*\d+|SCENE\s*\d+|内景|外景|INT\.|EXT\.)""",
+            RegexOption.IGNORE_CASE)
+
+        /** 解析「标签：项1、项2／项3」清单行，按分隔符拆分 */
+        private fun parseListLine(line: String): Pair<Kind, List<String>>? {
+            val label = when {
+                line.startsWith("角色") || line.startsWith("人物") -> Kind.CHARACTER
+                line.startsWith("场景") && !SCENE_LINE.containsMatchIn(line) -> Kind.SCENE
+                line.startsWith("道具") -> Kind.PROP
+                else -> return null
+            }
+            val body = line.substringAfter('：', "").ifBlank { line.substringAfter(':', "") }
+            if (body.isBlank()) return null
+            val items = body.split('、', '，', ',', '/', '／')
+                .map { it.trim().trimEnd('。', '.'); }.filter { it.isNotBlank() }
+            return if (items.isEmpty()) null else label to items
+        }
+
+        fun extract(script: String): List<Extracted> {
+            val out = LinkedHashMap<String, Extracted>()
+            fun put(e: Extracted) { out.putIfAbsent("${e.kind.name}:${e.name}", e) }
+            for (raw in script.lines()) {
+                val line = raw.trim()
+                if (line.isEmpty()) continue
+                val listed = parseListLine(line)
+                if (listed != null) {
+                    for (name in listed.second) put(Extracted(listed.first, name))
+                } else if (SCENE_LINE.containsMatchIn(line)) {
+                    // 场次标题整行作为场景卡prompt（含内景/外景等上下文信息）
+                    put(Extracted(Kind.SCENE, line.take(60)))
+                }
+            }
+            return out.values.toList()
+        }
+
+        /** stage_flags JSON → 是否剧本模式（宽松解析，避免引JSON库） */
+        fun isScriptMode(stageFlags: String?): Boolean =
+            stageFlags?.contains(Regex("\"script_mode\"\\s*:\\s*true")) == true
+    }
+
+    /**
+     * 一键从剧本文本提取资产卡：仅新增不存在的卡片（按kind+prompt判重），返回新增数量。
+     * idGen由调用方注入（App层用时间戳保证唯一）。
+     */
+    fun extractFromScript(script: String, idGen: () -> String): Int {
+        val existing = _assets.value.map { "${it.kind.name}:${it.prompt}" }.toHashSet()
+        var added = 0
+        for (e in ScriptAssetExtractor.extract(script)) {
+            val key = "${e.kind.name}:${e.name}"
+            if (key in existing) continue
+            existing += key
+            _assets.value += AssetCard(assetId = idGen(), kind = e.kind, prompt = e.name)
+            added++
+        }
+        return added
+    }
+
+    /** 某分类下尚未生成图像的卡片id列表（供「逐类生成图像」入口） */
+    fun pendingIdsOfKind(kind: Kind): List<String> =
+        _assets.value.filter { it.kind == kind && it.remoteUrl == null && !it.generating }.map { it.assetId }
+
     /** 生成回调：App层注入真实ImageProvider调用；返回(url或null)与错误信息 */
     var generateHandler: suspend (card: AssetCard) -> Result<String> = { Result.failure(IllegalStateException("未接线")) }
     /** 评审落库回调：App层注入Room UPDATE assets SET review_state */

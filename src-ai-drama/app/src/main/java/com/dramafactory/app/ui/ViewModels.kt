@@ -180,6 +180,52 @@ class AssetsViewModel(private val projectId: String) : ViewModel() {
     }
     val assets: StateFlow<List<AssetsLogic.AssetCard>> get() = logic.assets
 
+    /** 剧本模式状态：stage_flags.script_mode=true 时资产页显示「一键提取」入口 */
+    private val _scriptMode = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val scriptMode: kotlinx.coroutines.flow.StateFlow<Boolean> get() = _scriptMode
+    /** 剧本原文（从episodes.script_json读取，供一键提取） */
+    private var scriptText: String? = null
+    /** 一键提取结果提示（如"已提取12张卡" / "未识别到可提取的资产"） */
+    private val _extractMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val extractMessage: kotlinx.coroutines.flow.StateFlow<String?> get() = _extractMessage
+
+    init {
+        viewModelScope.launch {
+            // 读取本项目第一集的剧本与stage_flags（剧本导入时由ProjectsViewModel写入）
+            val row = runCatching { withContext(Dispatchers.IO) { AppGraph.dao.episode("${projectId}_ep1") } }.getOrNull()
+            scriptText = row?.script_json
+            _scriptMode.value = AssetsLogic.ScriptAssetExtractor.isScriptMode(row?.stage_flags)
+        }
+    }
+
+    /** 一键「从剧本提取资产卡」：提取→落库→逐卡触发生成（MVP不要求LLM） */
+    fun extractFromScript() = viewModelScope.launch {
+        val text = scriptText ?: return@launch
+        var seq = 0
+        val count = logic.extractFromScript(text) { "sa_${System.currentTimeMillis()}_${seq++}" }
+        if (count == 0) {
+            _extractMessage.value = "未能从剧本识别到资产（可用下方输入框手动添加）"
+            return@launch
+        }
+        _extractMessage.value = "已从剧本提取${count}张资产卡"
+        // 对新增且未生成的卡片触发生成并落库
+        for (card in logic.assets.value.filter { it.remoteUrl == null && it.assetId.startsWith("sa_") }) {
+            withContext(Dispatchers.IO) {
+                AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                    asset_id = card.assetId, project_id = projectId, kind = card.kind.name.lowercase(),
+                    prompt = card.prompt, updated_at = System.currentTimeMillis()))
+            }
+            logic.generate(card.assetId)
+        }
+    }
+
+    /** 「逐类生成图像」：对当前分类尚未生成的卡片依次触发生成 */
+    fun generatePendingOfKind(kind: AssetsLogic.Kind) = viewModelScope.launch {
+        for (id in logic.pendingIdsOfKind(kind)) logic.generate(id)
+    }
+
+    fun clearExtractMessage() { _extractMessage.value = null }
+
     fun add(assetId: String, kind: AssetsLogic.Kind, prompt: String) = viewModelScope.launch {
         logic.addAsset(assetId, kind, prompt)
         withContext(Dispatchers.IO) {

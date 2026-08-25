@@ -68,6 +68,29 @@ fun AssetsPage(
                 FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) })
             }
         }
+
+        // ★v0.4修复：剧本模式资产生成入口缺失——剧本模式只是跳过文本分析自动建卡，
+        // 用户仍需从剧本文本一键提取角色/场景/道具卡并生成图像（分镜渲染依赖资产ID）。
+        val scriptMode by vm?.scriptMode?.collectAsState() ?: remember { mutableStateOf(false) }
+        if (scriptMode && vm != null) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("剧本模式 · 资产生成", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.extractFromScript() }) { Text("一键从剧本提取资产卡") }
+                        OutlinedButton(onClick = { vm.generatePendingOfKind(kind) }) {
+                            Text("逐类生成图像（${kind.label}）")
+                        }
+                    }
+                    val extractMsg by vm.extractMessage.collectAsState()
+                    extractMsg?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+
         OutlinedTextField(value = prompt, onValueChange = { prompt = it },
             label = { Text("${kind.label}描述，如：女主·冷艳·黑长直") },
             modifier = Modifier.fillMaxWidth())
