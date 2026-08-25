@@ -16,7 +16,14 @@ enum class ChannelKind { VIDEO, TEXT, IMAGE }
 data class ConnectionInfo(val ok: Boolean, val latencyMs: Long = 0, val detail: String = "")
 
 @Serializable
-data class ModelSpec(val id: String, val label: String)
+data class ModelSpec(val id: String, val label: String) {
+    /**
+     * 第六轮：是否支持视频参考输入（video reference）。
+     * MVP：Agnes 视频模型标记 true；其余供应商/自定义模型默认 false，
+     * UI 据此决定是否显示「上传参考视频」入口（仅当模型标记支持时显示）。
+     */
+    var supportsVideoReference: Boolean = false
+}
 
 /** 视频提交请求（架构§3 VideoSubmitRequest，字段一致） */
 @Serializable
@@ -29,6 +36,11 @@ data class VideoSubmitRequest(
     val width: Int = 448, val height: Int = 832,
     val numFrames: Int = 121, val frameRate: Float = 24f,
     val generateAudio: Boolean = true,
+    // ---- 第六轮：图生视频 / 视频参考 扩展 ----
+    /** 图生视频单参考图（非keyframes模式时作为起始帧，对齐 pavo image 参数） */
+    val referenceImageUri: String? = null,
+    /** 视频参考URI（部分供应商支持的视频参考输入；仅当模型标记 supportsVideoReference 时填充） */
+    val referenceVideoUri: String? = null,
 )
 
 /** 轮询结果三态 */

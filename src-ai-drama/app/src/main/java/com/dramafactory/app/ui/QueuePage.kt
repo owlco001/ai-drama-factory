@@ -1,5 +1,8 @@
 package com.dramafactory.app.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,19 +18,58 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
  * 渲染队列页（S6）：每集渲染进度列表（镜状态机实时刷新）、暂停/恢复/取消、
  * 预算确认弹窗（budgetConfirmed放行位对齐）、RECONCILE人工处置对话框。
+ * 第六轮新增：每镜「设参考图」（图生视频，复用本地上传选图）、
+ * 「上传参考视频」（仅当前视频模型标记 supportsVideoReference 时显示）。
  */
 @Composable
-fun QueuePage(vm: QueueViewModel = androidx.lifecycle.viewmodel.compose.viewModel(key = "queue_default")) {
+fun QueuePage(vm: QueueViewModel = viewModel(key = "queue_default")) {
     val st by vm.state.collectAsState()
+
+    // 第六轮：图生视频/视频参考 入口状态
+    var pendingShotId by remember { mutableStateOf<String?>(null) }
+    var showRefImagePicker by remember { mutableStateOf(false) }
+    var showRefVideoPicker by remember { mutableStateOf(false) }
+
+    // 相册图片 → 作为该镜首帧（图生视频 keyframes 起点；复用本地上传选图）
+    val refImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()) { uri: Uri? ->
+        val shot = pendingShotId
+        if (uri != null && shot != null) vm.setShotKeyframe(shot, first = uri.toString(), last = null)
+        pendingShotId = null
+    }
+    // 相册视频 → 作为该镜视频参考（仅模型支持时）
+    val refVideoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()) { uri: Uri? ->
+        val shot = pendingShotId
+        if (uri != null && shot != null) vm.setShotReferenceVideo(shot, uri.toString())
+        pendingShotId = null
+    }
+
+    if (showRefImagePicker) {
+        LaunchedPickEffect {
+            refImageLauncher.launch("image/*")
+            showRefImagePicker = false
+        }
+    }
+    if (showRefVideoPicker) {
+        LaunchedPickEffect {
+            refVideoLauncher.launch("video/*")
+            showRefVideoPicker = false
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("渲染队列", style = MaterialTheme.typography.headlineSmall)
@@ -84,6 +126,16 @@ fun QueuePage(vm: QueueViewModel = androidx.lifecycle.viewmodel.compose.viewMode
                                     color = shotStateColor(stateName))
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                // 第六轮：图生视频「设参考图」入口（复用本地上传选图）
+                                OutlinedButton(onClick = { pendingShotId = shotId; showRefImagePicker = true }) {
+                                    Text("设参考图")
+                                }
+                                // 第六轮：视频参考入口——仅当前视频模型标记支持时显示
+                                if (vm.videoModelSupportsReference()) {
+                                    OutlinedButton(onClick = { pendingShotId = shotId; showRefVideoPicker = true }) {
+                                        Text("上传参考视频")
+                                    }
+                                }
                                 if (stateName == "RECONCILE") {
                                     // 待对账镜 → 人工处置对话框（复审N-2条件项）
                                     OutlinedButton(onClick = {
@@ -128,6 +180,12 @@ fun QueuePage(vm: QueueViewModel = androidx.lifecycle.viewmodel.compose.viewMode
             title = { Text("入队失败") }, text = { Text(err) },
             confirmButton = { Button(onClick = { vm.clearEnqueueError() }) { Text("知道了") } })
     }
+}
+
+/** 仅用于触发一次图片/视频选择器的副作用封装（避免Compose重组重复launch） */
+@Composable
+private fun LaunchedPickEffect(block: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) { block() }
 }
 
 /** 状态机中文标签 */

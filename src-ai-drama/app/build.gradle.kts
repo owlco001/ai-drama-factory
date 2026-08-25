@@ -68,4 +68,6 @@ dependencies {
     // ViewModel JVM单测（不依赖Robolectric，纯逻辑测试）
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    // 第六轮：AgnesProvider 参数组装单测用 Ktor MockEngine
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }

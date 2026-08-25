@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 class AssetsLogic {
 
-    enum class Kind(val label: String) { CHARACTER("角色"), SCENE("场景"), PROP("道具") }
+    enum class Kind(val label: String) { CHARACTER("角色"), SCENE("场景"), PROP("道具"), LOCAL("本地") }
 
     /** 资产卡片数据 */
     data class AssetCard(
@@ -21,6 +21,15 @@ class AssetsLogic {
         val remoteUrl: String? = null,     // 生成结果URL/data uri
         val reviewState: String = "none",  // none/keep/regen
         val generating: Boolean = false,   // 生成中转圈
+        // ---- 第六轮：本地上传 / 图生图 / 视频参考 扩展 ----
+        /** 来源：generated（引擎生成）/ local（用户本地上传） */
+        val source: String = "generated",
+        /** 本地上传图片URI（MediaStore或app内部存储） */
+        val imageUri: String? = null,
+        /** 本地上传视频URI（相册/拍摄） */
+        val videoUri: String? = null,
+        /** 图生图参考图URI：生成图像时作为 input_images 传给图像API */
+        val referenceImageUri: String? = null,
     )
 
     private val _assets = MutableStateFlow<List<AssetCard>>(emptyList())
@@ -115,6 +124,35 @@ class AssetsLogic {
         _assets.value += AssetCard(assetId = assetId, kind = kind, prompt = prompt.trim())
     }
 
+    /**
+     * 第六轮：本地上传资产。三类来源（拍摄/相册图/相册视频）统一落库为 source=local 卡片。
+     * 图片→kind=LOCAL + imageUri；视频→kind=LOCAL + videoUri；若同时带prompt则存prompt。
+     * 返回该资产id（供UI后续设参考图/评审）。
+     */
+    fun addLocalAsset(
+        assetId: String,
+        imageUri: String? = null,
+        videoUri: String? = null,
+        prompt: String = "",
+    ): String {
+        val uri = imageUri ?: videoUri
+        if (uri.isNullOrBlank()) return ""   // 无URI不上传
+        _assets.value += AssetCard(
+            assetId = assetId,
+            kind = Kind.LOCAL,
+            prompt = prompt.trim().ifBlank { (if (videoUri != null) "本地视频" else "本地图片") },
+            source = "local",
+            imageUri = imageUri,
+            videoUri = videoUri,
+        )
+        return assetId
+    }
+
+    /** 设置/清除某资产的图生图参考图URI（UI「用参考图生成」入口） */
+    fun setReferenceImage(assetId: String, uri: String?) {
+        update(assetId) { it.copy(referenceImageUri = uri) }
+    }
+
     /** 删除资产卡片 */
     fun removeAsset(assetId: String) {
         _assets.value = _assets.value.filterNot { it.assetId == assetId }
@@ -123,6 +161,7 @@ class AssetsLogic {
     /**
      * 生成单资产：置generating转圈 → 调handler → 成功存URL / 失败还原并保留错误提示位。
      * 单卡失败不拖垮其他卡片（PRD崩溃率约束的UI面）。
+     * 第六轮：图生图——若 asset.referenceImageUri 非空，将其作为 input_images 传入 handler。
      */
     suspend fun generate(assetId: String) {
         update(assetId) { it.copy(generating = true) }

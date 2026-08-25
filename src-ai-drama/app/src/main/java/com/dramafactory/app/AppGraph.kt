@@ -28,12 +28,12 @@ object AppGraph {
 
     lateinit var keyVault: KeyVault; private set
     lateinit var checkpointStore: CheckpointStore; private set
-    lateinit var agnes: AgnesProvider; private set
+    lateinit var agnes: AgnesProvider; internal set
     val video get() = agnes            // VideoProvider
     val text: TextProvider get() = agnes
     val image: ImageProvider get() = agnes
     lateinit var budgetGuard: DefaultBudgetGuard; private set
-    lateinit var dao: com.dramafactory.app.data.DramaDao; private set
+    lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
 
     @Volatile private var initialized = false
 
@@ -72,9 +72,15 @@ object AppGraph {
         override suspend fun deleteProject(id: String) {}
         override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) {}
         override suspend fun assetsOf(projectId: String, kind: String): List<com.dramafactory.app.data.AssetEntity> = emptyList()
+        override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) {}
+        override suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long) {}
         override suspend fun setReviewState(assetId: String, state: String) {}
         override suspend fun upsertShot(s: com.dramafactory.app.data.ShotEntity) {}
         override suspend fun shotsOf(episodeId: String): List<com.dramafactory.app.data.ShotEntity> = emptyList()
+        override suspend fun setShotKeyframes(shotId: String, first: String?, last: String?) {}
+        override suspend fun setShotReferenceVideo(shotId: String, uri: String?) {}
+        override suspend fun shotKeyframes(shotId: String): com.dramafactory.app.data.ShotEntity? = null
+        override suspend fun shotReferenceVideo(shotId: String): String? = null
         override suspend fun upsertRenderTask(t: com.dramafactory.app.data.RenderTaskEntity) {}
         override suspend fun renderTasksOf(ep: String): List<com.dramafactory.app.data.RenderTaskEntity> = emptyList()
         override suspend fun renderTask(shotId: String): com.dramafactory.app.data.RenderTaskEntity? = null

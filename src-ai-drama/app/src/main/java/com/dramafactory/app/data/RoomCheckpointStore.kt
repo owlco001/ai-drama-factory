@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
         ProjectEntity::class, AssetEntity::class, ShotEntity::class,
         RenderTaskEntity::class, ProviderConfigEntity::class, EpisodeEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class DramaDatabase : RoomDatabase() {
@@ -30,7 +30,24 @@ abstract class DramaDatabase : RoomDatabase() {
         @Volatile private var instance: DramaDatabase? = null
         fun get(context: Context): DramaDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, DramaDatabase::class.java, "drama_factory.db")
+                // 第六轮：v1→v2 新增 assets.source/image_uri/video_uri/reference_image_uri
+                // 及 shots.first_image_uri/last_image_uri/reference_video_uri 列，旧库破坏性迁移。
+                .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
+        }
+
+        /** v1→v2：仅新增可空列（默认null），直接ALTER TABLE，保留既有数据 */
+        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE assets ADD COLUMN source TEXT NOT NULL DEFAULT 'generated'")
+                db.execSQL("ALTER TABLE assets ADD COLUMN image_uri TEXT")
+                db.execSQL("ALTER TABLE assets ADD COLUMN video_uri TEXT")
+                db.execSQL("ALTER TABLE assets ADD COLUMN reference_image_uri TEXT")
+                db.execSQL("ALTER TABLE shots ADD COLUMN first_image_uri TEXT")
+                db.execSQL("ALTER TABLE shots ADD COLUMN last_image_uri TEXT")
+                db.execSQL("ALTER TABLE shots ADD COLUMN reference_video_uri TEXT")
+            }
         }
     }
 }

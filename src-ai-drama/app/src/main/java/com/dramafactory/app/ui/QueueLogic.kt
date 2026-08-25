@@ -87,6 +87,22 @@ class QueueLogic(
     /** 取消单镜 */
     fun cancelShot(shotId: String) = queue.cancelShot(shotId)
 
+    /**
+     * 第六轮：注入分镜关键帧（图生视频）解析器到渲染队列。
+     * shotId → (firstImageUri, lastImageUri)；两者齐备则走 AgnesVideoAdapter keyframes 模式。
+     */
+    fun setKeyframeResolver(resolver: suspend (shotId: String) -> Pair<String?, String?>) {
+        (queue as? com.dramafactory.core.pipeline.DefaultRenderQueue)?.shotKeyframeResolver = resolver
+    }
+
+    /**
+     * 第六轮：注入视频参考（video reference）解析器到渲染队列。
+     * 仅当供应商模型标记 supportsVideoReference=true 时上游才填充此值。
+     */
+    fun setReferenceVideoResolver(resolver: suspend (shotId: String) -> String?) {
+        (queue as? com.dramafactory.core.pipeline.DefaultRenderQueue)?.shotReferenceVideoResolver = resolver
+    }
+
     /** 预算确认弹窗：「继续渲染」（确认放行，越过预算门提交一镜） */
     suspend fun confirmBudget() {
         _state.value = _state.value.copy(showBudgetConfirm = false)

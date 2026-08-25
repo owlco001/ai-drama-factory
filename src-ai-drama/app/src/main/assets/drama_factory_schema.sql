@@ -21,7 +21,11 @@ CREATE TABLE IF NOT EXISTS assets (
   g2_score     REAL, g2_defects TEXT,
   review_state TEXT NOT NULL DEFAULT 'none',
   reject_reason TEXT, seed INTEGER,
-  updated_at   INTEGER NOT NULL
+  updated_at   INTEGER NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'generated',
+  image_uri    TEXT,
+  video_uri    TEXT,
+  reference_image_uri TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assets_proj ON assets(project_id, kind);
 
@@ -35,6 +39,9 @@ CREATE TABLE IF NOT EXISTS shots (
   first_asset_ids TEXT NOT NULL DEFAULT '[]',
   last_asset_ids  TEXT NOT NULL DEFAULT '[]',
   sb_check     TEXT NOT NULL DEFAULT 'pending',
+  first_image_uri TEXT,
+  last_image_uri  TEXT,
+  reference_video_uri TEXT,
   UNIQUE(episode_id, shot_no)
 );
 

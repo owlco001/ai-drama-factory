@@ -203,7 +203,7 @@ class AgnesProvider(
     }
 
     override fun listModels(): List<ModelSpec> = listOf(
-        ModelSpec(MODEL_VIDEO, "Agnes 视频 v2.0"),
+        ModelSpec(MODEL_VIDEO, "Agnes 视频 v2.0").apply { supportsVideoReference = true },
         ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
         ModelSpec(MODEL_IMAGE, "Agnes 图像 2.1 Flash"),
     )
@@ -234,9 +234,15 @@ class AgnesProvider(
                     add(json.parseToJsonElement("\"${req.lastImageUri}\""))
                 })
                 put("mode", "keyframes")
-            } else {
-                req.firstImageUri?.let { put("image", it) }
+            } else if (req.firstImageUri != null) {
+                // 图生视频单首帧（非keyframes）： Agnes 接受单图作为起始帧
+                put("image", req.firstImageUri)
+            } else if (req.referenceImageUri != null) {
+                // 图生视频：单参考图作为起始帧（对齐 pavo image 参数语义）
+                put("image", req.referenceImageUri)
             }
+            // 视频参考输入：部分供应商支持，仅当模型标记支持且提供了URI时填入
+            req.referenceVideoUri?.let { put("reference_video", it) }
             req.negativePrompt?.let { put("negative_prompt", it) }
             if (req.generateAudio) {
                 // 原生语音轨=人声+环境音+SFX一体，永不做静音+重配

@@ -48,6 +48,8 @@ class DefaultRenderQueue(
         { _ -> Triple("", "", "") },
     /** 首尾帧解析：shotId → (firstUri,lastUri) */
     var shotKeyframeResolver: suspend (shotId: String) -> Pair<String?, String?> = { _ -> null to null },
+    /** 第六轮：视频参考解析：shotId → referenceVideoUri（仅当模型标记支持时由上游填充） */
+    var shotReferenceVideoResolver: suspend (shotId: String) -> String? = { _ -> null },
     private val projectIdOf: (episodeId: String) -> String = { "" },
 ) : RenderQueue {
 
@@ -136,10 +138,12 @@ class DefaultRenderQueue(
             val (dialogue, narration, action) = shotPromptResolver(shotId)
             val prompt = com.dramafactory.core.provider.ChineseAudioInjector.buildShotPrompt(dialogue, narration, action)
             val (first, last) = shotKeyframeResolver(shotId)
+            val referenceVideo = shotReferenceVideoResolver(shotId)
             val taskId = videoProvider.submitVideo(
                 com.dramafactory.core.model.VideoSubmitRequest(
                     shotId = shotId, prompt = prompt,
                     firstImageUri = first, lastImageUri = last,
+                    referenceVideoUri = referenceVideo,
                 )
             )
             // ★P0-1生死线第二步：HTTP 2xx/video_id一返回就【同步落库】，且这是拿到id后的第一个动作

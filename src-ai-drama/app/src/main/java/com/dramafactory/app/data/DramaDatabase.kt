@@ -26,7 +26,7 @@ data class ProjectEntity(
 data class AssetEntity(
     @PrimaryKey val asset_id: String,
     val project_id: String,
-    val kind: String,               // character/scene/prop
+    val kind: String,               // character/scene/prop/local
     val parent_id: String? = null,
     val pose_role: String? = null,
     val prompt: String,
@@ -39,6 +39,15 @@ data class AssetEntity(
     val reject_reason: String? = null,
     val seed: Long? = null,
     val updated_at: Long,
+    // ---- 第六轮：本地上传 / 图生图 / 视频参考 扩展字段 ----
+    /** 资产来源：generated(引擎生成) / local(用户本地上传) */
+    val source: String = "generated",
+    /** 本地上传图片URI（MediaStore或app内部存储）；source=local且kind依赖此 */
+    val image_uri: String? = null,
+    /** 本地上传视频URI（相册/拍摄）；source=local 视频资产 */
+    val video_uri: String? = null,
+    /** 图生图参考图URI：生成图像时作为 input_images 上传给图像API */
+    val reference_image_uri: String? = null,
 )
 
 @Entity(tableName = "shots")
@@ -55,6 +64,13 @@ data class ShotEntity(
     val first_asset_ids: String = "[]",
     val last_asset_ids: String = "[]",
     val sb_check: String = "pending",  // 六铁律: pass/error(JSON)
+    // ---- 第六轮：图生视频 / 视频参考 扩展字段 ----
+    /** 图生视频首帧URI（本地上传选图）；与 first_asset_ids 并存，优先以显式参考图为准 */
+    val first_image_uri: String? = null,
+    /** 图生视频尾帧URI（本地上传选图）；两者齐备→AgnesVideoAdapter keyframes 模式 */
+    val last_image_uri: String? = null,
+    /** 视频参考URI（部分供应商支持的视频参考输入；仅当模型标记支持时落库） */
+    val reference_video_uri: String? = null,
 )
 
 /** 渲染任务checkpoint——断点续传核心表，provider_task_id为防重复付费生死线 */
@@ -106,9 +122,25 @@ interface DramaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAsset(a: AssetEntity)
     @Query("SELECT * FROM assets WHERE project_id=:projectId AND kind=:kind") suspend fun assetsOf(projectId: String, kind: String): List<AssetEntity>
     @Query("UPDATE assets SET review_state=:state WHERE asset_id=:assetId") suspend fun setReviewState(assetId: String, state: String)
+    /** 第六轮：本地上传/图生图/视频参考 字段落库更新（局部UPDATE，避免整行重建） */
+    @Query("UPDATE assets SET source=:source, image_uri=:imageUri, video_uri=:videoUri, reference_image_uri=:referenceImageUri, prompt=:prompt, updated_at=:updatedAt WHERE asset_id=:assetId")
+    suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long)
+    @Query("UPDATE assets SET reference_image_uri=:referenceImageUri, updated_at=:updatedAt WHERE asset_id=:assetId")
+    suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertShot(s: ShotEntity)
     @Query("SELECT * FROM shots WHERE episode_id=:episodeId ORDER BY shot_no") suspend fun shotsOf(episodeId: String): List<ShotEntity>
+    /** 第六轮：图生视频首/尾帧 + 视频参考落库 */
+    @Query("UPDATE shots SET first_image_uri=:first, last_image_uri=:last WHERE shot_id=:shotId")
+    suspend fun setShotKeyframes(shotId: String, first: String?, last: String?)
+    @Query("UPDATE shots SET reference_video_uri=:uri WHERE shot_id=:shotId")
+    suspend fun setShotReferenceVideo(shotId: String, uri: String?)
+    /** 第六轮：读单镜已设关键帧（图生视频） */
+    @Query("SELECT * FROM shots WHERE shot_id=:shotId")
+    suspend fun shotKeyframes(shotId: String): ShotEntity?
+    /** 第六轮：读单镜已设视频参考URI */
+    @Query("SELECT reference_video_uri FROM shots WHERE shot_id=:shotId")
+    suspend fun shotReferenceVideo(shotId: String): String?
 
     // checkpoint读写：markSubmitted/markCompleted等经此落库（Room事务保证同步持久化）
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertRenderTask(t: RenderTaskEntity)

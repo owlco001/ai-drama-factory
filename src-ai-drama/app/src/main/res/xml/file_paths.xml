@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider路径：成片mp4缓存目录（导出分享用） -->
+<!-- FileProvider路径：成片mp4缓存目录（导出分享用）+ 第六轮本地拍摄/相册上传临时目录 -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="clips" path="clips/" />
     <cache-path name="finals" path="." />
+    <!-- 第六轮：相机拍摄图片/视频输出目录（TakePicture/TakeVideo 经FileProvider取Uri） -->
+    <cache-path name="capture" path="capture/" />
+    <!-- 相册/下载等持久媒体（本地上传预览用） -->
+    <external-path name="media" path="." />
 </paths>
