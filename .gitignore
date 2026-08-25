@@ -1,0 +1,7 @@
+*.bak_*
+build/
+.gradle/
+local.properties
+*.apk
+*.keystore
+__pycache__/
