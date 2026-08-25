@@ -32,8 +32,22 @@ import androidx.compose.ui.unit.dp
  * 评审勾选（保留✓/重生成↻，F04）。全部「保留」后可进入渲染（评审闸门放行）。
  */
 @Composable
-fun AssetsPage(vm: AssetsViewModel? = null, projectId: String?, onContinue: () -> Unit) {
-    // 无项目时引导先建项目；有项目时用真实VM（此处直接构造简化：预览传null）
+fun AssetsPage(
+    projectId: String?,
+    onContinue: () -> Unit,
+    vm: AssetsViewModel? = projectId?.let {
+        // ★第五轮修复：进入项目闪退根因——此前调用方不传vm，页面内 vm!! 直接NPE。
+        // 现按projectId构造真实VM（key区分项目），并整体防崩溃：引擎未就绪时降级提示。
+        androidx.lifecycle.viewmodel.compose.viewModel(
+            key = "assets_$it",
+            factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    @Suppress("UNCHECKED_CAST")
+                    return AssetsViewModel(it) as T
+                }
+            })
+    },
+) {
     var kind by remember { mutableStateOf(AssetsLogic.Kind.CHARACTER) }
     var prompt by remember { mutableStateOf("") }
 
@@ -63,7 +77,15 @@ fun AssetsPage(vm: AssetsViewModel? = null, projectId: String?, onContinue: () -
         }, enabled = prompt.isNotBlank()) { Text("添加并生成") }
 
         // ---- 资产卡片流（分组排序：同kind相邻）----
-        val assets by vm!!.assets.collectAsState()
+        // ★第五轮修复：vm可能为null（引擎未就绪/预览），不再 vm!! 硬断言，降级为提示
+        if (vm == null) {
+            Card(Modifier.fillMaxWidth()) {
+                Text("引擎未就绪，请重启应用后重试", Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.error)
+            }
+            return@Column
+        }
+        val assets by vm.assets.collectAsState()
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val grouped: kotlin.collections.Map<AssetsLogic.Kind, kotlin.collections.List<AssetsLogic.AssetCard>> =
                 assets.groupBy { asset -> asset.kind }

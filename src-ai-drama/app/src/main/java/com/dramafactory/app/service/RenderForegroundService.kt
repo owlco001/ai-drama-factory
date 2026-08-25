@@ -32,12 +32,17 @@ class RenderForegroundService : Service() {
         const val ACTION_STOP = "com.dramafactory.action.STOP_RENDER"
         const val EXTRA_EPISODE_ID = "episode_id"
 
-        /** UI入口：启动服务并绑定某集进度通知 */
+        /** UI入口：启动服务并绑定某集进度通知（★第五轮加固：权限/后台启动限制防御） */
         fun start(context: Context, episodeId: String) {
             val intent = Intent(context, RenderForegroundService::class.java).apply {
                 action = ACTION_START; putExtra(EXTRA_EPISODE_ID, episodeId)
             }
-            context.startForegroundService(intent)
+            // Android 13+ 未授予通知权限时前台服务仍可跑，但通知发不出且部分ROM直接拒启；
+            // Android 12+ 后台启动FGS受限会抛 ForegroundServiceStartNotAllowedException。
+            // 统一runCatching降级：失败不崩，由调用方UI提示「渲染已在应用内继续」。
+            runCatching { context.startForegroundService(intent) }.onFailure {
+                android.util.Log.e("RenderFGS", "startForegroundService failed", it)
+            }
         }
 
         fun stop(context: Context) {
@@ -61,11 +66,30 @@ class RenderForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ★澎湃OS4专项：startForegroundService启动后必须5秒内startForeground，否则ANR/崩溃。
+        // 立即进入前台（任何action、包括null intent的重建路径），通知构建失败时用最简兜底通知。
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                startForeground(NOTIFICATION_ID, buildProgress(0, 0),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIFICATION_ID, buildProgress(0, 0))
+            }
+        }.onFailure { e ->
+            android.util.Log.e("RenderFGS", "startForeground failed", e)
+            runCatching {   // 兜底：最小通知再试一次，仍失败则停止自身避免5秒超时崩溃
+                startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_media_play)
+                    .setContentTitle("AI短剧工厂 · 渲染服务").build())
+            }.onFailure {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
         when (intent?.action) {
             ACTION_START -> {
                 episodeId = intent.getStringExtra(EXTRA_EPISODE_ID) ?: "?"
-                startForeground(NOTIFICATION_ID, buildProgress(done = 0, total = 0))
-                // ★真实接线：订阅队列快照Flow → 常驻通知实时刷新
+                // 订阅队列快照Flow → 常驻通知实时刷新（前台态已提前进入）
                 watchJob?.cancel()
                 val ep = episodeId ?: return START_STICKY
                 watchJob = serviceScope.launch {
@@ -73,9 +97,12 @@ class RenderForegroundService : Service() {
                         // ETA：剩余镜数×平均单镜耗时估算（轮询30s+生成≈5分钟/镜，保守取300s）
                         val remaining = snap.totalShots - snap.completedShots
                         val etaMin = if (remaining > 0) (remaining * 300 / 60).toInt() else null
-                        notificationManager.notify(NOTIFICATION_ID,
-                            buildProgress(done = snap.completedShots, total = snap.totalShots, etaMin = etaMin,
-                                pausedReason = snap.pausedReason))
+                        // ★第五轮加固：未授予POST_NOTIFICATIONS时部分ROM的notify抛SecurityException
+                        runCatching {
+                            notificationManager.notify(NOTIFICATION_ID,
+                                buildProgress(done = snap.completedShots, total = snap.totalShots,
+                                    etaMin = etaMin, pausedReason = snap.pausedReason))
+                        }
                         // 队列跑完自动撤下前台服务
                         if (!snap.running && snap.pausedReason == null &&
                             snap.totalShots in 1..snap.completedShots) {

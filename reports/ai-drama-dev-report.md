@@ -113,3 +113,27 @@ SettingsPage/ProjectsPage/AssetsPage(AssetCardView)/QueuePage/LibraryPage/Storyb
 ### 测试结果
 - 新增 `Round4FeedbackTest`（8用例）：供应商注册表完整性、待接入供应商语义、自定义模型保存/非法拒绝、剧本文件导入场次解析、粘贴导入、小说路径回归、中英文场次解析与启发式判断。
 - `:app:assembleDebug` ✅ BUILD SUCCESSFUL；全量测试 ✅ 52/52 绿（app 17 + core-engine 35），0 failures。
+
+---
+
+## 第五轮：页面闪退修复（2026-08-25，安卓开发Agent）
+
+真机反馈：红米K90 Pro Max（澎湃OS 4 Beta）点「进入项目」闪退、点「渲染」闪退。设置页正常。
+
+### 根因分析
+1. **进入项目闪退（确定根因）**：`DramaApp.kt` 调用 `AssetsPage(projectId=…)` 未传 `vm`，而 `AssetsPage.kt` 内 `val assets by vm!!.assets.collectAsState()` 硬断言 → 每次进入项目页必现 `KotlinNullPointerException`。此前VM从未接线（预览传null占位），属遗留缺陷。
+2. **渲染触发闪退**：`RenderForegroundService.onStartCommand` 仅在 ACTION_START 分支内 `startForeground`；澎湃OS4/Android 15 要求 startForegroundService 后5秒内必须进前台，null-intent重建（START_STICKY）路径直接超时崩溃；未声明 `POST_NOTIFICATIONS` 运行时请求，Android 13+ 通知通道被禁时部分ROM notify/startForeground 抛 SecurityException。
+3. `RenderRuntime.appScope()` 在 bindScope 前被调用会 `error()` 抛异常（QueueViewModel构造期触发即闪退）；queueFor 对空 episodeId 无防御。
+
+### 修复清单
+- AssetsPage：签名改为 `(projectId, onContinue, vm=按projectId自建真实VM)`，vm==null 时降级提示「引擎未就绪」，删除全部 `!!`。
+- RenderForegroundService：onStartCommand 入口立即 startForeground（API29+带 dataSync type），失败降级最小通知再试、仍失败 stopSelf 兜底；notify 包 runCatching；start() 入口 runCatching 防 ForegroundServiceStartNotAllowedException。
+- DramaApp：LaunchedEffect 启动时 Android 13+ 动态请求 POST_NOTIFICATIONS（拒绝不阻断使用）。
+- RenderRuntime：appScope 未接线时兜底自建 SupervisorJob scope；queueFor 空 episodeId 归一化 "default"。
+- QueueViewModel：队列构造 runCatching，失败降级 DegradedRenderQueue/DegradedBudgetGuard（新增 DegradedEngine.kt），页面显示空状态不崩。
+- CrashLog（files/crash/last_crash.txt）已确认覆盖上述两条链路（Application级handler最先安装）。
+- Manifest 核对：FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC + POST_NOTIFICATIONS 齐全，service foregroundServiceType="dataSync" ✓。
+
+### 测试结果
+- 新增 `Round5CrashPathTest`（7用例）：AssetsPage vm-null 降级语义、FGS启动异常捕获、空episodeId归一化、降级队列/预算闸门零抛出、QueueLogic接降级队列轮询安全、crash日志路径约定回归。
+- `:app:assembleDebug` ✅ BUILD SUCCESSFUL；全量测试 ✅ debug变体59条（app 24 + core-engine 35）0失败。

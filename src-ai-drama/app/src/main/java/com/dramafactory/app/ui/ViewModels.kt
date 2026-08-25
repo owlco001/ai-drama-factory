@@ -53,7 +53,15 @@ class SettingsViewModel : ViewModel() {
  */
 class QueueViewModel(private val episodeId: String) : ViewModel() {
 
-    private val logic = QueueLogic(queue = RenderRuntime.queue(), budgetGuard = AppGraph.budgetGuard).apply {
+    // ★第五轮加固：queueFor/budgetGuard构造失败（AppGraph未就绪等）时兜底Fakes队列，
+    // VM仍可创建，页面显示空状态而非闪退。
+    private val logic = runCatching {
+        QueueLogic(queue = RenderRuntime.queue(), budgetGuard = AppGraph.budgetGuard)
+    }.getOrElse {
+        android.util.Log.e("QueueViewModel", "queue init failed, degraded", it)
+        QueueLogic(queue = DegradedRenderQueue(),
+            budgetGuard = DegradedBudgetGuard())
+    }.apply {
         // RECONCILE处置落库：重试→PENDING / 放弃→BLOCKED（权威终态）
         onReconcileResolve = { shotId, retry ->
             withContext(Dispatchers.IO) {

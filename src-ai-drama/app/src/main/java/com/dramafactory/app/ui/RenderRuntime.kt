@@ -17,19 +17,22 @@ object RenderRuntime {
 
     /**
      * 取某集的渲染队列（无则创建）。downloader把videoUrl下载到app缓存目录并校验size>0。
+     * ★第五轮加固：episodeId为空防御 + AppGraph未初始化时抛可读错误由调用方降级，绝不NPE。
      */
     @Synchronized
-    fun queueFor(episodeId: String): DefaultRenderQueue =
-        queues.getOrPut(episodeId) {
+    fun queueFor(episodeId: String): DefaultRenderQueue {
+        val ep = episodeId.ifBlank { "default" }
+        return queues.getOrPut(ep) {
             DefaultRenderQueue(
                 scope = appScope(),
                 videoProvider = AppGraph.video,
                 checkpointStore = AppGraph.checkpointStore,
                 budgetGuard = AppGraph.budgetGuard,
                 downloader = { videoUrl, shotId -> downloadClip(videoUrl, shotId) },
-                projectIdOf = { ep -> ep.substringBeforeLast("_ep") },
+                projectIdOf = { e -> e.substringBeforeLast("_ep") },
             )
         }
+    }
 
     /** UI/Service便捷入口 */
     fun queue(): DefaultRenderQueue = queueFor("default")
@@ -49,7 +52,13 @@ object RenderRuntime {
     private var scopeRef: kotlinx.coroutines.CoroutineScope? = null
     internal fun bindScope(scope: kotlinx.coroutines.CoroutineScope) { scopeRef = scope }
     private fun appScope(): kotlinx.coroutines.CoroutineScope =
-        scopeRef ?: error("RenderRuntime.bindScope未调用（应在DramaApplication.onCreate接线）")
+        // ★第五轮加固：不再error()抛异常（QueueViewModel构造期触发会直接闪退），
+        // 未接线时兜底自建SupervisorJob作用域（测试/ContentProvider早期路径）。
+        scopeRef ?: kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+            .also { fallbackScope = it }
+
+    @Volatile private var fallbackScope: kotlinx.coroutines.CoroutineScope? = null
 
     /**
      * clip下载器：写缓存目录文件，size必须>0才算completed（架构§5约束）。
