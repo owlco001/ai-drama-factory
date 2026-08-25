@@ -39,6 +39,13 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun deleteKey() = viewModelScope.launch { withContext(Dispatchers.IO) { logic.deleteKey() } }
+
+    // ---- 供应商选择 + 自定义模型（第四轮）----
+    fun selectProvider(providerId: String) { logic.selectProvider(providerId) }
+    fun onCustomFieldChanged(field: String, value: String) = logic.onCustomFieldChanged(field, value)
+    fun saveCustomModel() = viewModelScope.launch {
+        withContext(Dispatchers.IO) { logic.saveCustomModel() }
+    }
 }
 
 /**
@@ -101,6 +108,12 @@ class ProjectsViewModel : ViewModel() {
     fun refresh() = viewModelScope.launch { logic.refresh() }
     fun onNameChanged(text: String) = logic.onNameChanged(text)
     fun importNovel(fileName: String?, text: String?) = logic.importNovel(fileName, text)
+
+    // ---- 剧本导入（第四轮）----
+    fun selectMode(mode: ProjectsLogic.ImportMode) = logic.selectMode(mode)
+    fun onPasteInputChanged(text: String) = logic.onPasteInputChanged(text)
+    fun importDocument(mode: ProjectsLogic.ImportMode, fileName: String?, text: String?, pasted: Boolean) =
+        logic.importDocument(mode, fileName, text, pasted)
     fun clearImportError() = logic.clearImportError()
 
     /** 新建项目并返回新id（导航进入项目用） */
@@ -117,8 +130,13 @@ class ProjectsViewModel : ViewModel() {
             project_id = projectId, name = name, created_at = System.currentTimeMillis()))
         if (novel != null) {
             val epId = "${projectId}_ep1"
+            // 剧本模式：script_json存剧本原文；stage_flags标记SCRIPT_MODE，
+            // 资产页据此跳过文本分析直接进分镜编辑（AssetsViewModel读取该标志）
+            val isScript = logic.state.value.importMode == ProjectsLogic.ImportMode.SCRIPT
+            val flags = if (isScript) """{"script_mode":true,"scene_hint":${logic.state.value.sceneHint}}""" else "{}"
             AppGraph.dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
-                episode_id = epId, project_id = projectId, ep_no = 1, script_json = novel.take(100_000)))
+                episode_id = epId, project_id = projectId, ep_no = 1,
+                script_json = novel.take(100_000), stage_flags = flags))
         }
         projectId
     }

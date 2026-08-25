@@ -85,3 +85,31 @@ SettingsPage/ProjectsPage/AssetsPage(AssetCardView)/QueuePage/LibraryPage/Storyb
 2. AssetsPage生成结果以URL文本展示，图片缩略图加载（Coil等）留待下一迭代。
 3. FGS启动入口暂由后续渲染流程触发（通知权限运行时请求POST_NOTIFICATIONS需真机验证）。
 4. evaluateGates仍为引擎桩：评审/六铁律结果已在UI层可判定，但GateReport真实接线待编排器迭代。
+
+---
+
+## 第四轮：真机反馈修复（2026-08-25，安卓开发Agent）
+
+用户（老王）真机反馈四项，本轮全部处理完毕。
+
+### 1. 闪退防御性加固
+根因排查：`DramaApplication.onCreate → AppGraph.init → AndroidKeyVault` 的 EncryptedSharedPreferences/MasterKey 初始化在部分机型（Android Keystore/StrongBox 异常、厂商ROM）抛 ProviderException/KeyStoreException 直接闪退；recoverOnBoot 与 Room 初始化失败同样会阻断启动。
+
+修复：
+- **AndroidKeyVault 四级降级链**：L1 StrongBox请求 → L2 普通Keystore MasterKey → L3 明文 SharedPreferences（沙箱内）→ L4 内存实现。任一级失败静默降级，`lastInitError` 记录原因供UI提示；工厂方法 `create()` 保证永不抛异常。
+- **AppGraph.init 分步容错**：KeyVault/Room 各自独立 try-catch；Room 失败时以 BrokenDramaDao（空操作DAO）+ InMemoryCheckpointStore 兜底，App 可打开、设置页可配置。
+- **全局未捕获异常处理器**（`AppGraph.CrashLog.installCrashLogger`）：崩溃堆栈写 `files/crash/last_crash.txt`，下次启动可读便于真机排查。
+- DramaApplication onCreate 全链 runCatching 双保险；MainActivity setContent 防崩溃兜底。
+
+### 2. 多模型供应商选择
+设置页新增单选列表（ProviderRegistry），共7项：Agnes(PavoAPI)【可用】、可灵Kling、即梦/豆包Seedance、Runway、Luma、Pika【后五者占位"待接入"标记，选择器可见可选但提示暂不可渲染】、自定义模型【可用】。每个供应商独立 configId 存 KeyVault。
+
+### 3. 自定义模型（OpenAI兼容）
+选中「自定义模型」展开表单：base_url + model_id + api_key + 提交方式说明。协议模板默认 POST `{base_url}/videos` 提交、GET `/videos/{id}` 轮询（与 pavo agnes_client.py 同构）。保存时：Key 入 KeyVault 加密存储（configId=custom-video），base_url/model_id/note 落 provider_configs 表 extra_params；表单明文立即清出。
+
+### 4. 剧本导入
+项目页新增「小说模式 / 剧本模式」FilterChip 切换 + 两种导入方式（文件 TXT/MD 选择器、粘贴文本）。剧本模式轻量场次解析（第X场/场景N/SCENE N/内景/外景/INT./EXT.），显示场次提示；创建项目时 episode.stage_flags 写入 `{"script_mode":true,"scene_hint":N}`，资产页据此跳过文本分析直接进分镜编辑。
+
+### 测试结果
+- 新增 `Round4FeedbackTest`（8用例）：供应商注册表完整性、待接入供应商语义、自定义模型保存/非法拒绝、剧本文件导入场次解析、粘贴导入、小说路径回归、中英文场次解析与启发式判断。
+- `:app:assembleDebug` ✅ BUILD SUCCESSFUL；全量测试 ✅ 52/52 绿（app 17 + core-engine 35），0 failures。

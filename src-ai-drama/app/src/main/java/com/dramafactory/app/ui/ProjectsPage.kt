@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -25,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -64,15 +66,44 @@ fun ProjectsPage(vm: ProjectsViewModel = viewModel(), onEnterProject: (String) -
                     Text("新建项目", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(value = st.newName, onValueChange = vm::onNameChanged,
                         label = { Text("项目名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
+                    // ---- 导入模式切换（第四轮：小说/剧本）----
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(
+                            selected = st.importMode == ProjectsLogic.ImportMode.NOVEL,
+                            onClick = { vm.selectMode(ProjectsLogic.ImportMode.NOVEL) },
+                            label = { Text("小说模式") })
+                        FilterChip(
+                            selected = st.importMode == ProjectsLogic.ImportMode.SCRIPT,
+                            onClick = { vm.selectMode(ProjectsLogic.ImportMode.SCRIPT) },
+                            label = { Text("剧本模式") })
+                    }
+                    if (st.importMode == ProjectsLogic.ImportMode.SCRIPT) {
+                        Text("剧本模式：跳过资产文本分析，直接进入分镜编辑。",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    }
+
+                    // ---- 文件导入 ----
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             picker.launch(arrayOf("text/plain", "text/markdown"))
-                        }) { Text(if (st.importedNovel == null) "导入小说 TXT/MD" else "已导入✓ 重新选") }
+                        }) { Text(if (st.importedNovel == null || st.importedPasted) "导入文件 TXT/MD" else "已导入✓ 重新选") }
                         Button(onClick = { vm.create { id -> id?.let(onEnterProject) } },
                             enabled = st.newName.isNotBlank() && !st.creating) { Text("创建") }
                     }
+                    // ---- 粘贴文本导入（第四轮）----
+                    OutlinedTextField(value = st.pasteInput, onValueChange = vm::onPasteInputChanged,
+                        label = { Text("或直接粘贴${st.importMode.label}文本…") },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    OutlinedButton(
+                        onClick = { vm.importDocument(st.importMode, "pasted_${st.importMode.name.lowercase()}.txt", st.pasteInput, pasted = true) },
+                        enabled = st.pasteInput.isNotBlank()) { Text("使用粘贴内容") }
+
                     st.importedFileName?.let {
-                        Text("小说：$it · ${st.importedNovel?.length ?: 0}字",
+                        val sceneInfo = if (st.importMode == ProjectsLogic.ImportMode.SCRIPT && st.sceneHint > 0)
+                            " · ${st.sceneHint}场" else ""
+                        Text("${st.importMode.label}：$it · ${st.importedNovel?.length ?: 0}字$sceneInfo",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary)
                     }

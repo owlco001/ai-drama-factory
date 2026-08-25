@@ -14,6 +14,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,13 +40,54 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
     ) {
         Text("设置", style = MaterialTheme.typography.headlineSmall)
 
-        // ---- 供应商选择（MVP只有Agnes，单选卡片）----
+        // ---- 供应商选择（第四轮：多模型选择器）----
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("视频模型供应商", style = MaterialTheme.typography.titleMedium)
-                Text("● ${st.providerLabel}", style = MaterialTheme.typography.bodyMedium)
-                Text("后续将支持 Kling / 即梦 等（通道独立适配）",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Text("当前：${st.providerLabel}", style = MaterialTheme.typography.bodyMedium)
+                for (p in ProviderRegistry.ALL) {
+                    val selected = st.selectedProviderId == p.id
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected, onClick = { vm.selectProvider(p.id) })
+                        Column(Modifier.weight(1f)) {
+                            Text("${if (selected) "●" else "○"} ${p.label}",
+                                style = MaterialTheme.typography.bodyMedium)
+                            Text(if (p.status == ProviderRegistry.Status.AVAILABLE) p.note
+                                 else "待接入 · 选择后暂不可渲染",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- 自定义模型（OpenAI兼容格式，第四轮）----
+        if (st.selectedProviderId == "custom") {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("自定义模型配置", style = MaterialTheme.typography.titleMedium)
+                    Text("协议默认模板：POST {base_url}/videos 提交，GET {base_url}/videos/{id} 轮询（OpenAI兼容/pavo agnes_client.py 同构）。提交体含 model、prompt、keyframes 双帧、generate_audio。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    OutlinedTextField(value = st.customBaseUrl, onValueChange = { vm.onCustomFieldChanged("baseUrl", it) },
+                        label = { Text("Base URL（如 https://api.example.com/v1）") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = st.customModelId, onValueChange = { vm.onCustomFieldChanged("modelId", it) },
+                        label = { Text("Model ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = st.customApiKey, onValueChange = { vm.onCustomFieldChanged("apiKey", it) },
+                        label = { Text("API Key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = st.customNote, onValueChange = { vm.onCustomFieldChanged("note", it) },
+                        label = { Text("提交方式说明（可选备注）") },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.saveCustomModel() }) { Text("保存自定义模型") }
+                        if (st.customSaved) Text("已保存 ✓ Key加密入库", color = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
         }
 

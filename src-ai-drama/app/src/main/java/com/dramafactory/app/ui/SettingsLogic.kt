@@ -28,6 +28,13 @@ class SettingsLogic(
     /** 页面状态 */
     data class UiState(
         val providerLabel: String = "Agnes（MVP唯一供应商）",
+        val selectedProviderId: String = "agnes",
+        // 自定义模型表单（OpenAI兼容）
+        val customBaseUrl: String = "",
+        val customModelId: String = "",
+        val customApiKey: String = "",
+        val customNote: String = "",
+        val customSaved: Boolean = false,
         val keyInput: String = "",              // 输入框明文（仅输入期间）
         val maskedSaved: String? = null,        // 已存Key掩码；null=未配置
         val testing: Boolean = false,
@@ -53,6 +60,54 @@ class SettingsLogic(
     fun onKeyChanged(text: String) {
         _state.value = _state.value.copy(keyInput = text, saved = false)
     }
+
+    // ==================== 供应商选择（第四轮新增） ====================
+
+    /**
+     * 选择供应商。AVAILABLE的立即可配；COMING_SOON仅标记选择态并提示待接入。
+     * 自定义模型选中后展示 base_url/model_id/api_key 表单。
+     */
+    fun selectProvider(providerId: String): Boolean {
+        val info = ProviderRegistry.byId(providerId) ?: return false
+        _state.value = _state.value.copy(
+            selectedProviderId = providerId,
+            providerLabel = "${info.label}（${if (info.status == ProviderRegistry.Status.AVAILABLE) "可用" else "待接入"}）",
+            saved = false, customSaved = false)
+        return info.status == ProviderRegistry.Status.AVAILABLE
+    }
+
+    fun onCustomFieldChanged(field: String, value: String) {
+        val s = _state.value
+        _state.value = when (field) {
+            "baseUrl" -> s.copy(customBaseUrl = value, customSaved = false)
+            "modelId" -> s.copy(customModelId = value, customSaved = false)
+            "apiKey" -> s.copy(customApiKey = value, customSaved = false)
+            "note" -> s.copy(customNote = value, customSaved = false)
+            else -> s
+        }
+    }
+
+    /**
+     * 保存自定义模型配置：OpenAI兼容格式，写入供应商配置表（provider_configs）。
+     * Key同时入KeyVault加密存储（configId=custom-video），表单明文立即清出。
+     * @return true=保存成功
+     */
+    suspend fun saveCustomModel(): Boolean {
+        val cfg = ProviderRegistry.CustomModelConfig.create(
+            _state.value.customBaseUrl, _state.value.customModelId,
+            _state.value.customApiKey, _state.value.customNote)
+            ?: run { _state.value = _state.value.copy(
+                testResult = TestResult.Failure("请填写合法的 base_url(http开头)/model_id/api_key")); return false }
+        withContext(io) {
+            keyVault.save("custom-video", "custom", cfg.apiKey)
+            persistCustomConfig?.invoke(cfg)
+        }
+        _state.value = _state.value.copy(customApiKey = "", customSaved = true)
+        return true
+    }
+
+    /** App层注入：自定义模型配置落库provider_configs表（base_url/model_id/note进extra_params JSON） */
+    var persistCustomConfig: suspend (ProviderRegistry.CustomModelConfig) -> Unit = {}
 
     /**
      * 「测试连通」：用候选Key调validateKey（最小成本请求）。
