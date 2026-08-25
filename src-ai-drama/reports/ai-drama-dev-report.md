@@ -79,3 +79,31 @@
 ### 测试
 - ScriptAssetExtractionTest 6→13 用例，新增：加粗场次标题（`**场1 漠北草原·日·外**`→"漠北草原·日·外"、`**第2场 长安西市·日·外**`、`**第1场**`/`**场景1**`）、加粗清单行（`**角色：王莽、刘歆**`→2角色卡）、原格式回归（`角色：林晚`/`第3场 雨夜`）、对白标签提取与不误判、EP01-03 剧本文本片段（内嵌字符串，含 `**场1 漠北草原·日·外**` 等）≥2 张场景卡、提取为 0 时提示文案断言（经 AssetsViewModel 链路）。
 - :app:assembleDebug 通过；全量 84 个单测（app 49 + engine 35）--rerun-tasks 全绿。
+
+## 第八轮：拍摄闪退 + 资产无预览图（2026-08-25）
+
+用户反馈（红米K90 Pro Max / 澎湃OS 4 Beta）：① 点击「拍摄」闪退；② 资产卡没有任何预览图（只显示 URI 尾部文字）。
+
+### BUG1 拍摄闪退：根因与修复（AssetsPage.kt + AppGraph.kt）
+**根因（三重）：**
+1. **主根因**：Manifest 声明了 `CAMERA` 权限但 App 从不做运行时申请。targetSdk 34 下官方文档明确：声明了 CAMERA 而未授予时，`MediaStore.ACTION_IMAGE_CAPTURE` 直接抛 `SecurityException`——`launch()` 未包任何 try/catch，未捕获即闪退（澎湃OS 对相机 intent 权限校验同样触发）。
+2. **回调类型错误**：字节码核实 activity 1.9.2 中 `TakePicture` 回调是 `Boolean`（非 Bitmap?）。旧代码 `bitmap != null` 恒真——**用户取消拍摄也会把 0 字节空文件落库**（看似"拍了"其实是坏资产）。`TakeVideo` 回调确为 `Bitmap?` 缩略图，原判断方向正确，保留。
+3. **输出路径不稳定**：拍摄文件落在 cacheDir/capture/，随时可能被系统清理，且后续预览/图生图引用不可靠。
+
+**修复：**
+- 拍摄入口先查 `CAMERA` 运行时权限，未授予则 `RequestPermission` 请求，拒绝时页面内提示「请在系统设置中授予相机权限」而非闪退；授予后按暂存类型启动相机。
+- `launch()` 全程 try/catch + `AppGraph.CrashLog.record()` 复用 files/crash/last_crash.txt 机制写日志（不终止进程），无相机应用（ActivityNotFoundException）/权限异常均降级为提示文案。
+- `TakePicture` 回调改 `(success: Boolean)`：仅成功才处理，且经 `AssetFiles.copyToInternal` 校验文件非空；`TakeVideo` 以输出文件非空兜底（个别 ROM 成功也不回缩略图）。
+- Manifest FileProvider（`${applicationId}.fileprovider` + file_paths 含 `capture/`）与 `MainActivity : ComponentActivity` 核对无误，无需改动。
+
+### BUG2 资产无预览图：根因与修复
+**根因：** AssetCardView 只渲染文字（`📷 本地图片 …` / `已生成 ✓ …`），完全没有图片加载组件；且相册 `GetContent` 的 content:// URI 临时读权限只在回调内有效，重启即失效，无法稳定预览。
+**修复：**
+- 引入 Coil 2.6.0（`io.coil-kt:coil-compose`，与 AGP 8.5.2 / Compose BOM 2024.10.01 兼容），新增 `AssetThumb` 缩略图组件：本地 imageUri（内部 file:// / content://）与生成 remoteUrl（http/https）走 `AsyncImage` 异步加载，视频显示 🎬 占位、无图 🖼 占位、加载失败显示「图片加载失败」。
+- 新增 `AssetFiles.copyToInternal`：所有本地上传（拍摄/相册图/相册视频）在回调内立即拷贝到 `filesDir/uploads/` 存 file:// 路径——预览、图生图 input_images、图生视频 keyframes 引用全部长期稳定，空文件判失败。
+- 新增 `AssetsLogic.AssetFileNames` 纯函数（MIME→扩展名、防重名文件名），JVM 可单测。
+- 分镜页/渲染队列核对：仅引用资产 URI（设参考图/关键帧）不渲染图片，无需改动。
+
+### 测试
+- 新增 Round8AssetPreviewTest 9 用例：MIME→扩展名映射、未知/空回退默认、大小写不敏感、文件名格式与防重名、AssetCard 预览源语义（本地图/视频/生成图三态）。
+- :app:assembleDebug 通过；全量 93 个单测（app 58 + engine 35）全绿，failures=0/errors=0。

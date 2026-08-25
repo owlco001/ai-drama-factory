@@ -95,27 +95,39 @@ object AppGraph {
     }
 
     object CrashLog {
+        private fun crashFile(app: android.content.Context): File =
+            File(File(app.filesDir, "crash"), "last_crash.txt")
+
+        private fun writeCrash(app: android.content.Context, header: String, throwable: Throwable) {
+            try {
+                crashFile(app).apply { parentFile?.mkdirs() }.writeText(
+                    buildString {
+                        appendLine("time=${System.currentTimeMillis()}")
+                        appendLine(header)
+                        appendLine(android.util.Log.getStackTraceString(throwable))
+                    })
+            } catch (_: Throwable) {}
+        }
+
         /** 全局未捕获异常写本地日志文件（下次启动可读，便于真机排查） */
         fun installCrashLogger(context: Context) {
             val app = context.applicationContext
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-                try {
-                    val dir = File(app.filesDir, "crash").apply { mkdirs() }
-                    File(dir, "last_crash.txt").writeText(
-                        buildString {
-                            appendLine("time=${System.currentTimeMillis()}")
-                            appendLine("thread=${thread.name}")
-                            appendLine(android.util.Log.getStackTraceString(throwable))
-                        })
-                } catch (_: Throwable) {}
+                writeCrash(app, "thread=${thread.name}", throwable)
                 previous?.uncaughtException(thread, throwable)
             }
         }
 
+        /** 非致命异常记录到同一 crash 日志文件（不终止进程）。第八轮：拍摄闪退等UI层异常排查用 */
+        fun record(context: Context, tag: String, throwable: Throwable) {
+            writeCrash(context.applicationContext, "tag=$tag", throwable)
+            android.util.Log.e(tag, throwable.message ?: throwable.javaClass.simpleName, throwable)
+        }
+
         /** 读取上次崩溃日志（诊断页/排查用），null=无记录 */
         fun lastCrashLog(context: Context): String? =
-            runCatching { File(File(context.filesDir, "crash"), "last_crash.txt") }
+            runCatching { crashFile(context.applicationContext) }
                 .getOrNull()?.takeIf { it.exists() }?.readText()
     }
 }

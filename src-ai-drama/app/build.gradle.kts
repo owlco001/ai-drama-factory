@@ -38,6 +38,9 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.13.1")
 
+    // 第八轮：资产缩略图预览（本地 file:// / content:// 与生成图 http/https 异步加载）
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
     // ---- Compose + Material3（BOM对齐本地缓存版本：compose 1.7.3 / m3 1.3.0）----
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)

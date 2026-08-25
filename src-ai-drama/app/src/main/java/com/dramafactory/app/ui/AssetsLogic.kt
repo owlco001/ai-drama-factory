@@ -222,4 +222,32 @@ class AssetsLogic {
     private fun update(assetId: String, transform: (AssetCard) -> AssetCard) {
         _assets.value = _assets.value.map { if (it.assetId == assetId) transform(it) else it }
     }
+
+    /**
+     * 第八轮：本地上传 URI→内部目录落盘 的文件名/扩展名纯函数（不依赖Android，JVM可单测）。
+     * 相册 content:// URI 的临时读权限只在回调内有效、拍摄输出在 cacheDir 可能被系统清理，
+     * 上传时统一拷贝到 filesDir/uploads/ 存 file:// 路径，预览与图生图引用都稳定。
+     */
+    object AssetFileNames {
+        /** MIME→扩展名；未知/空回退默认值（图片jpg/视频mp4） */
+        fun extFromMime(mime: String?, fallback: String = "jpg"): String = when (mime?.lowercase()) {
+            "image/jpeg" -> "jpg"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "image/gif" -> "gif"
+            "image/heic" -> "heic"
+            "video/mp4" -> "mp4"
+            "video/webm" -> "webm"
+            "video/quicktime" -> "mov"
+            else -> fallback
+        }
+
+        /** uploads 目录内目标文件名：<type>_<ts>_<rand>.<ext>，时间戳+随机数防重名 */
+        fun internalFileName(
+            type: String,
+            ext: String,
+            ts: Long = System.currentTimeMillis(),
+            rand: Int = (Math.random() * 1000).toInt(),
+        ): String = "${type}_${ts}_$rand.$ext"
+    }
 }
