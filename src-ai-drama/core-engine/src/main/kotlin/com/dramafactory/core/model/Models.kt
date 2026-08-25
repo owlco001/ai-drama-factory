@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
  */
 
 // ============ 单镜状态机（架构§7.2） ============
-enum class ShotState { PENDING, SUBMITTED, COMPLETED, FAILED, BLOCKED }
+enum class ShotState { PENDING, SUBMITTING, SUBMITTED, COMPLETED, FAILED, BLOCKED, RECONCILE }
 
 // ============ 通道类型（三通道独立适配器，决议Q6） ============
 enum class ChannelKind { VIDEO, TEXT, IMAGE }
@@ -19,6 +19,7 @@ data class ConnectionInfo(val ok: Boolean, val latencyMs: Long = 0, val detail: 
 data class ModelSpec(val id: String, val label: String)
 
 /** 视频提交请求（架构§3 VideoSubmitRequest，字段一致） */
+@Serializable
 data class VideoSubmitRequest(
     val shotId: String,
     val prompt: String,                  // 已含中文配音主导开头+显式中文指令
@@ -38,6 +39,7 @@ sealed interface PollResult {
 }
 
 /** 文本通道请求/响应（enable_thinking=false 约定在Provider实现内） */
+@Serializable
 data class ChatRequest(
     val messages: List<ChatMessage>,
     val model: String = "agnes-2.5-flash",
@@ -45,7 +47,9 @@ data class ChatRequest(
     val maxTokens: Int? = null,
     val enableThinking: Boolean = false, // 默认false：避免reasoning吃空content的静默空响应
 )
+@Serializable
 data class ChatMessage(val role: String, val content: String)
+@Serializable
 data class ChatResponse(val content: String, val raw: String)
 
 /** 图像生成请求（6pose包/场景/道具母图/i2i合成） */
@@ -64,13 +68,19 @@ sealed class ProviderError(message: String) : Exception(message) {
     class QuotaError(msg: String) : ProviderError(msg)
     /** 400/422 —— 参数非法 */
     class ValidationError(msg: String) : ProviderError(msg)
-    /** 408/5xx/网络瞬断 —— 可重试，指数退避 */
-    class TransientError(msg: String) : ProviderError(msg)
+    /** 408/5xx/网络瞬断 —— 可重试，指数退避。retryable 显式标注可重试性（不再靠消息字符串判定） */
+    class TransientError(msg: String, val retryable: Boolean = false) : ProviderError(msg)
+    /**
+     * P0-1：请求已到达服务端且可能已计费（2xx响应但video_id解析失败、
+     * 或提交中途网络断开结果未知）。调用方必须落库待对账，绝不静默重提。
+     */
+    class ReconcileRequired(val rawBody: String = "", msg: String) : ProviderError(msg)
 }
 
 // ============ 断点续传 Checkpoint（架构§3 CheckpointStore配套类型） ============
 data class ShotMeta(val shotId: String, val episodeId: String, val prompt: String)
 
+@Serializable
 data class CheckpointEntry(
     val shotId: String,
     var state: ShotState = ShotState.PENDING,
@@ -82,6 +92,7 @@ data class CheckpointEntry(
     var submittedAt: Long? = null,
 )
 
+@Serializable
 data class EpisodeCheckpoint(
     val episodeId: String,
     val shots: MutableList<CheckpointEntry>,

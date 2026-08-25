@@ -16,6 +16,7 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor")
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }
 tasks.test {
     useJUnitPlatform()

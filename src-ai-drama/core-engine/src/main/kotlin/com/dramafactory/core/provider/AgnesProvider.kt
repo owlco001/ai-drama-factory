@@ -20,6 +20,9 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -28,6 +31,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -47,10 +51,19 @@ class AgnesProvider(
     private val rateGate: DefaultRateGate = DefaultRateGate(),
     /** 明文Key来源：生产为KeyVault.load()，测试注入假实现。仅进Authorization header */
     var apiKeyProvider: suspend () -> String = { "" },
-    private val client: HttpClient = defaultClient(),
+    private val client: HttpClient = HttpClient { /* 底层OkHttp engine默认即可 */ },
     /** 可注入时钟/睡眠以便JVM测试时序断言 */
     private val sleeper: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
 ) : VideoProvider, TextProvider, ImageProvider {
+
+    /** P1-1：验证期间的候选Key通道（null=用常规apiKeyProvider） */
+    class ValidatingKeyContext(val candidateKey: String) : AbstractCoroutineContextElement(ValidatingKeyContext) {
+        companion object Key : CoroutineContext.Key<ValidatingKeyContext>
+    }
+
+    /** P1-1：per-call取Key——优先协程上下文中的验证Key，否则常规来源。并发请求互不干扰 */
+    private suspend fun currentApiKey(): String =
+        kotlinx.coroutines.currentCoroutineContext()[ValidatingKeyContext]?.candidateKey ?: apiKeyProvider()
 
     companion object {
         const val BASE_URL = "https://apihub.agnes-ai.com/v1"
@@ -77,7 +90,7 @@ class AgnesProvider(
         fun closestValidNumFrames(target: Int): Int {
             if (target <= 1) return 1
             val capped = minOf(target, MAX_NUM_FRAMES)
-            val n = Math.round((capped - 1).toDouble() / NUM_FRAMES_MOD)
+            val n = Math.round((capped - 1).toDouble() / NUM_FRAMES_MOD).toInt()
             return NUM_FRAMES_MOD * n + 1
         }
 
@@ -92,10 +105,6 @@ class AgnesProvider(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun defaultClient() = HttpClient {
-        // 底层OkHttp engine默认即可；超时按请求配置（架构§1.2）
-    }
-
     // ------------------------------------------------------------------
     // 低层HTTP：POST/GET 带可重试状态分类（对齐_post_json/_get_json）
     // 注意：429 在此层立即抛 QuotaError，绝不HTTP层快重试——
@@ -104,11 +113,11 @@ class AgnesProvider(
     private suspend fun postJson(path: String, body: JsonObject): JsonObject {
         var backoff = INITIAL_BACKOFF_MS
         var lastErr: Exception? = null
-        repeat(HTTP_MAX_RETRIES) { attempt ->
+        for (attempt in 0 until HTTP_MAX_RETRIES) {
             try {
                 val resp = client.post("$BASE_URL$path") {
                     contentType(ContentType.Application.Json)
-                    header(HttpHeaders.Authorization, "Bearer ${apiKeyProvider()}")
+                    header(HttpHeaders.Authorization, "Bearer ${currentApiKey()}")
                     setBody(body.toString())
                 }
                 return when {
@@ -121,14 +130,16 @@ class AgnesProvider(
                     resp.status.value == 400 || resp.status.value == 422 ->
                         throw ProviderError.ValidationError("${resp.status.value}: ${resp.snip()}")
                     resp.isRetryable() -> {
-                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} (retryable)")
-                        sleeper(backoff); backoff *= 2; null!!
+                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} retryable", retryable = true)
+                        sleeper(backoff); backoff *= 2
+                        continue
                     }
                     else -> throw ProviderError.TransientError("HTTP ${resp.status.value}: ${resp.snip()}")
                 }
             } catch (e: java.io.IOException) {
-                // 网络瞬断：指数退避重试
-                lastErr = e; if (attempt == HTTP_MAX_RETRIES - 1) break
+                // 网络瞬断：指数退避重试（ProviderError不在此列，直接上抛）
+                lastErr = e
+                if (attempt == HTTP_MAX_RETRIES - 1) break
                 sleeper(backoff); backoff *= 2
             }
         }
@@ -138,10 +149,10 @@ class AgnesProvider(
     private suspend fun getJson(url: String): JsonObject {
         var backoff = INITIAL_BACKOFF_MS
         var lastErr: Exception? = null
-        repeat(HTTP_MAX_RETRIES) { attempt ->
+        for (attempt in 0 until HTTP_MAX_RETRIES) {
             try {
                 val resp = client.get(url) {
-                    header(HttpHeaders.Authorization, "Bearer ${apiKeyProvider()}")
+                    header(HttpHeaders.Authorization, "Bearer ${currentApiKey()}")
                 }
                 return when {
                     resp.status.value == 200 ->
@@ -151,13 +162,15 @@ class AgnesProvider(
                     resp.status.value == 401 ->
                         throw ProviderError.AuthError("401 Unauthorized: ${resp.snip()}")
                     resp.isRetryable() -> {
-                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} (retryable)")
-                        sleeper(backoff); backoff *= 2; null!!
+                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} retryable", retryable = true)
+                        sleeper(backoff); backoff *= 2
+                        continue
                     }
                     else -> throw ProviderError.TransientError("HTTP ${resp.status.value}: ${resp.snip()}")
                 }
             } catch (e: java.io.IOException) {
-                lastErr = e; if (attempt == HTTP_MAX_RETRIES - 1) break
+                lastErr = e
+                if (attempt == HTTP_MAX_RETRIES - 1) break
                 sleeper(backoff); backoff *= 2
             }
         }
@@ -175,18 +188,17 @@ class AgnesProvider(
     // ------------------------------------------------------------------
     override suspend fun validateKey(key: String): Result<ConnectionInfo> {
         // 最小成本请求：1-token chat ping
-        return try {
-            val saved = apiKeyProvider
-            apiKeyProvider = { key }
+        // P1-1：候选Key经协程上下文注入——仅本次验证调用链可见，并发请求零影响
+        return withContext(ValidatingKeyContext(key)) {
             try {
                 val t0 = System.currentTimeMillis()
                 chat(ChatRequest(messages = listOf(ChatMessage("user", "ping")), maxTokens = 8))
                 Result.success(ConnectionInfo(true, System.currentTimeMillis() - t0, "chat ping ok"))
-            } finally { apiKeyProvider = saved }
-        } catch (e: ProviderError.AuthError) {
-            Result.failure(e)
-        } catch (e: Exception) {
-            Result.failure(e)
+            } catch (e: ProviderError.AuthError) {
+                Result.failure(e)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
         }
     }
 
@@ -240,16 +252,18 @@ class AgnesProvider(
                 // maxRetries语义=1：本层不做HTTP快重试，429/5xx全走长退避
                 val out = postJson("/videos", body)
                 val videoId = out["video_id"]?.jsonPrimitive?.content
-                    ?: throw ProviderError.ValidationError("missing video_id in response")
+                    ?: throw ProviderError.ReconcileRequired(
+                        rawBody = out.toString().take(400),
+                        msg = "2xx but missing video_id; remote task may be billed — reconcile required",
+                    )
                 // 返回providerTaskId；调用方拿到后【立即】落库submitted态
                 return videoId
             } catch (e: ProviderError.QuotaError) {
                 if (attempt == SUBMIT_MAX_ATTEMPTS - 1) throw e
                 sleeper(backoff); backoff = minOf(backoff * 2, SUBMIT_BACKOFF_CAP_MS)
             } catch (e: ProviderError.TransientError) {
-                // 仅5xx类走长退避重试；其余上抛
-                val retryable = e.message?.contains("(retryable)") == true
-                if (!retryable || attempt == SUBMIT_MAX_ATTEMPTS - 1) throw e
+                // 仅可重试的5xx类走长退避重试；其余上抛（P2-4：显式retryable字段）
+                if (!e.retryable || attempt == SUBMIT_MAX_ATTEMPTS - 1) throw e
                 sleeper(backoff); backoff = minOf(backoff * 2, SUBMIT_BACKOFF_CAP_MS)
             }
         }

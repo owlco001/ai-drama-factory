@@ -64,7 +64,7 @@ class FfmpegAssembler(
         // 三级降级路径：分段导出（每8镜一段）——云端组装预留接口 Assembler.cloud()
         val parts = clips.chunked(8).mapIndexedNotNull { idx, chunk ->
             val part = File(output.parentFile, "${output.nameWithoutExtension}_part$idx.mp4")
-            val pf = File.createTempFile("p$idx", ".txt").apply {
+            val pf = File.createTempFile("part$idx", ".txt").apply {
                 writeText(chunk.joinToString("\n") { "file '${it.absolutePath}'" })
             }
             val pr = executor(listOf("-y", "-f", "concat", "-safe", "0", "-i", pf.absolutePath,

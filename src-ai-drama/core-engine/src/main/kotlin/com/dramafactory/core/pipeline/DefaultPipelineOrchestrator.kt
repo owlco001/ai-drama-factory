@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 class DefaultPipelineOrchestrator(
     private val checkpointStore: CheckpointStore,
     private val queue: DefaultRenderQueue?,
+    /** 可选：按集取队列（队列实例为单episode单worker，多集并行恢复时由App层提供各自队列） */
+    private val queueFor: ((episodeId: String) -> DefaultRenderQueue?)? = null,
 ) : PipelineOrchestrator {
 
     private val _stage = MutableStateFlow(PipelineStage.S1_PROJECT)
@@ -28,10 +30,23 @@ class DefaultPipelineOrchestrator(
 
     override suspend fun advanceTo(stage: PipelineStage) { _stage.value = stage }
 
+    /**
+     * P1-6：进程重启恢复总入口。遍历checkpointStore全部episodeId逐个enqueueEpisode——
+     * 队列恢复路径（pendingRepoll队头 + SUBMITTING→RECONCILE）保证已付费镜绝不重提。
+     * shots 由 checkpoint 权威态还原（shotId即键，prompt可后补）。
+     */
     override suspend fun recoverOnBoot() {
-        // 进程重启恢复总入口：队列恢复路径已内置 re-poll 已提交镜优先
-        // （见DefaultRenderQueue.enqueueEpisode的pendingRepoll队头处理）；
-        // 这里负责扫描各集checkpoint并触发续跑。
-        queue?.let { /* 由App层注入各episodeId后调enqueueEpisode */ }
+        val fallback = queue
+        // P1-6修复：queue为null但提供了queueFor时（多集并行恢复）不得提前返回——
+        // 恢复入口必须覆盖App层按集取队列的形态；两者皆无才无事可做。
+        if (fallback == null && queueFor == null) return
+        val ids = checkpointStore.allEpisodeIds()
+        for (episodeId in ids) {
+            val cp = checkpointStore.getEpisode(episodeId) ?: continue
+            val q = queueFor?.invoke(episodeId) ?: fallback ?: continue
+            q.enqueueEpisode(episodeId, cp.shots.map {
+                com.dramafactory.core.model.ShotMeta(it.shotId, episodeId, "")
+            })
+        }
     }
 }

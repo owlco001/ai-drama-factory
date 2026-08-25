@@ -32,7 +32,7 @@ class CheckpointBudgetKeyTest {
         val store = InMemoryCheckpointStore()
         store.loadOrMerge("ep1", shots("s1", "s2"))
         store.markCompleted("s1", "file://clip_s1.mp4", 1024)
-        store.diskFiles.remove("file://clip_s1.mp4")  // 模拟磁盘文件被清理
+        store.removeDiskFile("file://clip_s1.mp4")  // 模拟磁盘文件被清理
         val cp = store.loadOrMerge("ep1", shots("s1", "s2", "s3"))
         assertEquals(ShotState.PENDING, cp.byId("s1")!!.state, "COMPLETED但文件缺失→重置PENDING重做")
         assertNotNull(cp.byId("s3"), "缺失镜被补充")

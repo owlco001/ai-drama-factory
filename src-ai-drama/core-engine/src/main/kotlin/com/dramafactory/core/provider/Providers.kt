@@ -52,8 +52,8 @@ interface RateGate {
 interface RenderQueue {
     /** 总进度/ETA/各镜状态（通知栏与UI共用） */
     val state: StateFlow<com.dramafactory.core.model.QueueSnapshot>
-    /** 入队前过 StoryboardGate+BudgetGuard+Key有效 */
-    suspend fun enqueueEpisode(episodeId: String)
+    /** 入队前过 StoryboardGate+BudgetGuard+Key有效；shots由分镜层给出 */
+    suspend fun enqueueEpisode(episodeId: String, shots: List<com.dramafactory.core.model.ShotMeta>)
     /** 弱网/预算超限/401 自动触发 */
     suspend fun pause()
     /** 预算超限需 confirm=true 才恢复 */
@@ -66,15 +66,32 @@ interface CheckpointStore {
     /**
      * load-or-merge：复用既有 checkpoint，保留 SUBMITTED/FAILED/BLOCKED 权威态，
      * 仅补缺失镜；"COMPLETED 但文件缺失/0字节" 重置为 PENDING。
+     * 恢复语义补充（P0-1）：SUBMITTING 态视为「提交意图已落盘但结果未知」——
+     * 实现方恢复时应标记待对账（RECONCILE），绝不盲目重提。
      */
     suspend fun loadOrMerge(episodeId: String, shots: List<com.dramafactory.core.model.ShotMeta>): com.dramafactory.core.model.EpisodeCheckpoint
-    /** submit 成功后立即同步落盘 video_id（防重复付费的生死线） */
+    /**
+     * 提交前置意图落库：submitVideo 调用【之前】同步写 SUBMITTING(shotId, submittedAt)。
+     * 实现必须同步持久化（Room + 事务）；进程在 submit 中途被杀时，
+     * 该意图记录是判断「远端可能已创建任务并扣费」的唯一依据。
+     */
+    suspend fun markSubmitting(shotId: String)
+    /** submit 成功后立即同步落盘 video_id（防重复付费的生死线）。实现必须同步落盘（Room + 事务） */
     suspend fun markSubmitted(shotId: String, providerTaskId: String)
+    /**
+     * P0-1：响应已计费但 video_id 解析失败/响应体异常时调用——
+     * 标记「待对账」而非静默失败。恢复时须先与服务端对账再决定是否重提。
+     */
+    suspend fun markReconcile(shotId: String, reason: String)
     /** 校验 size>0 才置 COMPLETED */
     suspend fun markCompleted(shotId: String, localFileUri: String, fileSize: Long)
     suspend fun markFailed(shotId: String, reason: String)
     /** 恢复判定：SUBMITTED 态优先 re-poll 已知 video_id，绝不重新 submit */
     suspend fun pendingRepoll(episodeId: String): List<com.dramafactory.core.model.CheckpointEntry>
+    /** 读取整集checkpoint（渲染队列内部用） */
+    suspend fun getEpisode(episodeId: String): com.dramafactory.core.model.EpisodeCheckpoint?
+    /** 遍历全部 episodeId（recoverOnBoot 扫描用，P1-6） */
+    suspend fun allEpisodeIds(): List<String>
 }
 
 // ============ 预算闸门 ============

@@ -28,7 +28,7 @@ object ChineseAudioInjector {
         val chars = prompt.take(sample).filterNot { it.isWhitespace() || it.isDigit() || it in ".,!?，。！？：「」『』" }
         if (chars.isEmpty()) return false
         val han = chars.count { it.code in 0x4E00..0x9FFF }
-        return han * 2 >= chars.size
+        return han * 2 >= chars.count()
     }
 
     /** 组装一镜完整提交prompt：中文台词/旁白主导开头 + 动作描述 + 显式中文指令 */
