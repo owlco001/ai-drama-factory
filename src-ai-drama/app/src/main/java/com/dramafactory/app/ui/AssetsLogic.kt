@@ -21,6 +21,8 @@ class AssetsLogic {
         val remoteUrl: String? = null,     // 生成结果URL/data uri
         val reviewState: String = "none",  // none/keep/regen
         val generating: Boolean = false,   // 生成中转圈
+        /** 角色 6 姿态资产包：母卡 assetId（子图卡指向母卡）；null=独立资产 */
+        val parentId: String? = null,
         // ---- 第六轮：本地上传 / 图生图 / 视频参考 扩展 ----
         /** 来源：generated（引擎生成）/ local（用户本地上传） */
         val source: String = "generated",
@@ -30,6 +32,17 @@ class AssetsLogic {
         val videoUri: String? = null,
         /** 图生图参考图URI：生成图像时作为 input_images 传给图像API */
         val referenceImageUri: String? = null,
+        // ---- QualityEngine（第九轮）----
+        /** 角色 DNA 6 姿态之一（front_anchor/side_45/full_body_riding/expression_*）；非角色为 null */
+        val poseRole: String? = null,
+        /** G1+G2 审计状态：pending/approved/rejected */
+        val auditState: String = "pending",
+        /** G2 多模态质量评分 0~1（null=未审计） */
+        val qualityScore: Double? = null,
+        /** 拒绝原因（G1 error_code 或 G2 reason，用于 UI 展示） */
+        val rejectReason: String? = null,
+        /** G2 缺陷词（JSON 列表字符串），非空即 DEFECT_DETECTED 直接拒 */
+        val defectsJson: String? = null,
     )
 
     private val _assets = MutableStateFlow<List<AssetCard>>(emptyList())
@@ -147,6 +160,9 @@ class AssetsLogic {
     var generateHandler: suspend (card: AssetCard) -> Result<String> = { Result.failure(IllegalStateException("未接线")) }
     /** 评审落库回调：App层注入Room UPDATE assets SET review_state */
     var reviewPersist: suspend (assetId: String, state: String) -> Unit = { _, _ -> }
+    /** 第十一轮：生成结果落库回调——App层注入Room UPDATE assets SET remote_url+file_uri。
+     * 旧实现只更内存不落盘：杀进程/重进项目后生成图全部丢失（"资产没落盘"根因）。 */
+    var generateResultPersist: suspend (assetId: String, remoteUrl: String) -> Unit = { _, _ -> }
 
     fun setAssets(list: List<AssetCard>) { _assets.value = list }
 
@@ -185,9 +201,87 @@ class AssetsLogic {
         update(assetId) { it.copy(referenceImageUri = uri) }
     }
 
-    /** 删除资产卡片 */
+    /**
+     * 第十一轮：从DB回填已生成/已评审的资产卡（重进项目不丢卡不丢图）。
+     * remoteUrl为空的卡也回填（保留描述与评审态），用户可手动点生成。
+     */
+    fun restoreGenerated(assetId: String, kindName: String, prompt: String,
+                         parentId: String?, poseRole: String?, remoteUrl: String?, reviewState: String) {
+        if (_assets.value.any { it.assetId == assetId }) return   // 幂等
+        val kind = when (kindName.lowercase()) {
+            "character" -> Kind.CHARACTER
+            "scene" -> Kind.SCENE
+            "prop" -> Kind.PROP
+            else -> Kind.LOCAL
+        }
+        _assets.value += AssetCard(
+            assetId = assetId, kind = kind, prompt = prompt,
+            remoteUrl = remoteUrl, reviewState = reviewState.ifBlank { "none" },
+            parentId = parentId, poseRole = poseRole)
+    }
+
+    /** 第十一轮：编辑资产描述；返回false=找不到该卡或内容未变 */
+    fun editAsset(assetId: String, newPrompt: String): Boolean {
+        val p = newPrompt.trim()
+        if (p.isEmpty()) return false
+        val cur = _assets.value.firstOrNull { it.assetId == assetId } ?: return false
+        if (cur.prompt == p) return false
+        update(assetId) { it.copy(prompt = p) }
+        return true
+    }
+
+    // ---- QualityEngine（第九轮）：角色 DNA 6 姿态资产包（对齐 pavo 角色资产生成）----
+
+    /**
+     * 为某个「角色」母卡生成 6 张姿态子图卡（front_anchor / side_45 / full_body_riding /
+     * expression_serious|angry|calm）。每张子图卡携带 poseRole 与中英双语构图指令 prompt。
+     * @param characterId 角色母卡 assetId（kind=CHARACTER）
+     * @param idGen 子图卡 id 生成器（App 层注入，保证唯一）
+     * @return 新增的子图卡数量（6）
+     */
+    fun buildPosePack(characterId: String, idGen: () -> String): Int {
+        val parent = _assets.value.firstOrNull { it.assetId == characterId } ?: return 0
+        if (parent.kind != Kind.CHARACTER) return 0
+        val poses = com.dramafactory.core.quality.StylePreset.HAN_DEFAULT.characterPoses
+        var added = 0
+        for (pose in poses) {
+            val subId = idGen()
+            val subPrompt = buildPosePrompt(parent.prompt, pose)
+            _assets.value += AssetCard(
+                assetId = subId, kind = Kind.CHARACTER,
+                prompt = subPrompt, parentId = characterId, poseRole = pose.key,
+            )
+            added++
+        }
+        return added
+    }
+
+    /** 按 style_cinema.json 的 pose_templates 注入中英双语构图指令（对齐 pavo 资产包语义）。 */
+    fun buildPosePrompt(characterDesc: String, pose: com.dramafactory.core.quality.StylePreset.PoseSpec): String {
+        return "$characterDesc，${pose.cn}（${pose.en}）"
+    }
+
+    /** 取某角色母卡关联的 6 姿势子图卡。 */
+    fun poseChildrenOf(characterId: String): List<AssetCard> =
+        _assets.value.filter { it.parentId == characterId && it.poseRole != null }
+
+    /** QualityEngine 回调：把 G1+G2 审计结果同步进内存卡（UI 展示评分/拒绝原因/状态）。 */
+    fun updateQuality(assetId: String, auditState: String, qualityScore: Double?, rejectReason: String?, defectsJson: String?) {
+        update(assetId) {
+            it.copy(auditState = auditState, qualityScore = qualityScore,
+                rejectReason = rejectReason, defectsJson = defectsJson)
+        }
+    }
+
+    /** 删除资产卡片：母卡删除时连带6姿态子卡；返回被删的id列表供DB清理 */
+    fun removeAssetCascade(assetId: String): List<String> {
+        val ids = _assets.value.filter { it.assetId == assetId || it.parentId == assetId }.map { it.assetId }
+        _assets.value = _assets.value.filterNot { it.assetId in ids }
+        return ids
+    }
+
     fun removeAsset(assetId: String) {
-        _assets.value = _assets.value.filterNot { it.assetId == assetId }
+        removeAssetCascade(assetId)
     }
 
     /**
@@ -195,15 +289,34 @@ class AssetsLogic {
      * 单卡失败不拖垮其他卡片（PRD崩溃率约束的UI面）。
      * 第六轮：图生图——若 asset.referenceImageUri 非空，将其作为 input_images 传入 handler。
      */
+    /** 第十一轮：生成取消标志（assetId → true）。stopGenerate 置位，generate 完成路径检查后清除。 */
+    private val cancelled = mutableSetOf<String>()
+
+    /** 停止某资产的进行中生成（协作式：请求发出后无法撤回API，但结果会被丢弃且不落盘） */
+    fun stopGenerate(assetId: String) {
+        cancelled += assetId
+        update(assetId) { it.copy(generating = false) }
+    }
+
     suspend fun generate(assetId: String) {
+        cancelled.remove(assetId)
         update(assetId) { it.copy(generating = true) }
         val card = _assets.value.firstOrNull { it.assetId == assetId } ?: return
         val result = runCatching { generateHandler(card) }.getOrElse { Result.failure(it) }
+        if (assetId in cancelled) {   // 用户已停止：丢弃结果，绝不落盘
+            cancelled.remove(assetId)
+            update(assetId) { it.copy(generating = false) }
+            return
+        }
         update(assetId) {
             when {
                 result.isSuccess -> it.copy(remoteUrl = result.getOrThrow(), generating = false)
                 else -> it.copy(generating = false)   // 失败：URL保持旧值，UI按!success显示重试
             }
+        }
+        // ★第十一轮：成功即落盘（内存与DB双写），进程被杀也不丢图
+        if (result.isSuccess) {
+            runCatching { generateResultPersist(assetId, result.getOrThrow()) }
         }
     }
 

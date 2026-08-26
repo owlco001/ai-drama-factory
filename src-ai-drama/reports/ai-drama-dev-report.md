@@ -1,109 +1,29 @@
 
-## v0.4 修复：剧本模式导入后资产生成入口缺失
-- 根因：剧本模式仅写 stage_flags.script_mode=true 并跳过文本分析自动建卡，AssetsPage/AssetsLogic 无剧本→资产卡入口，资产列表恒为空，评审门无法放行，分镜渲染因缺资产ID被卡死。
-- 修复：
-  - AssetsLogic 新增 ScriptAssetExtractor 纯函数：解析「角色/人物/场景/道具：」清单行与场次标题行（第X场 / 场景N / SCENE N / 内景 / 外景 / INT. / EXT.），去重保序；isScriptMode(stage_flags) 宽松识别。
-  - AssetsLogic.extractFromScript()（kind+prompt判重一键建卡）、pendingIdsOfKind(kind)。
-  - AssetsViewModel：init 读 episodes.script_json + stage_flags；extractFromScript 提取→落库→逐卡触发生成；generatePendingOfKind。
-  - AssetsPage：scriptMode=true 时显示「剧本模式 · 资产生成」卡片：「一键从剧本提取资产卡」+「逐类生成图像」按钮及结果提示。
-- 测试：新增 ScriptAssetExtractionTest（6用例）。:app:assembleDebug 通过，全量30个单测全绿。
+## 第九轮：QualityEngine（对齐 pavo 质量方法论）（2026-08-26）
 
-## 第六轮：资产卡BUG+本地上传/图生图/图生视频/视频参考
-### 一、提取资产卡无反应（BUG修复）
-- 根因：AssetsViewModel 用普通字段 `var scriptText` 在 `init` 协程异步读取 episodes.script_json；用户点「一键提取」时 init 协程可能尚未返回，`scriptText` 仍为 null → `extractFromScript()` 直接 return，资产列表永远不更新（点击无反应）。
-- 修复：`scriptText` 改为 `CompletableFuture<String?>`；`extractFromScript()` 提取前 `scriptText.get()` 等待剧本加载完成；同时 init 预载本项目已存本地资产，保证列表不空窗。空剧本给出可读提示而非静默。
-- 回归：新增 `Round6LocalUploadI2iTest` 用例「提取按钮_clicked_before_script_loaded_仍建卡」「空剧本_提取给出提示不崩溃」，验证点击即建卡。
+**目标：** 把 pavo-drama 技能的核心质量方法论移植进「AI短剧工厂」安卓 App，新增 QualityEngine 模块（core-engine 的 `quality` 包 + app 接线），让端上出品质量对齐 pavo。
 
-### 二、本地上传资产（新功能）
-- DB v2（Room version 1→2，ALTER TABLE 增量迁移保留数据）：assets 增 `source`(generated/local)/`image_uri`/`video_uri`/`reference_image_uri`；shots 增 `first_image_uri`/`last_image_uri`/`reference_video_uri`。
-- AssetsViewModel.uploadLocal(imageUri/videoUri/prompt)：经 AssetsLogic.addLocalAsset 建卡（kind=LOCAL）并持久化到 assets 表。
-- UI（AssetsPage）：「本地上传」卡片四类入口——拍摄图片(TakePicture)、拍摄视频(TakeVideo)、相册图片(GetContent image/*)、相册视频(GetContent video/*)；本地资产卡展示 image/video URI。
-- 提供 FileProvider(capture 路径) + CAMERA/READ_MEDIA 权限（AndroidManifest）。
+**交付概览（A→H 全落地）：**
 
-### 三、图生图 image-to-image（新功能）
-- 资产卡加 `referenceImageUri`；AssetsPage 本地图片卡可「设为参考图/取消参考图」；生成按钮有参考图时标签变「用参考图生成」。
-- 生成链路：AssetsViewModel.generateHandler 读取 card.referenceImageUri，非空则作为 `ImageGenRequest.inputImages` 传给 AgnesProvider.generateImage（对齐 agnes_client.generate_image 的 input_images 语义），并持久化到 assets.reference_image_uri。
+| 子模块 | 落地位置 | 说明 |
+|---|---|---|
+| A. G1 文件级硬校验 | `core-engine/.../quality/AssetInspector.kt` | 纯 Kotlin：魔数/尺寸/正方形/文件大小/Bitmap人脸占比近似/不可解码。0 模型成本。 |
+| A2. G2 多模态审计 | `core-engine/.../quality/AssetAuditor.kt` | 调 agnes-2.5-flash 带图打分，解析 {score,defects,face_ratio}；defects 非空直接拒（`ERROR_DEFECT_DETECTED`），失败重试≤3。TextProvider 注入可测。 |
+| B. 角色 DNA 6 姿态资产包 | `AssetsLogic.buildPosePack` + `StylePreset.characterPoses` | 母卡→6 张子图（front_anchor/side_45/full_body_riding/expression_serious·angry·calm），中英双语构图指令注入；UI「生成6姿态」入口。 |
+| C. 时代红线 | `StylePreset`(西汉默认) + `EraConsistencyChecker` | era.negative 折叠进 negative_prompt，era.positive 折叠进 suffix；按剧集 `allowed_cross_era` 放行（episodes 列 + UI 勾选）。 |
+| D. 分镜六铁律闸门 | `StoryboardGate.validateStoryboard/compileStoryboard` | 台词逐字/人物完整/action词表/beat_ref单调/carry_over/真实资产ID。任一 error→整集中止。 |
+| E. 提交前忠实性校验 | `FidelityGate.gateShot` | 资产真实/台词逐字/时间逆转 30 词表/状态不漂移/跨镜一致；blocked 镜不提交。 |
+| F. 道具 i2i + 开场帧重渲染 | `ShotDirector` | 道具主资产双图 i2i 合成进场景静帧；开场帧 i2i from 资产图+场景指令重渲染（否定孤立原图，对齐 pavo `_render_opening_frame`）。 |
+| G. 成片色彩统一 | `FfmpegAssembler.gradeBatch/gradeClip` | 复用拼接管理器，三级策略前对每镜统一色彩分级（CINEMA/COOL/WARM/NEUTRAL）。 |
+| H. 中文配音指令 | `ChineseAudioInjector`（既有 Q9 核对一致） | 每段 prompt 以中文台词/旁白开头主导 + 显式「全程使用中文普通话配音」。 |
 
-### 四、图生视频 image-to-video（新功能）
-- 渲染队列 DefaultRenderQueue 已支持 keyframes（first_image_uri/last_image_uri 双帧 → mode=keyframes）；新增 `shotKeyframeResolver` 从 shots 表读取本镜已设参考图。
-- UI（QueuePage）：每镜「设参考图」入口（GetContent image/*），调 QueueViewModel.setShotKeyframe 落库 shots 表 → 渲染时走 AgnesVideoAdapter keyframes 模式。
-- AgnesProvider.submitVideo 补充单参考图分支：`referenceImageUri` 非空（非双帧）时作为 image 首帧。
+**不可移植（GPU 类）明确标注（需服务端 / 降级为 DNA 参考注入）：**
+- **InsightFace 锁脸**：手机端不跑人脸比对，降级为「角色 DNA 6 姿态参考注入」+ G2 多模态人脸占比近似校验。
+- **GPT-SoVITS 音色克隆**：手机端不跑 TTS 模型，保留 Q9 中文配音指令链路，音色克隆交由服务端。
+- **Demucs 人声分离**：手机端不跑音频分离，BGM/人声混流交由服务端。
 
-### 五、视频参考 video reference（新功能）
-- core-engine：VideoSubmitRequest 增 `referenceVideoUri`；ModelSpec 增 `supportsVideoReference`（Agnes 视频模型标记 true，其余默认 false）。
-- AgnesProvider.submitVideo 在模型支持时把 referenceVideoUri 作为 `reference_video` 字段组装进提交体。
-- 渲染队列 DefaultRenderQueue 增 `shotReferenceVideoResolver`；QueueViewModel 注入从 shots 表读取（仅当当前视频模型 supportsVideoReference=true 才回填）。
-- UI（QueuePage）：「上传参考视频」入口仅在 `vm.videoModelSupportsReference()` 为 true 时显示（MVP能力门控）。
+**质量落库（DB v2→v3 迁移，保留既有数据）：** assets 新增 `quality_score/audit_state/defects_json/q_reject_reason/g1_error_code/face_ratio/pose_role`；episodes 新增 `allowed_cross_era`。
 
-### 测试与编译
-- 新增 Round6LocalUploadI2iTest（12用例）：本地URI持久化、图生图inputImages、keyframes/单参考图/视频参考参数组装（Ktor MockEngine 验证请求体）、渲染队列resolver透传、模型能力标记。
-- AppGraph.dao/agnes 可见性放宽为 internal set 以支持单测桩；app 模块新增 ktor-client-mock 测试依赖。
-- :app:assembleDebug 通过；全量单测（含 core-engine）保持绿。
+**单元测试：** 新增 `QualityEngineTest` **34 例**（G1/G2/六铁律/时间逆转/era注入/开场帧重渲染/道具i2i/B六姿态全覆盖）。全量 **128 例**（engine 70 + app 58）全绿，`:app:assembleDebug` 编译通过。
 
-
-## 第六轮：资产卡BUG+本地上传/图生图/图生视频/视频参考（2026-08-25）
-
-用户反馈：提取资产卡无反应；缺本地上传/图生图/图生视频/视频参考。
-
-### 修复/新增
-- 提取资产卡无反应根因：AssetsViewModel.init 异步加载剧本，旧实现直接读可为null的scriptText字段→提取直接return。改为 CompletableDeferred.await()（挂起非阻塞，避免单线程调度器死锁）。
-- 本地上传（拍摄/相册图/相册视频）：AssetsViewModel.uploadLocal + AssetsLogic.addLocalAsset，AssetEntity 落库。
-- **真bug修复**：uploadLocal 原用纯 UPDATE（updateAssetLocal）落库，行不存在时静默无操作→资产永不持久化。改为先 upsertAsset（INSERT OR REPLACE）再 UPDATE。
-- 图生图：generateHandler 把 referenceImageUri 作为 input_images 传给图像API。
-- 图生视频：VideoSubmitRequest 增 firstImageUri/lastImageUri/referenceImageUri；AgnesProvider 组装 mode=keyframes（双帧）或单图首帧。
-- 视频参考：VideoSubmitRequest.referenceVideoUri；AgnesProvider 组装 reference_video；仅模型 supportsVideoReference 时 UI 显示入口。
-- DefaultRenderQueue 增 shotKeyframeResolver / shotReferenceVideoResolver 透传。
-- ScriptAssetExtractor 纯函数解析「角色/场景/道具：」清单与场次标题。
-
-### 测试
-- Round6LocalUploadI2iTest 12 用例（含修复测试调度：viewModelScope用真实IO线程，测试侧 runBlocking+真实等待）。
-- 全量：app 17 + engine 35 = 52 全绿（验收时累计）。
-
-## 第七轮：短剧剧本格式兼容（2026-08-25）
-
-用户反馈：导入短剧剧本（《莽途》EP01-03 对白级剧本）后点「一键从剧本提取资产卡」提取不出任何卡片（显示"未能从剧本识别到资产"）。
-
-### 根因
-- 短剧剧本用 Markdown 加粗场次标题，如 `**场1 漠北草原·日·外**`；旧 ScriptAssetExtractor 只认：
-  - 清单行 `角色：林晚、陈默` / `场景：…` / `道具：…`
-  - 行首 `第X场 / 场景N / SCENE N / 内景 / 外景 / INT. / EXT.`
-- `**场1 漠北草原·日·外**` 行首是 `**`，"场1"前面没有"第" → 全部失配，提取结果为空（EP01-03 全文命中 0 次）。
-
-### 修复（app/src/main/java/com/dramafactory/app/ui/AssetsLogic.kt）
-- ScriptAssetExtractor 新增 `plain()`：先剥掉 Markdown 装饰（`**`/`#`/反引号）与首尾空白再匹配，`**场1 漠北草原·日·外**`、`**角色：王莽**` 均可识别。
-- 场次标题新增 `场X`（无"第"）与 `场景X` 匹配（SCENE_HEADING），支持 `**第1场**`/`**场景1**` 等；场景卡 prompt 取去除场号后的环境描述（`场1 漠北草原·日·外` → `漠北草原·日·外`），无描述时用标题本身（`第1场`）；纯 `内景/外景/INT./EXT.` 行整行作描述（原行为保留）。
-- 对白标签提取（加分项）：行首 `角色名（OS/动作状态）：` 且角色名 2-4 个汉字 → 角色卡（`蒲奴（OS）：`/`张二（嫌弃地擦灰，忽然眼睛亮了）：`/`追兵声（画外嘶喊）：`，误判可接受）；纯散文/普通对白（`林晚推门而入。`/`王莽道：`）不误判。
-- 原规则全部保留：`第X场`/`场景N`/`SCENE N`/`内景`/`外景`/`INT.`/`EXT.` 及 `角色：/场景：/道具：` 清单行仍生效。
-- UI提示改进（ViewModels.kt）：提取结果为 0 时提示改为「未能从剧本识别到资产（支持的格式：角色：/场景：/道具：清单行，或 第X场/场X/场景X 标题行）」。
-
-### 测试
-- ScriptAssetExtractionTest 6→13 用例，新增：加粗场次标题（`**场1 漠北草原·日·外**`→"漠北草原·日·外"、`**第2场 长安西市·日·外**`、`**第1场**`/`**场景1**`）、加粗清单行（`**角色：王莽、刘歆**`→2角色卡）、原格式回归（`角色：林晚`/`第3场 雨夜`）、对白标签提取与不误判、EP01-03 剧本文本片段（内嵌字符串，含 `**场1 漠北草原·日·外**` 等）≥2 张场景卡、提取为 0 时提示文案断言（经 AssetsViewModel 链路）。
-- :app:assembleDebug 通过；全量 84 个单测（app 49 + engine 35）--rerun-tasks 全绿。
-
-## 第八轮：拍摄闪退 + 资产无预览图（2026-08-25）
-
-用户反馈（红米K90 Pro Max / 澎湃OS 4 Beta）：① 点击「拍摄」闪退；② 资产卡没有任何预览图（只显示 URI 尾部文字）。
-
-### BUG1 拍摄闪退：根因与修复（AssetsPage.kt + AppGraph.kt）
-**根因（三重）：**
-1. **主根因**：Manifest 声明了 `CAMERA` 权限但 App 从不做运行时申请。targetSdk 34 下官方文档明确：声明了 CAMERA 而未授予时，`MediaStore.ACTION_IMAGE_CAPTURE` 直接抛 `SecurityException`——`launch()` 未包任何 try/catch，未捕获即闪退（澎湃OS 对相机 intent 权限校验同样触发）。
-2. **回调类型错误**：字节码核实 activity 1.9.2 中 `TakePicture` 回调是 `Boolean`（非 Bitmap?）。旧代码 `bitmap != null` 恒真——**用户取消拍摄也会把 0 字节空文件落库**（看似"拍了"其实是坏资产）。`TakeVideo` 回调确为 `Bitmap?` 缩略图，原判断方向正确，保留。
-3. **输出路径不稳定**：拍摄文件落在 cacheDir/capture/，随时可能被系统清理，且后续预览/图生图引用不可靠。
-
-**修复：**
-- 拍摄入口先查 `CAMERA` 运行时权限，未授予则 `RequestPermission` 请求，拒绝时页面内提示「请在系统设置中授予相机权限」而非闪退；授予后按暂存类型启动相机。
-- `launch()` 全程 try/catch + `AppGraph.CrashLog.record()` 复用 files/crash/last_crash.txt 机制写日志（不终止进程），无相机应用（ActivityNotFoundException）/权限异常均降级为提示文案。
-- `TakePicture` 回调改 `(success: Boolean)`：仅成功才处理，且经 `AssetFiles.copyToInternal` 校验文件非空；`TakeVideo` 以输出文件非空兜底（个别 ROM 成功也不回缩略图）。
-- Manifest FileProvider（`${applicationId}.fileprovider` + file_paths 含 `capture/`）与 `MainActivity : ComponentActivity` 核对无误，无需改动。
-
-### BUG2 资产无预览图：根因与修复
-**根因：** AssetCardView 只渲染文字（`📷 本地图片 …` / `已生成 ✓ …`），完全没有图片加载组件；且相册 `GetContent` 的 content:// URI 临时读权限只在回调内有效，重启即失效，无法稳定预览。
-**修复：**
-- 引入 Coil 2.6.0（`io.coil-kt:coil-compose`，与 AGP 8.5.2 / Compose BOM 2024.10.01 兼容），新增 `AssetThumb` 缩略图组件：本地 imageUri（内部 file:// / content://）与生成 remoteUrl（http/https）走 `AsyncImage` 异步加载，视频显示 🎬 占位、无图 🖼 占位、加载失败显示「图片加载失败」。
-- 新增 `AssetFiles.copyToInternal`：所有本地上传（拍摄/相册图/相册视频）在回调内立即拷贝到 `filesDir/uploads/` 存 file:// 路径——预览、图生图 input_images、图生视频 keyframes 引用全部长期稳定，空文件判失败。
-- 新增 `AssetsLogic.AssetFileNames` 纯函数（MIME→扩展名、防重名文件名），JVM 可单测。
-- 分镜页/渲染队列核对：仅引用资产 URI（设参考图/关键帧）不渲染图片，无需改动。
-
-### 测试
-- 新增 Round8AssetPreviewTest 9 用例：MIME→扩展名映射、未知/空回退默认、大小写不敏感、文件名格式与防重名、AssetCard 预览源语义（本地图/视频/生成图三态）。
-- :app:assembleDebug 通过；全量 93 个单测（app 58 + engine 35）全绿，failures=0/errors=0。
+**构建环境补完：** 项目缺 Gradle wrapper（上游仅源码），本机无发行版——已下载 Gradle 8.7 生成 `gradle/wrapper/` 并用 `/opt/android-sdk`(android-34) 离线构建通过。

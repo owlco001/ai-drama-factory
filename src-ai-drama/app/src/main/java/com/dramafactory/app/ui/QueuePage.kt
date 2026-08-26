@@ -35,7 +35,18 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  * 「上传参考视频」（仅当前视频模型标记 supportsVideoReference 时显示）。
  */
 @Composable
-fun QueuePage(vm: QueueViewModel = viewModel(key = "queue_default")) {
+fun QueuePage(
+    episodeId: String = "default",
+    vm: QueueViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        key = "queue_$episodeId",
+        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return QueueViewModel(episodeId) as T
+            }
+        },
+    ),
+) {
     val st by vm.state.collectAsState()
 
     // 第六轮：图生视频/视频参考 入口状态

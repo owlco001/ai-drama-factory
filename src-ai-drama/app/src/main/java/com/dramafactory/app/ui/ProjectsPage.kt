@@ -60,6 +60,21 @@ fun ProjectsPage(vm: ProjectsViewModel = viewModel(), onEnterProject: (String) -
         item {
             Text("AI短剧工厂", style = MaterialTheme.typography.headlineSmall)
         }
+        // 第九轮：数据库初始化失败诊断横幅（建项目无反应的根因可视化）
+        if (com.dramafactory.app.AppGraph.roomInitError != null) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("⚠️ 数据库不可用（建项目/渲染均会失败）",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error)
+                        Text("根因：" + (com.dramafactory.app.AppGraph.roomInitError ?: "") +
+                                "\n建议：卸载重装本应用（将清空本地数据）。",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -60,7 +60,12 @@ data class ChatRequest(
     val enableThinking: Boolean = false, // 默认false：避免reasoning吃空content的静默空响应
 )
 @Serializable
-data class ChatMessage(val role: String, val content: String)
+data class ChatMessage(
+    val role: String,
+    val content: String,
+    /** 第十轮：可选图像输入（data URI 或 http URL）；非空时 Provider 按 OpenAI 视觉格式组装 content */
+    val imageUrl: String? = null,
+)
 @Serializable
 data class ChatResponse(val content: String, val raw: String)
 
@@ -131,6 +136,22 @@ data class GateReport(
     /** 渲染放行 = 四闸门全绿 */
     val renderAllowed get() = reviewPassed && storyboardPassed && keyValid && budgetOk
 }
+
+// ============ QualityEngine：资产质量闸门状态（对齐 pavo G1+G2） ============
+/** 资产审计状态机：pending → approved / rejected（未经 G1 直接 rejected；G2 defects 直接 rejected） */
+enum class AuditState { PENDING, APPROVED, REJECTED }
+
+/** 资产质量审计结果（App 侧落库显示用）。 */
+data class AssetQuality(
+    val qualityScore: Double = 0.0,    // G2 多模态打分 0~1
+    val auditState: AuditState = AuditState.PENDING,
+    val defects: List<String> = emptyList(),   // G2 缺陷词（非空直接拒）
+    val rejectReason: String? = null,          // 拒绝原因（error_code 或 reason）
+    val g1ErrorCode: String? = null,           // G1 文件级硬校验错误码
+    val faceRatio: Double? = null,             // 人脸占比（P1）
+    val poseRole: String? = null,              // 角色 6 姿态之一
+    val updatedAt: Long = 0L,
+)
 
 // ============ 渲染队列快照（通知栏与UI共用） ============
 data class QueueSnapshot(

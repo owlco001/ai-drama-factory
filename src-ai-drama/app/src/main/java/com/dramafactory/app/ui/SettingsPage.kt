@@ -16,6 +16,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -141,7 +144,59 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
+
+        // ---- 开源信息（MIT License + 项目地址，点击可复制）----
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("关于 · 开源", style = MaterialTheme.typography.titleMedium)
+                Text("AI短剧工厂", style = MaterialTheme.typography.bodyMedium)
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val copied = remember { mutableStateOf<String?>(null) }
+                OutlinedButton(onClick = {
+                    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "ai-drama-factory", About.PROJECT_URL))
+                    copied.value = "项目地址已复制"
+                }) { Text(About.PROJECT_URL) }
+                OutlinedButton(onClick = {
+                    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "license", About.LICENSE_TEXT))
+                    copied.value = "许可证文本已复制"
+                }) { Text("License: MIT（点按复制全文）") }
+                Text("本软件基于 MIT License 开源发布。使用本项目生成的内容版权归内容创作者所有；" +
+                        "请遵守目标平台的内容规范与相关法律法规。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline)
+                copied.value?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
     }
+}
+
+/** 开源元信息单一事实源（与根目录 LICENSE / README 保持一致） */
+object About {
+    const val PROJECT_URL = "https://github.com/owlco001/ai-drama-factory"
+    const val LICENSE_ID = "MIT"
+    const val LICENSE_TEXT = """AI短剧工厂 Copyright (c) 2026 owlco001
+Licensed under the MIT License.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."""
 }
 
 // ---------- Compose预览 ----------

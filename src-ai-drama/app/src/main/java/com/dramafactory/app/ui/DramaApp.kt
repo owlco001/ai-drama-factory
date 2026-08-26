@@ -1,5 +1,14 @@
 package com.dramafactory.app.ui
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -8,16 +17,20 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.File
@@ -29,18 +42,77 @@ import java.io.File
  * MVP用底部导航6项+设置；「当前项目」经简单状态传递（不引navigation库，减依赖面）。
  */
 enum class Page(val label: String) {
-    PROJECTS("项目"), ASSETS("资产"), STORYBOARD("分镜"),
+    PROJECTS("项目"), EPISODES("剧集"), ASSETS("资产"), STORYBOARD("分镜"),
     QUEUE("渲染"), LIBRARY("成片"), SETTINGS("设置");
 }
 
 /** 全局UI状态：当前选中项目/集（简化跨页上下文） */
 class AppNavState {
     var currentProjectId by mutableStateOf<String?>(null)
+    var currentProjectName by mutableStateOf<String?>(null)
     var currentEpisodeId by mutableStateOf("default")
+}
+
+/** 第十一轮：开屏动画显示时长（ms） */
+private const val SPLASH_MS = 2600L
+
+/**
+ * 第十一轮：开屏动画——「一枝独秀不是春，百花齐放更添香。开源你的梦境」。
+ * 五瓣花错峰绽放 + 三行文案渐显，2.6 秒后自动进入主界面。
+ */
+@Composable
+private fun SplashScreen(onDone: () -> Unit) {
+    var visible by remember { mutableStateOf(true) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(SPLASH_MS)
+        visible = false
+    }
+    if (!visible) { onDone(); return }
+    Box(
+        modifier = Modifier.fillMaxSize()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                listOf(androidx.compose.ui.graphics.Color(0xFF1A1030), androidx.compose.ui.graphics.Color(0xFF0D0A1A)))),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                val delays = listOf(150, 350, 550, 750, 950)
+                for ((i, d) in delays.withIndex()) {
+                    val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
+                    val scale = remember { androidx.compose.animation.core.Animatable(0.3f) }
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(d.toLong())
+                        alpha.animateTo(1f, androidx.compose.animation.core.tween(500))
+                        scale.animateTo(1f, androidx.compose.animation.core.tween(500))
+                    }
+                    Text("🌸",
+                        fontSize = androidx.compose.ui.unit.TextUnit(26f + i * 4f, androidx.compose.ui.unit.TextUnitType.Sp),
+                        modifier = Modifier.padding(horizontal = 3.dp)
+                            .alpha(alpha.value)
+                            .scale(scale.value))
+                }
+            }
+            Spacer(Modifier.size(18.dp))
+            val lines = listOf("一枝独秀不是春，", "百花齐放更添香。", "开源你的梦境 · AI短剧工厂")
+            for ((i, line) in lines.withIndex()) {
+                val ta = remember { androidx.compose.animation.core.Animatable(0f) }
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(1100L + i * 380L)
+                    ta.animateTo(1f, androidx.compose.animation.core.tween(450))
+                }
+                Text(line,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = androidx.compose.ui.graphics.Color(0xFFE8DDF5).copy(alpha = ta.value),
+                    modifier = Modifier.padding(vertical = 2.dp))
+            }
+        }
+    }
 }
 
 @Composable
 fun DramaApp() {
+    var splashDone by remember { mutableStateOf(false) }
+    if (!splashDone) { SplashScreen(onDone = { splashDone = true }); return }
     val nav = remember { AppNavState() }
     var page by remember { mutableStateOf(Page.PROJECTS) }
 
@@ -74,12 +146,26 @@ fun DramaApp() {
     ) { padding ->
         androidx.compose.foundation.layout.Box(Modifier.padding(padding)) {
             when (page) {
+                // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页
                 Page.PROJECTS -> ProjectsPage(
-                    onEnterProject = { id -> nav.currentProjectId = id; page = Page.ASSETS })
-                Page.ASSETS -> AssetsPage(projectId = nav.currentProjectId,
+                    onEnterProject = { id ->
+                        nav.currentProjectId = id
+                        nav.currentProjectName = null
+                        page = Page.EPISODES
+                    })
+                Page.EPISODES -> nav.currentProjectId?.let { pid ->
+                    EpisodePage(
+                        projectId = pid,
+                        projectName = nav.currentProjectName,
+                        onOpenEpisode = { epId ->
+                            nav.currentEpisodeId = epId
+                            page = Page.ASSETS
+                        })
+                }
+                Page.ASSETS -> AssetsPage(projectId = nav.currentEpisodeId,
                     onContinue = { page = Page.QUEUE })
                 Page.STORYBOARD -> StoryboardPage(episodeId = nav.currentEpisodeId)
-                Page.QUEUE -> QueuePage()
+                Page.QUEUE -> QueuePage(episodeId = nav.currentEpisodeId)
                 Page.LIBRARY -> LibraryPage()
                 Page.SETTINGS -> SettingsPage()
             }
@@ -88,7 +174,7 @@ fun DramaApp() {
 }
 
 private fun pageIcon(p: Page) = when (p) {
-    Page.PROJECTS -> Icons.Filled.Home
+    Page.PROJECTS, Page.EPISODES -> Icons.Filled.Home
     Page.ASSETS -> Icons.Filled.PlayArrow
     Page.STORYBOARD -> Icons.Filled.List
     Page.QUEUE -> Icons.Filled.Star

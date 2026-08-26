@@ -218,8 +218,7 @@ class ScriptAssetExtractionTest {
             while (vm.extractMessage.value == null) kotlinx.coroutines.delay(10)
         }
         assertEquals(0, vm.assets.value.size)
-        assertEquals(
-            "未能从剧本识别到资产（支持的格式：角色：/场景：/道具：清单行，或 第X场/场X/场景X 标题行）",
-            vm.extractMessage.value)
+        // 第十轮：LLM优先、正则兜底，两者皆空时提示统一
+        assertEquals("未能从文本提取到资产（LLM与规则均未命中）", vm.extractMessage.value)
     }
 }

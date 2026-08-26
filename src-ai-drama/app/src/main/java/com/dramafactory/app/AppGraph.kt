@@ -37,12 +37,19 @@ object AppGraph {
 
     @Volatile private var initialized = false
 
+    @Volatile private var appContextRef: Context? = null
+    /** UI层安全取Application Context（未init返回null） */
+    fun appContext(): Context? = appContextRef
+    /** 引擎是否已完成初始化（第十轮：LLM提取等网络功能的前置判断用） */
+    val isInitialized: Boolean get() = initialized
+
     /** Application.onCreate调用一次；重复调用幂等（ContentProvider/测试环境容错） */
     fun init(context: Context) {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
             val app = context.applicationContext
+            appContextRef = app   // 第十一轮：UI层取Context（参考图拷贝等）
             // ① KeyVault：降级链（StrongBox→Keystore→明文prefs→内存），不抛异常
             keyVault = runCatching { AndroidKeyVault.create(app) as KeyVault }
                 .getOrElse { e ->
@@ -58,12 +65,22 @@ object AppGraph {
                 Log.e("AppGraph", "room init failed, fallback in-memory", t)
                 dao = BrokenDramaDao()
                 checkpointStore = com.dramafactory.core.storage.InMemoryCheckpointStore()
+                // 第九轮修复：记录根因到 crash 文件 + 内存标记，供 UI 横幅展示
+                runCatching {
+                    File(File(app.filesDir, "crash"), "last_crash.txt").apply { parentFile?.mkdirs() }
+                        .writeText("time=${System.currentTimeMillis()}\ntag=room-init-failed\n" +
+                            android.util.Log.getStackTraceString(t))
+                }
+                roomInitError = t.message ?: t.javaClass.name
             }
             agnes = AgnesProvider(apiKeyProvider = { keyVault.load(CONFIG_VIDEO) })
             budgetGuard = DefaultBudgetGuard()
             initialized = true
         }
     }
+
+    /** true=Room初始化失败，当前为空操作DAO（数据功能不可用）。UI据此显示诊断横幅。 */
+    var roomInitError: String? = null; private set
 
     /** 初始化失败兜底DAO：全部空操作，保证UI可打开、设置页可配置（数据功能提示不可用） */
     private class BrokenDramaDao : com.dramafactory.app.data.DramaDao {
@@ -72,11 +89,21 @@ object AppGraph {
         override suspend fun deleteProject(id: String) {}
         override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) {}
         override suspend fun assetsOf(projectId: String, kind: String): List<com.dramafactory.app.data.AssetEntity> = emptyList()
+        override suspend fun assetsAllOf(projectId: String): List<com.dramafactory.app.data.AssetEntity> = emptyList()
         override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) {}
         override suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long) {}
+        override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) {}
+        override suspend fun updateAssetPrompt(assetId: String, prompt: String, updatedAt: Long) {}
+        override suspend fun setAssetRemoteUrl(assetId: String, remoteUrl: String, updatedAt: Long) {}
+        override suspend fun deleteAsset(assetId: String) {}
+        override suspend fun assetQuality(assetId: String): com.dramafactory.app.data.AssetQualityRow? = null
+        override suspend fun assetQualities(projectId: String): List<com.dramafactory.app.data.AssetQualityRow> = emptyList()
+        override suspend fun setEpisodeAllowedCrossEra(episodeId: String, allowed: String) {}
+        override suspend fun episodeAllowedCrossEra(episodeId: String): String? = null
         override suspend fun setReviewState(assetId: String, state: String) {}
         override suspend fun upsertShot(s: com.dramafactory.app.data.ShotEntity) {}
         override suspend fun shotsOf(episodeId: String): List<com.dramafactory.app.data.ShotEntity> = emptyList()
+        override suspend fun deleteShotsOf(episodeId: String) {}
         override suspend fun setShotKeyframes(shotId: String, first: String?, last: String?) {}
         override suspend fun setShotReferenceVideo(shotId: String, uri: String?) {}
         override suspend fun shotKeyframes(shotId: String): com.dramafactory.app.data.ShotEntity? = null
@@ -92,6 +119,7 @@ object AppGraph {
         override suspend fun verifiedConfig(channel: String): com.dramafactory.app.data.ProviderConfigEntity? = null
         override suspend fun upsertEpisode(e: com.dramafactory.app.data.EpisodeEntity) {}
         override suspend fun episode(id: String): com.dramafactory.app.data.EpisodeEntity? = null
+        override suspend fun episodesOf(projectId: String): List<com.dramafactory.app.data.EpisodeEntity> = emptyList()
     }
 
     object CrashLog {

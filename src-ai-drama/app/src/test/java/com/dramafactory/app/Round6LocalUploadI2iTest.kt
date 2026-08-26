@@ -49,6 +49,7 @@ class Round6LocalUploadI2iTest {
         override suspend fun deleteProject(id: String) {}
         override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) { assets.removeIf { it.asset_id == a.asset_id }; assets.add(a) }
         override suspend fun assetsOf(projectId: String, kind: String) = assets.filter { it.project_id == projectId && it.kind == kind }
+        override suspend fun assetsAllOf(projectId: String) = assets.filter { it.project_id == projectId }
         override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) {
             val a = assets.firstOrNull { it.asset_id == assetId }
             if (a != null) {
@@ -61,9 +62,26 @@ class Round6LocalUploadI2iTest {
             assets.removeIf { it.asset_id == assetId }
             assets.add(a.copy(reference_image_uri = referenceImageUri, updated_at = updatedAt))
         }
+        override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) {}
+        override suspend fun updateAssetPrompt(assetId: String, prompt: String, updatedAt: Long) {
+            val a = assets.firstOrNull { it.asset_id == assetId } ?: return
+            assets.removeIf { it.asset_id == assetId }
+            assets.add(a.copy(prompt = prompt, updated_at = updatedAt))
+        }
+        override suspend fun setAssetRemoteUrl(assetId: String, remoteUrl: String, updatedAt: Long) {
+            val a0 = assets.firstOrNull { it.asset_id == assetId } ?: return
+            assets.removeIf { it.asset_id == assetId }
+            assets.add(a0.copy(remote_url = remoteUrl, updated_at = updatedAt))
+        }
+        override suspend fun deleteAsset(assetId: String) { assets.removeIf { it.asset_id == assetId } }
+        override suspend fun assetQuality(assetId: String): com.dramafactory.app.data.AssetQualityRow? = null
+        override suspend fun assetQualities(projectId: String): List<com.dramafactory.app.data.AssetQualityRow> = emptyList()
+        override suspend fun setEpisodeAllowedCrossEra(episodeId: String, allowed: String) {}
+        override suspend fun episodeAllowedCrossEra(episodeId: String): String? = null
         override suspend fun setReviewState(assetId: String, state: String) {}
         override suspend fun upsertShot(s: com.dramafactory.app.data.ShotEntity) { shots.removeIf { it.shot_id == s.shot_id }; shots.add(s) }
         override suspend fun shotsOf(episodeId: String) = shots.filter { it.episode_id == episodeId }
+        override suspend fun deleteShotsOf(episodeId: String) { shots.removeIf { it.episode_id == episodeId } }
         override suspend fun setShotKeyframes(shotId: String, first: String?, last: String?) {
             val s = shots.firstOrNull { it.shot_id == shotId }
             if (s != null) { shots.removeIf { it.shot_id == shotId }; shots.add(s.copy(first_image_uri = first, last_image_uri = last)) }
@@ -85,6 +103,7 @@ class Round6LocalUploadI2iTest {
         override suspend fun verifiedConfig(channel: String) = null
         override suspend fun upsertEpisode(e: com.dramafactory.app.data.EpisodeEntity) { episode = e }
         override suspend fun episode(id: String) = episode?.takeIf { it.episode_id == id }
+        override suspend fun episodesOf(projectId: String) = listOfNotNull(episode?.takeIf { it.project_id == projectId })
     }
 
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }

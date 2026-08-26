@@ -78,6 +78,57 @@ class FfmpegAssembler(
     /** 同规格判定桩：真实探测需ffprobe；MVP按文件尺寸近似+显式声明。生产接入FFmpegKit probe */
     private fun allSameSpec(clips: List<File>): Boolean = clips.all { it.length() > 0 }
 
+    // ============ 成片色彩统一（对齐 pavo color_grade：统一色彩分级）============
+    // G 子模块：对所有镜应用统一色彩分级，保证全片光照/色调一致。
+    // 复用已有拼接管理器：assemble 前先对每镜 grade，再走 assemble 三级策略。
+
+    /**
+     * 对单镜应用统一色彩分级（纯滤镜，快速）。
+     * @param input 镜片段
+     * @param output 分级后输出
+     * @param grade 分级配方（见 [ColorGradePreset]）
+     * @return (exitCode, stderr尾部)；exitCode==0 且 output>0 视为成功。
+     */
+    fun gradeClip(input: File, output: File, grade: ColorGradePreset = ColorGradePreset.CINEMA): Pair<Int, String> {
+        if (!input.exists() || input.length() == 0L) return 1 to "input missing/empty"
+        val filter = grade.filter
+        val args = listOf("-y", "-i", input.absolutePath, "-vf", filter, "-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-c:a", "copy", output.absolutePath)
+        val r = executor(args)
+        return if (r.first == 0 && output.length() > 0) 0 to r.second else r
+    }
+
+    /**
+     * 对整集镜片段批量分级（每镜落新文件，返回有序分级后列表）。
+     * 任一镜失败则整体失败（整集色彩不统一不如不做）。
+     */
+    fun gradeBatch(clips: List<File>, outDir: File, grade: ColorGradePreset = ColorGradePreset.CINEMA): AssembleResult {
+        if (clips.isEmpty()) return AssembleResult.Failure(Strategy.NORMALIZE, "无镜片段可分级")
+        outDir.mkdirs()
+        val graded = clips.mapIndexedNotNull { idx, clip ->
+            val out = File(outDir, "graded_%03d.mp4".format(idx))
+            val r = gradeClip(clip, out, grade)
+            if (r.first == 0 && out.length() > 0) out else null
+        }
+        return if (graded.size == clips.size) {
+            // 复用主入口将这些分级后片段拼接成片
+            assemble(graded, File(outDir, "graded_assembled.mp4"))
+        } else {
+            AssembleResult.Failure(Strategy.NORMALIZE, "色彩分级有 ${clips.size - graded.size} 镜失败")
+        }
+    }
+
+    /** 统一色彩分级配方（对齐 pavo color_grade：cinematic 统一调色）。 */
+    enum class ColorGradePreset(val filter: String) {
+        /** 电影感：轻微提对比+暖调+色彩统一（pavo 默认） */
+        CINEMA("eq=contrast=1.08:brightness=-0.02:saturation=1.06,colortemperature=warm=0.06,format=yuv420p"),
+        /** 冷调（夜戏/冷兵器） */
+        COOL("eq=contrast=1.06:saturation=1.04,colortemperature=warm=-0.08,format=yuv420p"),
+        /** 暖调（日戏/火烛） */
+        WARM("eq=contrast=1.06:saturation=1.08,colortemperature=warm=0.12,format=yuv420p"),
+        /** 中性（仅统一色彩空间，不改观感） */
+        NEUTRAL("format=yuv420p"),
+    }
+
     companion object {
         /** JVM命令行ffmpeg执行器（测试桩/服务器调试用） */
         fun execFfmpeg(args: List<String>): Pair<Int, String> {

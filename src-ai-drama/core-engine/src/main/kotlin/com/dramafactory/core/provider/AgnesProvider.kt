@@ -69,6 +69,36 @@ class AgnesProvider(
         const val BASE_URL = "https://apihub.agnes-ai.com/v1"
         const val VIDEO_RESULT_URL = "https://apihub.agnes-ai.com/agnesapi" // ?video_id=...
         const val MODEL_TEXT = "agnes-2.5-flash"
+        const val MODEL_TEXT_MID = "agnes-2.0-flash"     // 256K 上下文
+        const val MODEL_TEXT_LIGHT = "agnes-1.5-flash"   // 256K，低延迟
+        /** 第十轮：熔断阈值——估算token超过此值不发API（官方上限512K，预留输出） */
+        const val TEXT_INPUT_TOKEN_LIMIT = 230_000L
+
+        /**
+         * 按输入规模自动选型（第十轮「自动选择对应模型」）：
+         * 中文≈1字符1token、ASCII≈4字符1token 的保守估算。
+         * <100K → agnes-2.5-flash（512K窗口，质量优先）
+         * <200K → agnes-2.0-flash（256K窗口）
+         * <230K → agnes-1.5-flash（低延迟兜底）
+         * ≥230K → 熔断抛 ValidationError，绝不发必爆请求
+         */
+        fun estimateTokens(text: String): Long {
+            var cjk = 0L
+            for (c in text) if (c.code > 0x2E80) cjk++
+            return cjk + (text.length - cjk) / 4
+        }
+
+        fun pickTextModel(req: ChatRequest): String {
+            val total = req.messages.sumOf { estimateTokens(it.content) + (it.imageUrl?.let { u -> estimateTokens(u) / 3 } ?: 0L) }
+            if (total >= TEXT_INPUT_TOKEN_LIMIT)
+                throw ProviderError.ValidationError(
+                    "context overload: ~${total}K tokens exceeds ${TEXT_INPUT_TOKEN_LIMIT / 1000}K safe limit; 请精简输入或缩小图片")
+            return when {
+                total < 100_000 -> MODEL_TEXT          // agnes-2.5-flash
+                total < 200_000 -> MODEL_TEXT_MID      // agnes-2.0-flash
+                else -> MODEL_TEXT_LIGHT               // agnes-1.5-flash
+            }
+        }
         const val MODEL_IMAGE = "agnes-image-2.1-flash"
         const val MODEL_VIDEO = "agnes-video-v2.0"
         const val MAX_NUM_FRAMES = 441
@@ -205,6 +235,8 @@ class AgnesProvider(
     override fun listModels(): List<ModelSpec> = listOf(
         ModelSpec(MODEL_VIDEO, "Agnes 视频 v2.0").apply { supportsVideoReference = true },
         ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
+        ModelSpec(MODEL_TEXT_MID, "Agnes 文本 2.0 Flash"),
+        ModelSpec(MODEL_TEXT_LIGHT, "Agnes 文本 1.5 Flash"),
         ModelSpec(MODEL_IMAGE, "Agnes 图像 2.1 Flash"),
     )
 
@@ -303,10 +335,25 @@ class AgnesProvider(
     // ------------------------------------------------------------------
     override suspend fun chat(req: ChatRequest): ChatResponse {
         val body = buildJsonObject {
-            put("model", req.model.ifEmpty { MODEL_TEXT })
+            // 第十轮：模型自动选择——按输入规模挑最合适的chat模型（官方目录512K/256K/256K）
+            put("model", req.model.ifEmpty { pickTextModel(req) })
             put("messages", buildJsonArray {
                 req.messages.forEach { m ->
-                    add(buildJsonObject { put("role", m.role); put("content", m.content) })
+                    if (m.imageUrl != null) {
+                        // OpenAI 视觉格式：image_url 支持 http(s)/data URI（官方目录：三模型均支持 image understanding）
+                        add(buildJsonObject {
+                            put("role", m.role)
+                            put("content", buildJsonArray {
+                                add(buildJsonObject { put("type", "text"); put("text", m.content) })
+                                add(buildJsonObject {
+                                    put("type", "image_url")
+                                    put("image_url", buildJsonObject { put("url", m.imageUrl) })
+                                })
+                            })
+                        })
+                    } else {
+                        add(buildJsonObject { put("role", m.role); put("content", m.content) })
+                    }
                 }
             })
             put("temperature", req.temperature)
@@ -337,6 +384,9 @@ class AgnesProvider(
                 if (req.inputImages.isNotEmpty()) {
                     put("image", buildJsonArray { req.inputImages.forEach { add(json.parseToJsonElement("\"$it\"")) } })
                 }
+                // 第十一轮：negative 双写（顶层+extra_body），兼容不同网关约定——
+                // 时代红线禁词必须生效，不能因字段位置被吞
+                req.negativePrompt?.let { put("negative_prompt", it) }
             })
             req.negativePrompt?.let { put("negative_prompt", it) }
         }

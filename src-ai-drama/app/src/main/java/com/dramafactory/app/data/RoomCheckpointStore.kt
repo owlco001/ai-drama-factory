@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
         ProjectEntity::class, AssetEntity::class, ShotEntity::class,
         RenderTaskEntity::class, ProviderConfigEntity::class, EpisodeEntity::class,
     ],
-    version = 2,
+    version = 4,
     exportSchema = false,
 )
 abstract class DramaDatabase : RoomDatabase() {
@@ -32,7 +32,8 @@ abstract class DramaDatabase : RoomDatabase() {
             instance ?: Room.databaseBuilder(context.applicationContext, DramaDatabase::class.java, "drama_factory.db")
                 // 第六轮：v1→v2 新增 assets.source/image_uri/video_uri/reference_image_uri
                 // 及 shots.first_image_uri/last_image_uri/reference_video_uri 列，旧库破坏性迁移。
-                .addMigrations(MIGRATION_1_2)
+                // 第九轮：v2→v3 新增 QualityEngine 列（assets 质量闸门 + episodes 按剧集放行）。
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
         }
@@ -47,6 +48,29 @@ abstract class DramaDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE shots ADD COLUMN first_image_uri TEXT")
                 db.execSQL("ALTER TABLE shots ADD COLUMN last_image_uri TEXT")
                 db.execSQL("ALTER TABLE shots ADD COLUMN reference_video_uri TEXT")
+            }
+        }
+
+        /** 第九轮 QualityEngine（v2→v3）：新增资产质量闸门列 + 按剧集放行跨时代器物列。 */
+        /** 第十轮 AI分镜（v3→v4）：shots 增加视觉指令与时长列。 */
+        @SuppressWarnings("unused")
+        private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE shots ADD COLUMN visual_prompt TEXT")
+                db.execSQL("ALTER TABLE shots ADD COLUMN duration_seconds REAL NOT NULL DEFAULT 6.0")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE assets ADD COLUMN quality_score REAL")
+                db.execSQL("ALTER TABLE assets ADD COLUMN audit_state TEXT NOT NULL DEFAULT 'pending'")
+                db.execSQL("ALTER TABLE assets ADD COLUMN defects_json TEXT")
+                db.execSQL("ALTER TABLE assets ADD COLUMN q_reject_reason TEXT")
+                db.execSQL("ALTER TABLE assets ADD COLUMN g1_error_code TEXT")
+                db.execSQL("ALTER TABLE assets ADD COLUMN face_ratio REAL")
+                db.execSQL("ALTER TABLE assets ADD COLUMN pose_role TEXT")
+                db.execSQL("ALTER TABLE episodes ADD COLUMN allowed_cross_era TEXT NOT NULL DEFAULT '[]'")
             }
         }
     }

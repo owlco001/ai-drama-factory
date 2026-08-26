@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -61,6 +63,7 @@ private enum class CaptureKind { IMAGE, VIDEO }
  * 评审勾选（保留✓/重生成↻，F04）。全部「保留」后可进入渲染（评审闸门放行）。
  * 第六轮新增：本地上传（拍摄/相册图/相册视频）、图生图参考图、本地资产预览。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AssetsPage(
     projectId: String?,
@@ -80,6 +83,12 @@ fun AssetsPage(
 ) {
     var kind by remember { mutableStateOf(AssetsLogic.Kind.CHARACTER) }
     var prompt by remember { mutableStateOf("") }
+    // 第十一轮：资产编辑器（点击卡片弹出）：非空=正在编辑该资产id
+    var editingAssetId by remember { mutableStateOf<String?>(null) }
+    // 参考图上传选择器（编辑器内触发）
+    var refPickForAsset by remember { mutableStateOf<String?>(null) }
+    // 第十一轮：删除资产二次确认
+    var confirmDeleteId by remember { mutableStateOf<String?>(null) }
 
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -187,26 +196,38 @@ fun AssetsPage(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("资产库", style = MaterialTheme.typography.headlineSmall)
+    // 资产流状态提升到composable上下文（LazyColumn content非@Composable）
+    val assetsState = vm?.assets?.collectAsState()
+        // 第九轮修复：手机小屏显示不全+下拉无反应——原布局为 Column 嵌套 LazyColumn，
+    // 外层不可滚、内层被限高。改为单层可滚动 LazyColumn（头部区块各占一个 item）。
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { Text("资产库", style = MaterialTheme.typography.headlineSmall) }
 
         if (projectId == null) {
-            Card(Modifier.fillMaxWidth()) {
-                Text("请先在「项目」页创建/进入一个项目", Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.outline)
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Text("请先在「项目」页创建/进入一个项目", Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.outline)
+                }
             }
-            return@Column
+            return@LazyColumn
         }
 
         // ---- 分组筛选chips + 添加资产 ----
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (k in AssetsLogic.Kind.entries) {
-                FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) })
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (k in AssetsLogic.Kind.entries) {
+                    FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) })
+                }
             }
         }
 
         // ★v0.4修复：剧本模式资产生成入口缺失——剧本模式只是跳过文本分析自动建卡，
         // 用户仍需从剧本文本一键提取角色/场景/道具卡并生成图像（分镜渲染依赖资产ID）。
+        item {
         val scriptMode by vm?.scriptMode?.collectAsState() ?: remember { mutableStateOf(false) }
         if (scriptMode && vm != null) {
             Card(Modifier.fillMaxWidth()) {
@@ -226,7 +247,41 @@ fun AssetsPage(
                 }
             }
         }
+        }
 
+        item {
+        // ---- 第九轮：时代红线（西汉默认，按剧集放行跨时代器物）----
+        val eraAllowed by vm?.allowedCrossEra?.collectAsState() ?: remember { mutableStateOf(emptyList<String>()) }
+        if (vm != null) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("时代红线（西汉末·新莽，默认全禁）", style = MaterialTheme.typography.titleMedium)
+                    Text("默认所有现代/跨时代器物（手机/钟表/塑料/玻璃幕墙…）被禁；若剧本为穿越设定，" +
+                            "可声明本集允许出现的跨时代器物放行。", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline)
+                    // 预设放行候选（对齐 style_cinema era.negative 中的典型穿越器物）
+                    val candidates = listOf("游标卡尺", "短裙", "现代招牌", "手机", "相机", "电脑")
+                    val selected = remember { mutableStateOf(eraAllowed.toSet()) }
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        for (c in candidates) {
+                            FilterChip(
+                                selected = selected.value.contains(c),
+                                onClick = {
+                                    selected.value = if (selected.value.contains(c)) selected.value - c else selected.value + c
+                                    vm.setEpisodeAllowedCrossEra(selected.value.toList())
+                                },
+                                label = { Text(c) })
+                        }
+                    }
+                }
+            }
+        }
+        }
+
+        item {
         // ---- 第六轮：本地上传入口（拍摄/相册图/相册视频）----
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -250,7 +305,9 @@ fun AssetsPage(
                 }
             }
         }
+        }
 
+        item {
         OutlinedTextField(value = prompt, onValueChange = { prompt = it },
             label = { Text("${kind.label}描述，如：女主·冷艳·黑长直") },
             modifier = Modifier.fillMaxWidth())
@@ -258,46 +315,147 @@ fun AssetsPage(
             val p = prompt; prompt = ""
             vm?.add("a_${System.currentTimeMillis()}", kind, p)
         }, enabled = prompt.isNotBlank()) { Text("添加并生成") }
+        }
 
         // ---- 资产卡片流（分组排序：同kind相邻）----
         // ★第五轮修复：vm可能为null（引擎未就绪/预览），不再 vm!! 硬断言，降级为提示
         if (vm == null) {
-            Card(Modifier.fillMaxWidth()) {
-                Text("引擎未就绪，请重启应用后重试", Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.error)
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Text("引擎未就绪，请重启应用后重试", Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.error)
+                }
             }
-            return@Column
-        }
-        val assets by vm.assets.collectAsState()
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val grouped: kotlin.collections.Map<AssetsLogic.Kind, kotlin.collections.List<AssetsLogic.AssetCard>> =
-                assets.groupBy { asset -> asset.kind }
-            for ((g: AssetsLogic.Kind, cards: kotlin.collections.List<AssetsLogic.AssetCard>) in grouped) {
-                item(key = "hdr_$g") { Text(g.label, style = MaterialTheme.typography.titleMedium) }
-                for (card in cards) {
-                    item(key = card.assetId) {
-                        AssetCardView(
-                            card = card,
-                            onRegen = { vm?.generate(card.assetId) },
-                            onReviewKeep = { vm?.review(card.assetId, keep = true) },
-                            onReviewRegen = { vm?.review(card.assetId, keep = false) },
-                            // 第六轮：图生图参考图——仅图片类资产可设为参考图
-                            onSetReference = if (card.kind == AssetsLogic.Kind.LOCAL && card.imageUri != null) {
-                                { vm?.setReferenceImage(card.assetId, card.imageUri) }
-                            } else null,
-                            onClearReference = { vm?.setReferenceImage(card.assetId, null) },
-                        )
-                    }
+        } else {
+        val assets = assetsState?.value ?: emptyList()
+        // 分组卡片流：同kind相邻，组头为独立item（单层LazyColumn，全页可滚动）
+        val grouped: kotlin.collections.Map<AssetsLogic.Kind, kotlin.collections.List<AssetsLogic.AssetCard>> =
+            assets.groupBy { it.kind }
+        for ((g: AssetsLogic.Kind, cards: kotlin.collections.List<AssetsLogic.AssetCard>) in grouped) {
+            item(key = "hdr_$g") { Text(g.label, style = MaterialTheme.typography.titleMedium) }
+            for (card in cards) {
+                item(key = card.assetId) {
+                    AssetCardView(
+                        card = card,
+                        onRegen = { vm.generate(card.assetId) },
+                        onReviewKeep = { vm.review(card.assetId, keep = true) },
+                        onReviewRegen = { vm.review(card.assetId, keep = false) },
+                        onSetReference = if (card.kind == AssetsLogic.Kind.LOCAL && card.imageUri != null) {
+                            { vm.setReferenceImage(card.assetId, card.imageUri) }
+                        } else null,
+                        onClearReference = { vm.setReferenceImage(card.assetId, null) },
+                        onBuildPosePack = if (card.kind == AssetsLogic.Kind.CHARACTER && card.parentId == null) {
+                            { vm.buildCharacterPosePack(card.assetId) }
+                        } else null,
+                        onOpenEditor = { editingAssetId = card.assetId },
+                    )
                 }
             }
         }
 
         // ---- 评审闸门：全keep才亮按钮（GateReport.reviewPassed语义）----
-        Button(onClick = onContinue,
-            enabled = vm.reviewAllPassed(),
-            modifier = Modifier.fillMaxWidth()) {
-            Text(if (vm.reviewAllPassed()) "评审通过 · 去渲染" else "请先完成全部资产评审（保留）")
+        item {
+            Button(onClick = onContinue,
+                enabled = vm.reviewAllPassed(),
+                modifier = Modifier.fillMaxWidth()) {
+                Text(if (vm.reviewAllPassed()) "评审通过 · 去渲染" else "请先完成全部资产评审（保留）")
+            }
         }
+        }
+
+        }
+        // ---- 第十一轮：资产编辑器（点击卡片弹出：改描述/上传参考图）----
+        val editorCard = editingAssetId?.let { id ->
+            vm?.assets?.value?.firstOrNull { it.assetId == id }
+        }
+        if (editorCard != null) {
+            var editPrompt by remember(editorCard.assetId) { mutableStateOf(editorCard.prompt) }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { editingAssetId = null },
+                title = { Text("编辑资产") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AssetThumb(editorCard)
+                        OutlinedTextField(
+                            value = editPrompt,
+                            onValueChange = { editPrompt = it },
+                            label = { Text("资产描述") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { refPickForAsset = editorCard.assetId }) {
+                                Text(if (editorCard.referenceImageUri == null) "🖼 上传参考图" else "🖼 更换参考图")
+                            }
+                            if (editorCard.referenceImageUri != null) {
+                                OutlinedButton(onClick = { vm?.setReferenceImage(editorCard.assetId, null) }) {
+                                    Text("清除参考图")
+                                }
+                            }
+                        }
+                        if (editorCard.referenceImageUri != null)
+                            Text("✓ 已挂参考图，重生成时作为 input_images",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary)
+                        Text("保存后需点「重生成」才会按新描述/新参考图重新出图。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val v = vm
+                        if (v != null) v.editAsset(editorCard.assetId, editPrompt) { changed ->
+                            editingAssetId = null
+                            if (changed) v.generate(editorCard.assetId)  // 描述变了→自动重新生成
+                        }
+                    }) { Text("保存并重新生成") }
+                },
+                dismissButton = {
+                    Row {
+                        // 第十一轮：生成中 → 停止按钮
+                        if (editorCard.generating && vm != null) {
+                            OutlinedButton(onClick = { vm.stopGenerate(editorCard.assetId) },
+                                modifier = Modifier.padding(end = 8.dp)) { Text("⏹ 停止") }
+                        }
+                        // 删除资产（含子卡），确认后执行
+                        if (vm != null) {
+                            OutlinedButton(onClick = { confirmDeleteId = editorCard.assetId },
+                                modifier = Modifier.padding(end = 8.dp)) { Text("🗑 删除") }
+                        }
+                        OutlinedButton(onClick = { editingAssetId = null }) { Text("关闭") }
+                    }
+                },
+            )
+        }
+
+        // ---- 第十一轮：删除资产二次确认 ----
+        confirmDeleteId?.let { delId ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmDeleteId = null },
+                title = { Text("删除该资产？") },
+                text = { Text("将同时删除其6姿态子卡与已生成的图，不可恢复。") },
+                confirmButton = {
+                    Button(onClick = {
+                        vm?.remove(delId)
+                        editingAssetId = null
+                        confirmDeleteId = null
+                    }) { Text("删除") }
+                },
+                dismissButton = { OutlinedButton(onClick = { confirmDeleteId = null }) { Text("取消") } },
+            )
+        }
+
+        // 参考图相册选择器
+        val refPickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+            val assetId = refPickForAsset
+            refPickForAsset = null
+            if (uri != null && assetId != null && vm != null) {
+                scope.launch { vm.uploadReferenceImage(assetId, uri) {} }
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(refPickForAsset) {
+            if (refPickForAsset != null) refPickLauncher.launch("image/*")
     }
 }
 
@@ -311,8 +469,14 @@ fun AssetCardView(
     onReviewRegen: () -> Unit,
     onSetReference: (() -> Unit)? = null,
     onClearReference: (() -> Unit)? = null,
+    onBuildPosePack: (() -> Unit)? = null,
+    /** 第十一轮：点击卡片进入编辑（描述/参考图上传） */
+    onOpenEditor: (() -> Unit)? = null,
 ) {
-    Card(Modifier.fillMaxWidth()) {
+    Card(
+        onClick = { onOpenEditor?.invoke() },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+    ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             // 第八轮：资产缩略图预览（本地 imageUri / 生成 remoteUrl），无图/失败有占位
             AssetThumb(card)
@@ -335,13 +499,24 @@ fun AssetCardView(
                 when {
                     card.generating -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.padding(end = 8.dp))
-                        Text("生成中…", style = MaterialTheme.typography.bodySmall)
+                        Text("生成中… 点卡片可停止", style = MaterialTheme.typography.bodySmall)
                     }
                     card.remoteUrl != null ->
                         Text("已生成 ✓ ${card.remoteUrl.takeLast(24)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary)
                     else -> Text("未生成", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline)
+                }
+                // 第九轮：G1+G2 资产质量闸门状态展示
+                if (card.auditState == "approved") {
+                    Text("✅ 质量达标 ${(card.qualityScore ?: 0.0).let { "%.2f".format(it) }}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                } else if (card.auditState == "rejected") {
+                    Text("⛔ 质量拒绝：${card.rejectReason ?: card.defectsJson ?: ""}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                } else if (card.remoteUrl != null) {
+                    Text("⏳ 质量审计中…", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline)
                 }
                 // 第六轮：图生图参考图态
@@ -352,6 +527,9 @@ fun AssetCardView(
                 if (card.reviewState == "regen")
                     Text("已标记重生成 ↻", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error)
+                // 第十一轮：编辑入口提示
+                Text("点按卡片可编辑描述 / 上传参考图", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
             }
             Checkbox(checked = card.reviewState == "keep", onCheckedChange = { checked ->
                 if (checked) onReviewKeep() else onReviewRegen()
@@ -360,6 +538,10 @@ fun AssetCardView(
                 // 第六轮：图生图——有参考图则标签切换为「用参考图生成」
                 OutlinedButton(onClick = onRegen, enabled = !card.generating) {
                     Text(if (card.referenceImageUri != null) "用参考图生成" else "重生成")
+                }
+                // 第九轮：角色母卡 → 生成 6 姿态 DNA 资产包
+                if (onBuildPosePack != null) {
+                    OutlinedButton(onClick = onBuildPosePack) { Text("生成6姿态") }
                 }
                 // 设/取消参考图（仅本地图片资产）
                 when {
