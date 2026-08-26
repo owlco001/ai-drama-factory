@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
@@ -18,6 +19,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -111,7 +115,10 @@ private fun SplashScreen(onDone: () -> Unit) {
 
 @Composable
 fun DramaApp() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("mode_prefs", 0) }
     var splashDone by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(prefs.getString("mode", "manual") ?: "manual") }
     if (!splashDone) { SplashScreen(onDone = { splashDone = true }); return }
     val nav = remember { AppNavState() }
     var page by remember { mutableStateOf(Page.PROJECTS) }
@@ -120,7 +127,6 @@ fun DramaApp() {
     // 发不出且部分ROM直接拒启FGS导致崩溃。进入App时静默请求一次（拒绝也不阻断使用）。
     val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
     androidx.compose.runtime.LaunchedEffect(Unit) {
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             val granted = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -145,29 +151,65 @@ fun DramaApp() {
         },
     ) { padding ->
         androidx.compose.foundation.layout.Box(Modifier.padding(padding)) {
-            when (page) {
-                // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页
-                Page.PROJECTS -> ProjectsPage(
-                    onEnterProject = { id ->
-                        nav.currentProjectId = id
-                        nav.currentProjectName = null
-                        page = Page.EPISODES
-                    })
-                Page.EPISODES -> nav.currentProjectId?.let { pid ->
-                    EpisodePage(
-                        projectId = pid,
-                        projectName = nav.currentProjectName,
-                        onOpenEpisode = { epId ->
-                            nav.currentEpisodeId = epId
-                            page = Page.ASSETS
-                        })
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // 第十三轮 P0-1：首页双模式入口（全局记忆）
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            mode = "ai"
+                            prefs.edit().putString("mode", "ai").apply()
+                            page = Page.PROJECTS
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = if (mode == "ai") MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("🤖 AI 全托管") }
+                    Button(
+                        onClick = {
+                            mode = "manual"
+                            prefs.edit().putString("mode", "manual").apply()
+                            page = Page.PROJECTS
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = if (mode == "manual") MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("✍️ 人工模式") }
                 }
-                Page.ASSETS -> AssetsPage(projectId = nav.currentEpisodeId,
-                    onContinue = { page = Page.QUEUE })
-                Page.STORYBOARD -> StoryboardPage(episodeId = nav.currentEpisodeId)
-                Page.QUEUE -> QueuePage(episodeId = nav.currentEpisodeId)
-                Page.LIBRARY -> LibraryPage()
-                Page.SETTINGS -> SettingsPage()
+
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    when (mode) {
+                        "ai" -> AiPipelinePage(onBack = { page = Page.PROJECTS })
+                        else -> when (page) {
+                            // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页
+                            Page.PROJECTS -> ProjectsPage(
+                                onEnterProject = { id ->
+                                    nav.currentProjectId = id
+                                    nav.currentProjectName = null
+                                    page = Page.EPISODES
+                                })
+                            Page.EPISODES -> nav.currentProjectId?.let { pid ->
+                                EpisodePage(
+                                    projectId = pid,
+                                    projectName = nav.currentProjectName,
+                                    onOpenEpisode = { epId ->
+                                        nav.currentEpisodeId = epId
+                                        page = Page.ASSETS
+                                    })
+                            }
+                            Page.ASSETS -> AssetsPage(projectId = nav.currentEpisodeId,
+                                onContinue = { page = Page.QUEUE })
+                            Page.STORYBOARD -> StoryboardPage(episodeId = nav.currentEpisodeId)
+                            Page.QUEUE -> QueuePage(episodeId = nav.currentEpisodeId)
+                            Page.LIBRARY -> LibraryPage()
+                            Page.SETTINGS -> SettingsPage()
+                        }
+                    }
+                }
             }
         }
     }
