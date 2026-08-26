@@ -1,6 +1,8 @@
 # AI短剧工厂
 
-端侧 AI 短剧制作工具：小说/剧本 → 资产生成 → AI 分镜 → 渲染合成，全流程质量闸门管控。
+![version](https://img.shields.io/badge/version-1.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+
+**v1.0.0 正式版** — 端侧 AI 短剧制作工具：小说/剧本 → 资产生成 → AI 分镜 → 渲染合成，全流程质量闸门管控。
 
 - 项目地址：<https://github.com/owlco001/ai-drama-factory>
 - 许可证：[MIT](LICENSE)

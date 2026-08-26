@@ -82,6 +82,7 @@ class Round6LocalUploadI2iTest {
         override suspend fun upsertShot(s: com.dramafactory.app.data.ShotEntity) { shots.removeIf { it.shot_id == s.shot_id }; shots.add(s) }
         override suspend fun shotsOf(episodeId: String) = shots.filter { it.episode_id == episodeId }
         override suspend fun deleteShotsOf(episodeId: String) { shots.removeIf { it.episode_id == episodeId } }
+        override suspend fun deleteShot(shotId: String) { shots.removeIf { it.shot_id == shotId } }
         override suspend fun setShotKeyframes(shotId: String, first: String?, last: String?) {
             val s = shots.firstOrNull { it.shot_id == shotId }
             if (s != null) { shots.removeIf { it.shot_id == shotId }; shots.add(s.copy(first_image_uri = first, last_image_uri = last)) }

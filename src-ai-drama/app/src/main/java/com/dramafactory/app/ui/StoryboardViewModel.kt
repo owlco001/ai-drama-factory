@@ -94,4 +94,53 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
+
+    // ---- 第十二轮：分镜可操作（编辑/删除/渲染）----
+
+    /** 编辑单镜并落库；action与visual_prompt分开存，UI展示时合并 */
+    fun updateShot(
+        shotId: String, action: String, dialogue: String?, narration: String?,
+        visualPrompt: String?, durationSeconds: Double,
+    ) = viewModelScope.launch {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                AppGraph.dao.shotKeyframes(shotId)?.let { row ->
+                    AppGraph.dao.upsertShot(row.copy(
+                        action = action.trim(),
+                        dialogue = dialogue?.trim()?.ifBlank { null },
+                        narration = narration?.trim()?.ifBlank { null },
+                        visual_prompt = visualPrompt?.trim()?.ifBlank { null },
+                        duration_seconds = durationSeconds.coerceIn(1.0, 60.0),
+                    ))
+                }
+            }
+        }
+        refresh()
+        _state.value = _state.value.copy(message = "已保存镜头修改✓")
+    }
+
+    /** 删除单镜 */
+    fun deleteShot(shotId: String) = viewModelScope.launch {
+        withContext(Dispatchers.IO) { runCatching { AppGraph.dao.deleteShot(shotId) } }
+        refresh()
+    }
+
+    /**
+     * 第十二轮：把本集全部分镜入队渲染（复用渲染队列断点续传/预算熔断链路）。
+     */
+    fun enqueueRender(onQueued: (Int) -> Unit) = viewModelScope.launch {
+        val shots = _state.value.shots
+        if (shots.isEmpty()) { onQueued(0); return@launch }
+        val queue = RenderRuntime.queueFor(episodeId)
+        val metas: List<com.dramafactory.core.model.ShotMeta> = shots.map { row ->
+            val visual: String = row.visual_prompt?.let { "[$it]" } ?: ""
+            val dlg: String = row.dialogue?.let { "「$it」" } ?: ""
+            com.dramafactory.core.model.ShotMeta(
+                shotId = row.shot_id, episodeId = episodeId,
+                prompt = "$dlg${row.action ?: ""}$visual")
+        }
+        runCatching { queue.enqueueEpisode(episodeId, metas) }
+            .onSuccess { onQueued(metas.size) }
+            .onFailure { _state.value = _state.value.copy(message = "入队失败：${it.message}") }
+    }
 }

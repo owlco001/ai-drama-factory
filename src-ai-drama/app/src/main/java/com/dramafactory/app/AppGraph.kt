@@ -104,6 +104,7 @@ object AppGraph {
         override suspend fun upsertShot(s: com.dramafactory.app.data.ShotEntity) {}
         override suspend fun shotsOf(episodeId: String): List<com.dramafactory.app.data.ShotEntity> = emptyList()
         override suspend fun deleteShotsOf(episodeId: String) {}
+        override suspend fun deleteShot(shotId: String) {}
         override suspend fun setShotKeyframes(shotId: String, first: String?, last: String?) {}
         override suspend fun setShotReferenceVideo(shotId: String, uri: String?) {}
         override suspend fun shotKeyframes(shotId: String): com.dramafactory.app.data.ShotEntity? = null

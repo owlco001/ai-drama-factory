@@ -203,6 +203,8 @@ interface DramaDao {
     @Query("SELECT * FROM shots WHERE episode_id=:episodeId ORDER BY shot_no") suspend fun shotsOf(episodeId: String): List<ShotEntity>
     /** 第十轮：重新生成分镜前清空本集旧镜（保留render_tasks历史对账） */
     @Query("DELETE FROM shots WHERE episode_id=:episodeId") suspend fun deleteShotsOf(episodeId: String)
+    /** 第十二轮：删除单镜 */
+    @Query("DELETE FROM shots WHERE shot_id=:shotId") suspend fun deleteShot(shotId: String)
     /** 第六轮：图生视频首/尾帧 + 视频参考落库 */
     @Query("UPDATE shots SET first_image_uri=:first, last_image_uri=:last WHERE shot_id=:shotId")
     suspend fun setShotKeyframes(shotId: String, first: String?, last: String?)

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"  // v0.2：完整UI层
+        versionCode = 3
+        versionName = "1.0.0"  // v1.0：质量闸门+AI分镜+剧集管理正式版
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

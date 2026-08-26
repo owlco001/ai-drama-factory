@@ -8,22 +8,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
- * 分镜编辑页（第十轮重写）：AI编剧+导演一键生成分镜。
- * 每镜展示：序号/时长/六铁律校验位/动作/导演视觉指令/台词/旁白/承接。
- * 「AI生成分镜」重新生成会覆盖本集旧镜。
+ * 分镜编辑页（第十二轮：可操作化）：
+ * - AI编剧+导演一键生成分镜；每镜展示序号/时长/校验位/动作/视觉指令/台词/旁白/承接
+ * - 点卡片或「✏ 编辑」进入单镜编辑（动作/台词/旁白/视觉指令/时长）
+ * - 「🗑 删除」二次确认删单镜；「🎬 渲染本集」一键入队渲染队列
  */
 @Composable
 fun StoryboardPage(
@@ -39,6 +45,9 @@ fun StoryboardPage(
     ),
 ) {
     val st by vm.state.collectAsState()
+    var editingShotId by remember { mutableStateOf<String?>(null) }
+    var confirmDeleteShotId by remember { mutableStateOf<String?>(null) }
+    var queuedCount by remember { mutableStateOf<Int?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -52,18 +61,32 @@ fun StoryboardPage(
                 Text(if (st.generating) "AI 生成中…" else "🤖 AI 生成分镜（编剧+导演）")
             }
         }
-
+        if (st.shots.isNotEmpty()) {
+            item {
+                Button(onClick = { vm.enqueueRender { n -> queuedCount = n } },
+                    enabled = !st.generating, modifier = Modifier.fillMaxWidth()) {
+                    Text("🎬 渲染本集全部 ${st.shots.size} 镜")
+                }
+            }
+        }
+        queuedCount?.let { n ->
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Text(if (n > 0) "已入队 $n 镜，进度见「渲染」标签页 ✓" else "没有可渲染的镜头",
+                        Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
         st.message?.let { msg ->
             item {
                 Card(Modifier.fillMaxWidth()) {
-                    Text(msg, Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
+                    Text(msg, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
                         color = if (msg.startsWith("已生成") || msg.contains("✓")) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.error)
                 }
             }
         }
-
         if (!st.generating && st.shots.isEmpty()) {
             item {
                 Card(Modifier.fillMaxWidth()) {
@@ -72,9 +95,11 @@ fun StoryboardPage(
                 }
             }
         }
-
         items(st.shots, key = { it.shot_id }) { shot ->
-            Card(Modifier.fillMaxWidth()) {
+            Card(
+                onClick = { editingShotId = shot.shot_id },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("#${shot.shot_no} · ${shot.duration_seconds.toInt()}秒",
@@ -100,15 +125,66 @@ fun StoryboardPage(
                     shot.narration?.let { Text("旁白：$it", style = MaterialTheme.typography.bodySmall) }
                     shot.carry_over?.let { Text("承接：$it", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { editingShotId = shot.shot_id }) { Text("✏ 编辑") }
+                        OutlinedButton(onClick = { confirmDeleteShotId = shot.shot_id }) { Text("🗑 删除") }
+                    }
                 }
             }
         }
+    }
 
-        // 渲染入口提示（渲染队列按集工作，此处仅导航说明）
-        item {
-            OutlinedButton(onClick = { }, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                Text("渲染请到「渲染」标签页")
-            }
+    // ---- 单镜编辑对话框（LazyColumn 外，composable 上下文）----
+    val editingShot = editingShotId?.let { id -> st.shots.firstOrNull { it.shot_id == id } }
+    if (editingShot != null) {
+        var eAction by remember(editingShot.shot_id) { mutableStateOf(editingShot.action ?: "") }
+        var eDialogue by remember(editingShot.shot_id) { mutableStateOf(editingShot.dialogue ?: "") }
+        var eNarration by remember(editingShot.shot_id) { mutableStateOf(editingShot.narration ?: "") }
+        var eVisual by remember(editingShot.shot_id) { mutableStateOf(editingShot.visual_prompt ?: "") }
+        var eDur by remember(editingShot.shot_id) {
+            mutableStateOf(editingShot.duration_seconds.toInt().toString())
         }
+        AlertDialog(
+            onDismissRequest = { editingShotId = null },
+            title = { Text("编辑镜头 #${editingShot.shot_no}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = eAction, onValueChange = { eAction = it },
+                        label = { Text("动作描述") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    OutlinedTextField(value = eDialogue, onValueChange = { eDialogue = it },
+                        label = { Text("台词（留空删除）") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = eNarration, onValueChange = { eNarration = it },
+                        label = { Text("旁白（留空删除）") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = eVisual, onValueChange = { eVisual = it },
+                        label = { Text("视觉指令（运镜/景别）") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = eDur,
+                        onValueChange = { txt -> eDur = txt.filter(Char::isDigit) },
+                        label = { Text("时长（秒，1-60）") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    vm.updateShot(editingShot.shot_id, eAction,
+                        eDialogue.ifBlank { null }, eNarration.ifBlank { null },
+                        eVisual.ifBlank { null }, (eDur.toIntOrNull() ?: 6).toDouble())
+                    editingShotId = null
+                }) { Text("保存") }
+            },
+            dismissButton = { OutlinedButton(onClick = { editingShotId = null }) { Text("取消") } },
+        )
+    }
+
+    // ---- 删除镜二次确认 ----
+    confirmDeleteShotId?.let { delId ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteShotId = null },
+            title = { Text("删除该镜头？") },
+            text = { Text("镜头将被移除，不可恢复。") },
+            confirmButton = {
+                Button(onClick = { vm.deleteShot(delId); confirmDeleteShotId = null }) { Text("删除") }
+            },
+            dismissButton = { OutlinedButton(onClick = { confirmDeleteShotId = null }) { Text("取消") } },
+        )
     }
 }
