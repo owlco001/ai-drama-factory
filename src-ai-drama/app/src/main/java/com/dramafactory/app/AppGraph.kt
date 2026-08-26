@@ -3,6 +3,8 @@ package com.dramafactory.app
 import android.content.Context
 import android.util.Log
 import com.dramafactory.app.data.DramaDatabase
+import com.dramafactory.app.data.MovieDatabase
+import com.dramafactory.app.data.MovieLibraryDao
 import com.dramafactory.app.data.RoomCheckpointStore
 import com.dramafactory.app.security.AndroidKeyVault
 import com.dramafactory.core.pipeline.DefaultBudgetGuard
@@ -34,6 +36,8 @@ object AppGraph {
     val image: ImageProvider get() = agnes
     lateinit var budgetGuard: DefaultBudgetGuard; private set
     lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
+    /** T014：成片库 DAO（与 dao 共享同一 DB 实例；初始化失败时挂空实现，保证 UI 不打崩）。 */
+    lateinit var movieLibraryDao: MovieLibraryDao; internal set
 
     @Volatile private var initialized = false
 
@@ -60,10 +64,12 @@ object AppGraph {
             try {
                 val db = DramaDatabase.get(app)
                 dao = db.dao()
+                movieLibraryDao = db.movieLibraryDao()
                 checkpointStore = RoomCheckpointStore(dao)
             } catch (t: Throwable) {
                 Log.e("AppGraph", "room init failed, fallback in-memory", t)
                 dao = BrokenDramaDao()
+                movieLibraryDao = BrokenMovieLibraryDao()
                 checkpointStore = com.dramafactory.core.storage.InMemoryCheckpointStore()
                 // 第九轮修复：记录根因到 crash 文件 + 内存标记，供 UI 横幅展示
                 runCatching {
@@ -122,6 +128,17 @@ object AppGraph {
         override suspend fun upsertEpisode(e: com.dramafactory.app.data.EpisodeEntity) {}
         override suspend fun episode(id: String): com.dramafactory.app.data.EpisodeEntity? = null
         override suspend fun episodesOf(projectId: String): List<com.dramafactory.app.data.EpisodeEntity> = emptyList()
+    }
+
+    /** T014：Room 初始化失败时的空操作 MovieLibraryDao 兜底（与 BrokenDramaDao 配对）。 */
+    private class BrokenMovieLibraryDao : MovieLibraryDao {
+        override suspend fun upsertFilmOf(film: com.dramafactory.app.data.FinishedFilmEntity): Long = 0L
+        override suspend fun deleteFilmOf(episodeId: String): Int = 0
+        override suspend fun deleteFilm(film: com.dramafactory.app.data.FinishedFilmEntity): Int = 0
+        override suspend fun finishedFilmsOf(projectId: String): List<com.dramafactory.app.data.FinishedFilmEntity> = emptyList()
+        override suspend fun finishedFilmOf(episodeId: String): com.dramafactory.app.data.FinishedFilmEntity? = null
+        override suspend fun assembledEpisodeIds(projectId: String): List<String> = emptyList()
+        override suspend fun allFilms(): List<com.dramafactory.app.data.FinishedFilmEntity> = emptyList()
     }
 
     object CrashLog {

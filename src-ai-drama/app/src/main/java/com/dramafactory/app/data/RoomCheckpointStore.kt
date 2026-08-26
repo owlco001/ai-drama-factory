@@ -19,12 +19,17 @@ import kotlinx.coroutines.sync.withLock
     entities = [
         ProjectEntity::class, AssetEntity::class, ShotEntity::class,
         RenderTaskEntity::class, ProviderConfigEntity::class, EpisodeEntity::class,
+        // T014：成片库表（v5，finished_films）
+        FinishedFilmEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class DramaDatabase : RoomDatabase() {
     abstract fun dao(): DramaDao
+
+    /** T014：成片库 DAO（与主 DramaDao 独立暴露）。 */
+    abstract fun movieLibraryDao(): MovieLibraryDao
 
     companion object {
         @Volatile private var instance: DramaDatabase? = null
@@ -33,7 +38,9 @@ abstract class DramaDatabase : RoomDatabase() {
                 // 第六轮：v1→v2 新增 assets.source/image_uri/video_uri/reference_image_uri
                 // 及 shots.first_image_uri/last_image_uri/reference_video_uri 列，旧库破坏性迁移。
                 // 第九轮：v2→v3 新增 QualityEngine 列（assets 质量闸门 + episodes 按剧集放行）。
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                // 第十轮：v3→v4 shots 新增 visual_prompt + duration_seconds。
+                // T014：v4→v5 新增成片库表 finished_films。
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
         }
@@ -71,6 +78,28 @@ abstract class DramaDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE assets ADD COLUMN face_ratio REAL")
                 db.execSQL("ALTER TABLE assets ADD COLUMN pose_role TEXT")
                 db.execSQL("ALTER TABLE episodes ADD COLUMN allowed_cross_era TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
+        /** T014：v4→v5 —— 新增成片库表 finished_films（架构§4.2 Room 迁移 SQL）。
+         * 列对齐 FinishedFilmEntity 任务规格：episode_id, project_id, file_path, duration_ms, file_size, created_at。
+         */
+        @SuppressWarnings("unused")
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS finished_films (
+                        film_id      TEXT PRIMARY KEY,
+                        episode_id   TEXT NOT NULL,
+                        project_id   TEXT NOT NULL,
+                        file_path    TEXT NOT NULL,
+                        file_size    INTEGER NOT NULL DEFAULT 0,
+                        duration_ms  INTEGER NOT NULL DEFAULT 0,
+                        created_at   INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_ff_episode ON finished_films(episode_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_ff_project ON finished_films(project_id)")
             }
         }
     }

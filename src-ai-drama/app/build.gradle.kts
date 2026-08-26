@@ -28,6 +28,15 @@ android {
     }
 }
 
+repositories {
+    // 保留默认 google() + mavenCentral()
+    google()
+    mavenCentral()
+    // ffmpeg-kit 上游 maven 已归档；jitpack.io 仍托管历史构建（架构§5.1 + Q1）。
+    // 坐标：com.github.arthenica:ffmpeg-kit:5.1（base 版，含 concat/filter，足够成片合成）
+    maven("https://jitpack.io")
+}
+
 dependencies {
     implementation(project(":core-engine"))
     // AgnesProvider构造签名暴露io.ktor.client.HttpClient类型（默认参数），
@@ -67,6 +76,11 @@ dependencies {
 
     // EncryptedSharedPreferences（架构§6 Key安全存储）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // T014：端上成片合成 —— ffmpeg-kit 5.1 base（concat + filter 能力足够）。
+    // 上游仓库已归档，仅 jitpack.io 有 5.1 构建；锁 4.5.LTS / 6.0 均 404（见决策 Q1 复盘）。
+    // Package: com.arthenica.ffmpegkit.FFmpeg / FFprobeKit。
+    implementation("com.github.arthenica:ffmpeg-kit:5.1")
 
     // ViewModel JVM单测（不依赖Robolectric，纯逻辑测试）
     testImplementation(kotlin("test"))

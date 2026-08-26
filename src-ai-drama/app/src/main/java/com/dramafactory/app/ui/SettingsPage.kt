@@ -32,6 +32,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 /**
  * 设置页（P0）：视频模型供应商选择（MVP仅Agnes）+ API Key输入 + 「测试连通」+ 保存KeyVault。
  * 附ROM保活指引入口说明（Q7）。
+ *
+ * T014 v1.4.0：新增「文本模型」区块（DeepSeek / Agnes 单选 + Key 各自独立保存）。
  */
 @Composable
 fun SettingsPage(vm: SettingsViewModel = viewModel()) {
@@ -98,9 +100,11 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("API Key", style = MaterialTheme.typography.titleMedium)
+                Text("（视频通道 · 当前供应商：${st.providerLabel}）",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 st.maskedSaved?.let { masked ->
                     Text("已保存：$masked", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary)   // 仅掩码，永不回显明文
+                        color = MaterialTheme.colorScheme.primary)
                 }
                 OutlinedTextField(
                     value = st.keyInput,
@@ -131,6 +135,9 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
+
+        // ---- 文本模型选择（T014 v1.4.0 · Q4：文本/视频 Key 各自独立保存）----
+        TextModelSettingsBlock()
 
         // ---- ROM保活指引入口（Q7）----
         Card(Modifier.fillMaxWidth()) {
@@ -175,6 +182,144 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                         color = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
+    }
+}
+
+// ---------- 文本模型区块（T014 v1.4.0 · Q4）----------
+
+/**
+ * 文本模型选择 + API Key 输入 + 测试连通 + 保存。
+ * 状态用 DefaultTextModelRouter 的 store 承载（Key 各自独立保存，Q4 b 决议）。
+ *
+ * 设计原则：
+ * - 不复用上方视频 API Key 输入框（两套 Key 彼此独立）；
+ * - UI 只见掩码，永不回显明文；
+ * - 保存前先 validate，防止坏 Key 覆盖好 Key。
+ */
+@Composable
+fun TextModelSettingsBlock() {
+    val scope = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycleScope
+    val router = remember { DefaultTextModelRouter }
+    var activeModelId by remember { mutableStateOf(router.activeTextModelId()) }
+    var keyInput by remember { mutableStateOf("") }
+    var masked by remember { mutableStateOf<String?>(null) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<SettingsLogic.TestResult?>(null) }
+    var saved by remember { mutableStateOf(false) }
+
+    val entries = remember(activeModelId, masked, testResult) { router.registeredTextModels() }
+    val activeEntry = entries.firstOrNull { it.providerId == activeModelId }
+
+    // 切换模型时刷新当前掩码
+    LaunchedEffect(activeModelId) {
+        masked = router.registeredTextModels().firstOrNull { it.providerId == activeModelId }?.keyMasked
+        saved = false
+        testResult = null
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("文本模型（AI 全托管用")
+            Text("选择「大脑」：AI 模式内粘贴剧本文本自动生成内容时调用此模型。视频/图像生成走上方供应商，不受影响。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+            for (entry in entries) {
+                val selected = activeModelId == entry.providerId
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = selected, onClick = { activeModelId = entry.providerId })
+                    Column(Modifier.weight(1f)) {
+                        Text("${if (selected) "●" else "○"} ${entry.label}",
+                            style = MaterialTheme.typography.bodyMedium)
+                        Text("模型：${entry.modelId} · Base：${entry.baseUrl}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
+                    if (entry.isVerified)
+                        Text("✓ 已验证", color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall)
+                    else if (entry.keyMasked != null)
+                        Text("已保存未验证", color = MaterialTheme.colorScheme.outline,
+                            style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            // DeepSeek 提供独立 Key 输入（Agnes 视频通道 Key 已在上文独立保存，此处仍允许配置文本专用 Key）
+            val activeProvider = activeEntry?.providerId
+            Text("${activeEntry?.label ?: activeModelId} · API Key",
+                style = MaterialTheme.typography.titleMedium)
+            masked?.let { m ->
+                Text("已保存：$m", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            OutlinedTextField(
+                value = keyInput,
+                onValueChange = { keyInput = it },
+                label = { Text(if (masked == null) "输入 sk- 开头的 API Key" else "输入新 Key 以更换") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = {
+                        if (keyInput.trim().isEmpty()) {
+                            testResult = SettingsLogic.TestResult.Failure("请先输入 API Key")
+                            return@OutlinedButton
+                        }
+                        testing = true; testResult = null
+                        scope.launch {
+                            val r = router.validate(activeProvider ?: "deepseek", keyInput.trim())
+                            testing = false
+                            testResult = when {
+                                r.isSuccess -> {
+                                    val info = r.getOrThrow()
+                                    if (info.ok) SettingsLogic.TestResult.Success(info.latencyMs)
+                                    else SettingsLogic.TestResult.Failure(info.detail.ifEmpty { "连通失败" })
+                                }
+                                else -> SettingsLogic.TestResult.Failure(
+                                    r.exceptionOrNull()?.message ?: "未知错误")
+                            }
+                        }
+                    },
+                    enabled = !testing
+                ) { Text("测试连通") }
+                Button(
+                    onClick = {
+                        val k = keyInput.trim()
+                        if (k.isEmpty()) return@Button
+                        val tested = (testResult as? SettingsLogic.TestResult.Success) != null
+                        if (!tested) return@Button
+                        scope.launch {
+                            val r = router.saveKey(activeProvider ?: "deepseek", k)
+                            if (r.isSuccess) {
+                                keyInput = ""; saved = true
+                                masked = router.registeredTextModels()
+                                    .firstOrNull { it.providerId == activeProvider }?.keyMasked
+                            } else {
+                                testResult = SettingsLogic.TestResult.Failure(
+                                    r.exceptionOrNull()?.message ?: "保存失败")
+                            }
+                        }
+                    },
+                    enabled = !testing && keyInput.isNotBlank()
+                ) { Text("保存（加密）") }
+                if (testing) CircularProgressIndicator(Modifier.padding(start = 4.dp))
+            }
+            when (val r = testResult) {
+                is SettingsLogic.TestResult.Success ->
+                    Text("✓ 连通成功 · 延迟${r.latencyMs}ms", color = MaterialTheme.colorScheme.primary)
+                is SettingsLogic.TestResult.Failure ->
+                    Text("✗ ${r.message}", color = MaterialTheme.colorScheme.error)
+                null -> {}
+            }
+            if (saved) Text("已加密保存至 Keystore（Key 与视频通道独立）",
+                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            Text("提示：DeepSeek Chat 支持中文原生、上下文充足；Agnes 文本按输入规模自动选模（2.5/2.0/1.5 Flash）。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         }
     }
 }
