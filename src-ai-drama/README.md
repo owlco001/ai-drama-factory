@@ -1,8 +1,8 @@
 # AI短剧工厂
 
-![version](https://img.shields.io/badge/version-1.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84) ![minSdk](https://img.shields.io/badge/minSdk-26-orange)
+![version](https://img.shields.io/badge/version-1.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84) ![minSdk](https://img.shields.io/badge/minSdk-26-orange)
 
-> **v1.0.0 正式版** — 端侧 AI 短剧制作工具：小说/剧本 → 资产生成 → AI 分镜 → 渲染合成，全流程质量闸门管控。
+> **v1.1.0** — 端侧 AI 短剧制作工具：小说/剧本 → 资产生成 → AI 分镜 → 渲染合成，全流程质量闸门管控。
 
 <p align="center"><img src="docs/banner.png" alt="AI短剧工厂" width="720"/></p>
 
@@ -24,7 +24,7 @@
 | 🛡 **QualityEngine 质量闸门** | G1 文件级硬校验 + G2 多模态质检打分，缺陷直接拒 |
 | 🎬 **AI 编剧 + 导演** | 剧本一键拆解镜头表，逐镜生成运镜视觉指令；分镜可编辑可删 |
 | ⚖️ **六铁律 + 忠实性闸门** | 台词逐字校验、资产真实绑定、时间逆转词表拦截 |
-| 🏛 **时代红线** | 内置西汉末年历史约束，禁词走 negative_prompt 通道（正负分离），支持按剧集放行 |
+| 🏛 **时代红线自动推断** | AI 判断剧本朝代（汉/唐/宋/明/清/民国/现代/架空），约束随剧适配；禁词走 negative_prompt 正负分离，支持按剧集放行 |
 | ▶️ **渲染队列** | 断点续传、预算熔断、防重复扣费（checkpoint 语义），一键渲染整集 |
 | 🔊 **中文配音指令** | 台词前置主导生成 prompt，成片默认中文普通话配音 |
 
@@ -74,6 +74,7 @@ core-engine/   纯 Kotlin 引擎：Provider 适配 · 质量闸门 · AI 编排 
 
 - [ ] C 端云服务（Ktor 后端 + 多用户账号体系）
 - [ ] 角色生成无干扰纯色背景模式
+- [x] ~~时代红线按剧本自动推断~~（v1.1.0 已完成）
 - [ ] 成片库导出分享
 
 ## 🤝 贡献
