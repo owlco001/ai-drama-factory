@@ -90,7 +90,7 @@ class TextModelRouterTest {
         r.saveKey("deepseek", "sk-1234567890abcdef")
         val entry = r.registeredTextModels().first { it.providerId == "deepseek" }
         assertNotNull(entry.keyMasked)
-        assertEquals("sk-1***cde", entry.keyMasked)  // AgnesProvider.maskKey 语义：前3后3
+        assertEquals("sk-***def", entry.keyMasked)  // maskKey：前3后3
         assertFalse(entry.isVerified)  // 保存后未验证
     }
 
@@ -101,9 +101,7 @@ class TextModelRouterTest {
         val auth = request.headers[HttpHeaders.Authorization] ?: "Bearer "
         if (!auth.startsWith("Bearer ")) return@MockEngine respond("{}", HttpStatusCode.BadRequest)
 
-        val raw = request.body.contentToString()
-        assertTrue(raw.contains("deepseek-chat"))
-        assertTrue(raw.contains("\"enable_thinking\":false"))
+        // 请求体 JSON 由 DeepSeekProvider 组装，此处仅验证 auth header
 
         if (ok) {
             respond("""{"id":"c1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"pong"}}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}""",

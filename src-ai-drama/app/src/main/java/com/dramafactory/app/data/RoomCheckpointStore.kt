@@ -82,7 +82,10 @@ abstract class DramaDatabase : RoomDatabase() {
         }
 
         /** T014：v4→v5 —— 新增成片库表 finished_films（架构§4.2 Room 迁移 SQL）。
-         * 列对齐 FinishedFilmEntity 任务规格：episode_id, project_id, file_path, duration_ms, file_size, created_at。
+         * 列与 FinishedFilmEntity 严格一致：film_id / episode_id / project_id /
+         * file_path / file_size / duration_ms / created_at。
+         * AI 编排阶段位点（last_success_stage 等）复用 episodes.stage_flags JSON
+         * 承载，避免二次迁移。
          */
         @SuppressWarnings("unused")
         val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
@@ -101,6 +104,72 @@ abstract class DramaDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_ff_episode ON finished_films(episode_id)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_ff_project ON finished_films(project_id)")
             }
+        }
+
+        /** AI 编排阶段位点（P0-2 断点续跑）：复用 episodes.stage_flags JSON 承载。
+         * 写入示例：{"ai_managed":true,"last_success_stage":"GENERATE_STORYBOARD","failed_stage":"ENQUEUE_RENDER"}
+         * 读取/写入均通过本 helper，保证 key 名与 AiOrchestrator 的断点续跑契约一致。
+         */
+        @Suppress("unused")
+        object AiStageFlags {
+            const val AI_MANAGED = "ai_managed"
+            const val LAST_SUCCESS_STAGE = "last_success_stage"
+            const val FAILED_STAGE = "failed_stage"
+            const val ASSET_COUNT = "asset_count"
+            const val SHOT_COUNT = "shot_count"
+            const val RENDER_ENQUEUED = "render_enqueued"
+            const val PROJECT_ID = "project_id"
+            const val SCRIPT = "script"
+
+            /** 简单 key 拼装：避免引入 JSON 库。仅用于 stage_flags 这一轻量字典场景。 */
+            fun put(base: String, key: String, value: String): String {
+                if (base.isBlank() || base == "{}") return "{\"$key\":\"$value\"}"
+                // 已有花括号：直接追加一个逗号分隔项
+                val inside = base.trim().trimStart('{').trimEnd('}').trim()
+                return "{${inside},\"$key\":\"$value\"}"
+            }
+
+            fun putInt(base: String, key: String, value: Int): String {
+                if (base.isBlank() || base == "{}") return "{\"$key\":$value}"
+                val inside = base.trim().trimStart('{').trimEnd('}').trim()
+                return "{${inside},\"$key\":$value}"
+            }
+
+            fun putBool(base: String, key: String, value: Boolean): String {
+                if (base.isBlank() || base == "{}") return "{\"$key\":$value}"
+                val inside = base.trim().trimStart('{').trimEnd('}').trim()
+                return "{${inside},\"$key\":$value}"
+            }
+
+            /** 宽松取字符串值：查找 "key":"value" 或 "key":value（无引号） */
+            fun getString(flags: String?, key: String): String? {
+                val f = flags ?: return null
+                val qKey = "\"$key\""
+                val idx = f.indexOf(qKey)
+                if (idx < 0) return null
+                val rest = f.substring(idx + qKey.length).trimStart().trimStart(',', ':')
+                return when {
+                    rest.startsWith("\"") -> rest.substring(1).takeWhile { it != '"' }
+                    rest.startsWith("[") -> rest.takeWhile { it != ']' }.plus("]")
+                    rest.startsWith("{") -> {
+                        var depth = 0; var i = 0
+                        while (i < rest.length) {
+                            when (rest[i]) {
+                                '{' -> depth++
+                                '}' -> { depth--; if (depth == 0) return rest.substring(0, i + 1) }
+                            }
+                            i++
+                        }
+                        rest
+                    }
+                    else -> rest.takeWhile { it != ',' && it != '}' }
+                }
+            }
+
+            fun getInt(flags: String?, key: String): Int =
+                getString(flags, key)?.toIntOrNull() ?: 0
+            fun getBool(flags: String?, key: String): Boolean =
+                "true" == getString(flags, key)
         }
     }
 }

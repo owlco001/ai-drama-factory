@@ -1,5 +1,6 @@
 package com.dramafactory.app.ui
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -199,7 +200,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
  */
 @Composable
 fun TextModelSettingsBlock() {
-    val scope = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycleScope
+    val scope = kotlinx.coroutines.GlobalScope
     val router = remember { DefaultTextModelRouter }
     var activeModelId by remember { mutableStateOf(router.activeTextModelId()) }
     var keyInput by remember { mutableStateOf("") }

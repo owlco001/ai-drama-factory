@@ -7,42 +7,29 @@ import com.dramafactory.core.provider.DeepSeekProvider
 import com.dramafactory.core.provider.KeyVault
 import com.dramafactory.core.provider.TextProvider
 
+/** 已注册文本模型条目（T014 §2.3） */
+data class TextModelEntry(
+    val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
+    val label: String,           // UI 展示：DeepSeek / Agnes 文本 2.5 Flash
+    val providerId: String,      // "deepseek" / "agnes" / "openai_compat"
+    val baseUrl: String,         // "https://api.deepseek.com/v1"
+    val keyMasked: String?,      // 已存 Key 掩码；null=未配置
+    val isVerified: Boolean,     // 是否通过 validate
+)
+
 /**
  * 文本通道模型路由（架构 T014 §2.3 接口签名）。
  *
  * 注册：Agnes 自动选模 + DeepSeek Chat 两个默认候选。
- * Key 各自独立保存（T014 决议 Q4 b：文本/视频 Key 分池，同一 provider 内 text/video 也不同 configId）。
- *
- * 数据层在 :app（架构 2.3 规定），业务纯 Kotlin —— JVM 可单测。
+ * Key 各自独立保存（T014 决议 Q4 b：文本/视频 Key 分池）。
  */
 interface TextModelRouter {
-
-    /** 已注册且可用作"文本大脑"的模型列表（设置页单选数据来源） */
     fun registeredTextModels(): List<TextModelEntry>
-
-    /** 当前生效的文本模型 id（providerId 语义，如 "agnes" / "deepseek"） */
     fun activeTextModelId(): String
-
-    /** 切换当前生效模型（Key 各自保存，随时互切，Q4） */
     suspend fun setActiveTextModel(modelId: String): Result<Unit>
-
-    /** 保存某个模型对应的 Key（未测试过也允许落库，但 isVerified 置 false，须再 validate） */
     suspend fun saveKey(modelId: String, key: String): Result<Unit>
-
-    /** 测试连通（对应设置页「测试连通」按钮；key 为空时走 store 里已存的 Key） */
     suspend fun validate(modelId: String, key: String? = null): Result<ConnectionInfo>
-
-    /** 解析为一次可注入密钥的 TextProvider（AiOrchestrator.run 走这条路） */
     suspend fun resolve(modelId: String): TextProvider
-
-    data class TextModelEntry(
-        val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
-        val label: String,           // UI 展示：DeepSeek / Agnes 文本 2.5 Flash
-        val providerId: String,      // "deepseek" / "agnes" / "openai_compat"
-        val baseUrl: String,         // "https://api.deepseek.com/v1"
-        val keyMasked: String?,      // 已存 Key 掩码；null=未配置
-        val isVerified: Boolean,     // 是否通过 validate
-    )
 }
 
 /** 底层存储：活跃模型 + 每 provider 的 Key + 验证状态 */
@@ -61,7 +48,6 @@ interface TextModelStore {
  */
 object DefaultTextModelRouter : TextModelRouter {
 
-    /** 测试侧可换 InMemoryTextModelStore；生产由 AppGraph 换 Android 实现 */
     var store: TextModelStore = InMemoryTextModelStore()
 
     private val CANDIDATES = listOf(
@@ -86,14 +72,13 @@ object DefaultTextModelRouter : TextModelRouter {
     private fun resolveId(id: String): TextModelEntry? =
         CANDIDATES.firstOrNull { it.providerId == id || it.modelId == id }
 
-    override fun registeredTextModels(): List<TextModelEntry> {
-        return CANDIDATES.map { base ->
+    override fun registeredTextModels(): List<TextModelEntry> =
+        CANDIDATES.map { base ->
             base.copy(
                 keyMasked = store.masked(base.providerId),
                 isVerified = store.isVerified(base.providerId),
             )
         }
-    }
 
     override fun activeTextModelId(): String = store.loadActiveModel()
 
@@ -107,28 +92,23 @@ object DefaultTextModelRouter : TextModelRouter {
         val entry = resolveId(modelId)
             ?: throw ProviderError.ValidationError("未知的文本模型: $modelId")
         store.saveKey(entry.providerId, key)
-        store.markVerified(entry.providerId, false) // 保存后需重新验证
+        store.markVerified(entry.providerId, false)
     }
 
-    override suspend fun validate(modelId: String, key: String? = null): Result<ConnectionInfo> =
-        runCatching {
-            val entry = resolveId(modelId)
-                ?: throw ProviderError.ValidationError("未知的文本模型: $modelId")
-            val useKey = key ?: store.loadKey(entry.providerId)
-            if (useKey.isBlank()) throw ProviderError.AuthError("API Key 为空，请先保存")
-            val r = when (entry.providerId) {
-                "agnes" -> AgnesProvider(apiKeyProvider = { useKey }).validateKey(useKey)
-                DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { useKey }).validateKey(useKey)
-                else -> throw ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}")
-            }
-            r
-        }.onSuccess { store.markVerified(resolveId(modelId)!!.providerId, true) }
-            .onFailure { e ->
-                val resolved = resolveId(modelId)
-                resolved?.let { store.markVerified(it.providerId, false) }
-                if (e !is ProviderError) Result.failure(ProviderError.TransientError(e.message ?: "validate 失败"))
-            }.getOrNull()
-            ?: Result.failure(ProviderError.TransientError("validate 异常"))
+    override suspend fun validate(modelId: String, key: String?): Result<ConnectionInfo> {
+        val entry = resolveId(modelId)
+            ?: return Result.failure(ProviderError.ValidationError("未知的文本模型: $modelId"))
+        val useKey = key ?: store.loadKey(entry.providerId)
+        if (useKey.isBlank()) return Result.failure(ProviderError.AuthError("API Key 为空，请先保存"))
+        val result = when (entry.providerId) {
+            "agnes" -> AgnesProvider(apiKeyProvider = { useKey }).validateKey(useKey)
+            DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { useKey }).validateKey(useKey)
+            else -> Result.failure(ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}"))
+        }
+        result.onSuccess { store.markVerified(entry.providerId, true) }
+        result.onFailure { store.markVerified(entry.providerId, false) }
+        return result
+    }
 
     override suspend fun resolve(modelId: String): TextProvider {
         val entry = resolveId(modelId)
@@ -142,7 +122,7 @@ object DefaultTextModelRouter : TextModelRouter {
 }
 
 /** 内存实现：JVM 单测默认走这个；生产 AppGraph 会换成 AndroidKeyVault 包装版本 */
-class InMemoryTextModelStore(override var keyVault: KeyVault? = null) : TextModelStore {
+class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModelStore {
     @Volatile private var activeModelId = "agnes"
     private val keys = mutableMapOf<String, String>()
     private val verified = mutableSetOf<String>()

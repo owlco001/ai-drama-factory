@@ -3,64 +3,70 @@ package com.dramafactory.app
 import android.content.Context
 import android.util.Log
 import com.dramafactory.app.data.DramaDatabase
-import com.dramafactory.app.data.MovieDatabase
 import com.dramafactory.app.data.MovieLibraryDao
 import com.dramafactory.app.data.RoomCheckpointStore
 import com.dramafactory.app.security.AndroidKeyVault
+import com.dramafactory.core.assemble.MovieAssembler
+import com.dramafactory.core.assemble.MovieAssemblerImpl
+import com.dramafactory.core.assemble.androidFfmpegKitExecutor
+import com.dramafactory.core.model.ChatRequest
 import com.dramafactory.core.pipeline.DefaultBudgetGuard
 import com.dramafactory.core.provider.AgnesProvider
-import com.dramafactory.core.provider.BudgetGuard
 import com.dramafactory.core.provider.CheckpointStore
 import com.dramafactory.core.provider.KeyVault
-import com.dramafactory.core.provider.TextProvider
-import com.dramafactory.core.provider.ImageProvider
+import com.dramafactory.core.orchestrate.DefaultAiOrchestrator
+import com.dramafactory.core.orchestrate.PipelineStage5
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
-/**
- * App级依赖图 —— UI/ViewModel/Service共享的引擎单例。
- *
- * 第四轮真机加固：各init步骤独立try-catch容错，任一步失败不阻断启动；
- * KeyVault走降级链；极端情况下以内存实现兜底，保证App永不因初始化闪退。
- */
 object AppGraph {
 
-    const val CONFIG_VIDEO = "agnes-video"    // configId：视频通道Key
+    const val CONFIG_VIDEO = "agnes-video"
     const val CONFIG_TEXT = "agnes-text"
     const val CONFIG_IMAGE = "agnes-image"
 
     lateinit var keyVault: KeyVault; private set
     lateinit var checkpointStore: CheckpointStore; private set
     lateinit var agnes: AgnesProvider; internal set
-    val video get() = agnes            // VideoProvider
-    val text: TextProvider get() = agnes
-    val image: ImageProvider get() = agnes
+    val video get() = agnes
+    val text get() = agnes
+    val image get() = agnes
     lateinit var budgetGuard: DefaultBudgetGuard; private set
     lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
-    /** T014：成片库 DAO（与 dao 共享同一 DB 实例；初始化失败时挂空实现，保证 UI 不打崩）。 */
     lateinit var movieLibraryDao: MovieLibraryDao; internal set
 
-    @Volatile private var initialized = false
+    /** T014：端上成片合成器（MovieAssembler，app 模块初始化，注入 ffmpeg-kit 5.1） */
+    var movieAssembler: MovieAssembler = EmptyMovieAssembler; internal set
 
+    /** T014：AI 全托管编排器（接 AppGraph 真实依赖） */
+    lateinit var aiOrchestrator: DefaultAiOrchestrator; internal set
+
+    /** T014：文本模型路由（Agnes/DeepSeek 双模型并存） */
+    lateinit var textModelRouter: com.dramafactory.app.ui.TextModelRouter; internal set
+    lateinit var textModelStore: com.dramafactory.app.ui.TextModelStore; internal set
+
+    @Volatile private var initialized = false
     @Volatile private var appContextRef: Context? = null
-    /** UI层安全取Application Context（未init返回null） */
     fun appContext(): Context? = appContextRef
-    /** 引擎是否已完成初始化（第十轮：LLM提取等网络功能的前置判断用） */
     val isInitialized: Boolean get() = initialized
 
-    /** Application.onCreate调用一次；重复调用幂等（ContentProvider/测试环境容错） */
+    private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
     fun init(context: Context) {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
             val app = context.applicationContext
-            appContextRef = app   // 第十一轮：UI层取Context（参考图拷贝等）
-            // ① KeyVault：降级链（StrongBox→Keystore→明文prefs→内存），不抛异常
+            appContextRef = app
             keyVault = runCatching { AndroidKeyVault.create(app) as KeyVault }
                 .getOrElse { e ->
                     android.util.Log.e("AppGraph", "keyvault init failed", e)
                     com.dramafactory.core.storage.InMemoryKeyVault()
                 }
-            // ② Room数据库：独立容错（磁盘满/损坏时重建）
             try {
                 val db = DramaDatabase.get(app)
                 dao = db.dao()
@@ -71,24 +77,144 @@ object AppGraph {
                 dao = BrokenDramaDao()
                 movieLibraryDao = BrokenMovieLibraryDao()
                 checkpointStore = com.dramafactory.core.storage.InMemoryCheckpointStore()
-                // 第九轮修复：记录根因到 crash 文件 + 内存标记，供 UI 横幅展示
-                runCatching {
-                    File(File(app.filesDir, "crash"), "last_crash.txt").apply { parentFile?.mkdirs() }
-                        .writeText("time=${System.currentTimeMillis()}\ntag=room-init-failed\n" +
-                            android.util.Log.getStackTraceString(t))
-                }
                 roomInitError = t.message ?: t.javaClass.name
             }
             agnes = AgnesProvider(apiKeyProvider = { keyVault.load(CONFIG_VIDEO) })
             budgetGuard = DefaultBudgetGuard()
+
+            textModelStore = com.dramafactory.app.ui.InMemoryTextModelStore(keyVault = keyVault)
+            textModelRouter = com.dramafactory.app.ui.DefaultTextModelRouter
+            com.dramafactory.app.ui.DefaultTextModelRouter.store = textModelStore
+
+            try {
+                movieAssembler = MovieAssemblerImpl(executor = androidFfmpegKitExecutor())
+            } catch (t: Throwable) {
+                Log.e("AppGraph", "movieAssembler init failed", t)
+            }
+
+            // T014：AI 全托管编排器 —— 内部用 ioScope 承载 suspend 调用
+            aiOrchestrator = DefaultAiOrchestrator(
+                createProject = { name ->
+                    val id = "p_" + System.currentTimeMillis()
+                    dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
+                        project_id = id, name = name,
+                        created_at = System.currentTimeMillis(),
+                    ))
+                    id
+                },
+                createEpisode = { projectId, scriptText ->
+                    val epId = "${projectId}_ep1"
+                    val flags = DramaDatabase.Companion.AiStageFlags
+                    val stageFlags =
+                        flags.put(flags.putBool("", flags.AI_MANAGED, true),
+                            flags.PROJECT_ID, projectId)
+                    dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
+                        episode_id = epId, project_id = projectId, ep_no = 1,
+                        script_json = scriptText,
+                        stage_flags = stageFlags,
+                    ))
+                    epId
+                },
+                checkModel = { modelId ->
+                    if (modelId.isBlank()) {
+                        dao.verifiedConfig("text")?.let { Result.success(Unit) }
+                            ?: Result.failure(
+                                com.dramafactory.core.model.ProviderError.AuthError("未验证文本模型"))
+                    } else {
+                        runCatching {
+                            runBlocking { textModelRouter.validate(modelId).getOrThrow() }
+                        }
+                    }
+                },
+                extractAssets = { text, _ ->
+                    runCatching {
+                        val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req ->
+                            agnes.chat(req)
+                        }
+                        r.assets.map { a ->
+                            DefaultAiOrchestrator.AiAsset(
+                                assetId = "a_${System.nanoTime()}",
+                                kind = a.kind, name = a.name, prompt = a.desc,
+                            )
+                        }
+                    }
+                },
+                generateImage = { asset ->
+                    runCatching {
+                        runBlocking {
+                            agnes.generateImage(
+                                com.dramafactory.core.model.ImageGenRequest(prompt = asset.prompt))
+                        }
+                    }
+                },
+                auditAsset = { _ ->
+                    Result.success(DefaultAiOrchestrator.AuditResult(passed = true))
+                },
+                generateShots = { script, _ ->
+                    runCatching {
+                        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req ->
+                            agnes.chat(req)
+                        }
+                        r.shots.map { s ->
+                            DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue)
+                        }
+                    }
+                },
+                enqueueRender = { episodeId, shots ->
+                    val metas = shots.map {
+                        com.dramafactory.core.model.ShotMeta(
+                            shotId = "${episodeId}_shot${it.shotNo}",
+                            episodeId = episodeId,
+                            prompt = it.action,
+                        )
+                    }
+                    val queue = com.dramafactory.app.ui.RenderRuntime.queueFor(episodeId)
+                    runCatching { runBlocking { queue.enqueueEpisode(episodeId, metas) } }
+                        .map { metas.size }
+                },
+                writeCheckpoint = { episodeId, stage, assetCount, shotCount, renderEnqueued, failed ->
+                    val flags = DramaDatabase.Companion.AiStageFlags
+                    var f = dao.episode(episodeId)?.stage_flags ?: "{}"
+                    f = flags.put(f, flags.LAST_SUCCESS_STAGE, stage.name)
+                    f = flags.putInt(f, flags.ASSET_COUNT, assetCount)
+                    f = flags.putInt(f, flags.SHOT_COUNT, shotCount)
+                    f = flags.putBool(f, flags.RENDER_ENQUEUED, renderEnqueued)
+                    failed?.let { f = flags.put(f, flags.FAILED_STAGE, it.name) }
+                    dao.upsertEpisode(dao.episode(episodeId)?.copy(stage_flags = f)
+                        ?: com.dramafactory.app.data.EpisodeEntity(
+                            episode_id = episodeId, project_id = "unknown",
+                            ep_no = 1, stage_flags = f,
+                        ))
+                },
+                readCheckpoint = { episodeId ->
+                    val flags = DramaDatabase.Companion.AiStageFlags
+                    val stageName = flags.getString(
+                        dao.episode(episodeId)?.stage_flags,
+                        flags.LAST_SUCCESS_STAGE)
+                    if (stageName != null) runCatching { PipelineStage5.valueOf(stageName) }.getOrNull()
+                    else null
+                },
+            )
+
             initialized = true
         }
     }
 
-    /** true=Room初始化失败，当前为空操作DAO（数据功能不可用）。UI据此显示诊断横幅。 */
+    /** T014：Room 初始化失败时的空 MovieAssembler 兜底。 */
+    private object EmptyMovieAssembler : MovieAssembler {
+        override val progress: StateFlow<MovieAssembler.MovieAssembleProgress> =
+            MutableStateFlow(MovieAssembler.MovieAssembleProgress(
+                MovieAssembler.AssembleStage.DONE, 0, 0, "empty", 0))
+        override suspend fun assemble(
+            clips: List<File>, output: File,
+            grade: MovieAssembler.ColorGradePreset,
+        ): MovieAssembler.AssembleResult =
+            MovieAssembler.AssembleResult.Failure(
+                MovieAssembler.Strategy.CONCAT_COPY, "ffmpeg-kit 未初始化，请使用云端合成")
+    }
+
     var roomInitError: String? = null; private set
 
-    /** 初始化失败兜底DAO：全部空操作，保证UI可打开、设置页可配置（数据功能提示不可用） */
     private class BrokenDramaDao : com.dramafactory.app.data.DramaDao {
         override suspend fun upsertProject(p: com.dramafactory.app.data.ProjectEntity) {}
         override suspend fun listProjects(): List<com.dramafactory.app.data.ProjectEntity> = emptyList()
@@ -130,7 +256,6 @@ object AppGraph {
         override suspend fun episodesOf(projectId: String): List<com.dramafactory.app.data.EpisodeEntity> = emptyList()
     }
 
-    /** T014：Room 初始化失败时的空操作 MovieLibraryDao 兜底（与 BrokenDramaDao 配对）。 */
     private class BrokenMovieLibraryDao : MovieLibraryDao {
         override suspend fun upsertFilmOf(film: com.dramafactory.app.data.FinishedFilmEntity): Long = 0L
         override suspend fun deleteFilmOf(episodeId: String): Int = 0
@@ -156,7 +281,6 @@ object AppGraph {
             } catch (_: Throwable) {}
         }
 
-        /** 全局未捕获异常写本地日志文件（下次启动可读，便于真机排查） */
         fun installCrashLogger(context: Context) {
             val app = context.applicationContext
             val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -166,13 +290,11 @@ object AppGraph {
             }
         }
 
-        /** 非致命异常记录到同一 crash 日志文件（不终止进程）。第八轮：拍摄闪退等UI层异常排查用 */
         fun record(context: Context, tag: String, throwable: Throwable) {
             writeCrash(context.applicationContext, "tag=$tag", throwable)
             android.util.Log.e(tag, throwable.message ?: throwable.javaClass.simpleName, throwable)
         }
 
-        /** 读取上次崩溃日志（诊断页/排查用），null=无记录 */
         fun lastCrashLog(context: Context): String? =
             runCatching { crashFile(context.applicationContext) }
                 .getOrNull()?.takeIf { it.exists() }?.readText()
