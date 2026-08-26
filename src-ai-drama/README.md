@@ -1,36 +1,65 @@
 # AI短剧工厂
 
-![version](https://img.shields.io/badge/version-1.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+![version](https://img.shields.io/badge/version-1.0.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84) ![minSdk](https://img.shields.io/badge/minSdk-26-orange)
 
-**v1.0.0 正式版** — 端侧 AI 短剧制作工具：小说/剧本 → 资产生成 → AI 分镜 → 渲染合成，全流程质量闸门管控。
+> **v1.0.0 正式版** — 端侧 AI 短剧制作工具：小说/剧本 → 资产生成 → AI 分镜 → 渲染合成，全流程质量闸门管控。
 
-- 项目地址：<https://github.com/owlco001/ai-drama-factory>
-- 许可证：[MIT](LICENSE)
+<p align="center"><img src="docs/banner.png" alt="AI短剧工厂" width="720"/></p>
 
-## 功能
+## 📱 应用截图
 
-- **项目管理**：多项目 / 多剧集（episodes），每集独立持有剧本、资产、分镜与渲染记录
-- **AI 资产提取**：大模型从小说/剧本自动提取角色、场景、道具清单（规则兜底）
-- **资产生成与编辑**：文生图 / 图生图参考图挂载；点击卡片即可编辑描述、更换参考图
-- **角色 DNA 6 姿态资产包**：正面锚点 / 45° 侧脸 / 全身骑乘 / 三种情绪特写
-- **质量闸门**（QualityEngine）：
-  - G1 文件级硬校验（格式 / 尺寸 / 正方形约束）
-  - G2 多模态质检打分，缺陷词直接拒
-- **AI 编剧 + 导演**：剧本一键拆解为镜头表，逐镜生成运镜视觉指令
-- **六铁律 + 忠实性闸门**：台词逐字校验、资产真实绑定、时间逆转词表拦截
-- **时代红线**：内置西汉末年—新莽历史约束，禁词走 negative_prompt 通道，支持按剧集放行
-- **渲染队列**：断点续传、预算熔断、防重复扣费（checkpoint 语义）
+<p align="center">
+  <img src="docs/screenshots/all.png" alt="应用截图：项目 / 资产 / 分镜 / 渲染队列" width="640"/>
+</p>
+<p align="center"><sub>项目列表 · 资产库（质量评分） · AI 分镜（编辑/删除/一键渲染） · 渲染队列</sub></p>
 
-## 架构
+## ✨ 核心特性
+
+| 模块 | 说明 |
+|---|---|
+| 📚 **项目 / 剧集管理** | 多项目多剧集，每集独立持有剧本、资产、分镜与渲染记录 |
+| 🤖 **AI 资产提取** | 大模型从小说/剧本自动提取角色、场景、道具清单，规则引擎兜底 |
+| 🎨 **资产生成与编辑** | 文生图 / 图生图；点卡片即可编辑描述、上传参考图、删除、停止生成 |
+| 👤 **角色 DNA 6 姿态** | 正面锚点 / 45° 侧脸 / 全身骑乘 / 三种情绪特写，跨镜形象锁定 |
+| 🛡 **QualityEngine 质量闸门** | G1 文件级硬校验 + G2 多模态质检打分，缺陷直接拒 |
+| 🎬 **AI 编剧 + 导演** | 剧本一键拆解镜头表，逐镜生成运镜视觉指令；分镜可编辑可删 |
+| ⚖️ **六铁律 + 忠实性闸门** | 台词逐字校验、资产真实绑定、时间逆转词表拦截 |
+| 🏛 **时代红线** | 内置西汉末年历史约束，禁词走 negative_prompt 通道（正负分离），支持按剧集放行 |
+| ▶️ **渲染队列** | 断点续传、预算熔断、防重复扣费（checkpoint 语义），一键渲染整集 |
+| 🔊 **中文配音指令** | 台词前置主导生成 prompt，成片默认中文普通话配音 |
+
+## 🔄 工作流
 
 ```
-app/           Android 壳（Compose UI + Room 持久化 + Foreground Service）
-core-engine/   纯 Kotlin 引擎（Provider 适配 / 质量闸门 / AI 编排 / 渲染队列）
+项目 → 剧集 → 导入剧本
+                  │
+                  ▼
+        ┌─ AI 提取资产（角色/场景/道具）
+        │         │
+        │         ▼
+        │   图像生成 ⇄ 编辑/参考图/6姿态
+        │         │
+        │         ▼
+        └─ AI 分镜（编剧拆镜 + 导演视觉指令）
+                  │  ← 六铁律 + 忠实性校验
+                  ▼
+            一键渲染整集 ──► 渲染队列（断点续传/预算熔断）──► 成片
 ```
 
-`core-engine` 不依赖 Android，可独立用于 JVM 服务端。
+## 🏗 架构
 
-## 构建
+```
+app/           Android 壳：Compose UI · Room 持久化 · Foreground Service
+core-engine/   纯 Kotlin 引擎：Provider 适配 · 质量闸门 · AI 编排 · 渲染队列
+```
+
+`core-engine` 不依赖 Android，可直接用于 JVM 服务端部署（Ktor 上云路径已预留）。
+
+## 📲 安装
+
+从 [Releases](https://github.com/owlco001/ai-drama-factory/releases) 下载最新 APK 直接安装（Android 8.0+）。
+
+## 🔨 构建
 
 ```bash
 ./gradlew :app:assembleDebug
@@ -38,6 +67,19 @@ core-engine/   纯 Kotlin 引擎（Provider 适配 / 质量闸门 / AI 编排 / 
 
 要求：JDK 17+，Android SDK 34。
 
+使用前在「设置」页配置 Agnes API Key（[apihub.agnes-ai.com](https://apihub.agnes-ai.com)），
+支持文本 / 图像 / 视频三通道与模型自动选择（按输入规模自动路由 512K/256K 上下文窗口）。
+
+## 🗺 路线图
+
+- [ ] C 端云服务（Ktor 后端 + 多用户账号体系）
+- [ ] 角色生成无干扰纯色背景模式
+- [ ] 成片库导出分享
+
+## 🤝 贡献
+
+欢迎 Issue 与 PR。提交前请确保 `./gradlew test` 全绿。
+
 ## License
 
-MIT — 见 [LICENSE](LICENSE)。
+[MIT](LICENSE) — 使用本项目生成的内容版权归内容创作者所有，请遵守目标平台内容规范与相关法律法规。
