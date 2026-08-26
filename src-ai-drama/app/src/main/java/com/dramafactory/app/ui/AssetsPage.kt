@@ -250,16 +250,18 @@ fun AssetsPage(
         }
 
         item {
-        // ---- 第九轮：时代红线（西汉默认，按剧集放行跨时代器物）----
+        // ---- 第九轮+第十三轮：时代红线（按剧本自动推断朝代，可按剧集放行跨时代器物）----
         val eraAllowed by vm?.allowedCrossEra?.collectAsState() ?: remember { mutableStateOf(emptyList<String>()) }
+        val eraLabel by vm?.eraLabel?.collectAsState() ?: remember { mutableStateOf("西汉末年至新莽时期（默认）") }
         if (vm != null) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("时代红线（西汉末·新莽，默认全禁）", style = MaterialTheme.typography.titleMedium)
-                    Text("默认所有现代/跨时代器物（手机/钟表/塑料/玻璃幕墙…）被禁；若剧本为穿越设定，" +
+                    Text("时代红线 · $eraLabel", style = MaterialTheme.typography.titleMedium)
+                    Text("已根据剧本自动推断时代约束；若剧本为穿越设定，" +
                             "可声明本集允许出现的跨时代器物放行。", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline)
-                    // 预设放行候选（对齐 style_cinema era.negative 中的典型穿越器物）
+                    // 预设放行候选（历史向剧本才有意义；现代/架空无禁词则隐藏）
+                    val hasForbidden = com.dramafactory.app.ui.QualityEngine.HAN_PRESET.forbiddenEraTerms.isNotEmpty()
                     val candidates = listOf("游标卡尺", "短裙", "现代招牌", "手机", "相机", "电脑")
                     val selected = remember { mutableStateOf(eraAllowed.toSet()) }
                     androidx.compose.foundation.layout.FlowRow(

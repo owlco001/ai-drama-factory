@@ -211,7 +211,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         // 第九轮：生成 prompt 折叠 era 红线约束（C）；图生图参考图作为 input_images。
         generateHandler = { card ->
             withContext(Dispatchers.IO) {
-                val preset = com.dramafactory.app.ui.QualityEngine.HAN_PRESET
+                val preset = eraPreset   // 第十三轮：按剧本推断的朝代预设
                 val basePrompt = runCatching {
                     AppGraph.text.chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
                         com.dramafactory.core.model.ChatMessage("user",
@@ -308,6 +308,16 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     /** 第九轮：本集已放行跨时代器物清单（时代红线按剧集放行） */
     private val _allowedCrossEra = kotlinx.coroutines.flow.MutableStateFlow<List<String>>(emptyList())
     val allowedCrossEra: kotlinx.coroutines.flow.StateFlow<List<String>> get() = _allowedCrossEra
+
+    /**
+     * 第十三轮：按剧本自动推断的时代预设（默认西汉，init 时 LLM/规则检测后更新）。
+     * 生成链路一律用 [eraPreset] 而非写死的 HAN_PRESET。
+     */
+    @Volatile private var eraKey: String = "han"
+    private val _eraLabel = kotlinx.coroutines.flow.MutableStateFlow("西汉末年至新莽时期（默认）")
+    val eraLabel: kotlinx.coroutines.flow.StateFlow<String> get() = _eraLabel
+    private val eraPreset: com.dramafactory.core.quality.StylePreset
+        get() = com.dramafactory.core.quality.EraDetector.presetFor(eraKey)
     /**
      * 第六轮修复（提取无反应根因）：剧本原文从 episodes.script_json 异步读取。
      * 旧实现用 `var scriptText` 普通字段，init 协程还没返回时按钮已可点击，
@@ -339,6 +349,20 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                     imageUri = e.image_uri,
                     videoUri = e.video_uri,
                     prompt = e.prompt)
+            }
+            // ★第十三轮：按剧本自动推断时代红线（LLM优先，规则兜底）
+            val scriptForEra = row?.script_json
+            if (!scriptForEra.isNullOrBlank()) {
+                val llmReady = runCatching {
+                    AppGraph.isInitialized && !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
+                }.getOrDefault(false)
+                val det = runCatching {
+                    com.dramafactory.core.quality.EraDetector.detect(scriptForEra, llmReady) { req ->
+                        AppGraph.text.chat(req)
+                    }
+                }.getOrElse { com.dramafactory.core.quality.EraDetector.Detection("han", "", false) }
+                eraKey = det.eraKey
+                _eraLabel.value = det.label + if (det.usedLlm) "" else "（规则推断）"
             }
             // ★第十一轮：回填全部已落库资产（含生成的 remote_url），重进项目不丢卡不丢图
             runCatching {
