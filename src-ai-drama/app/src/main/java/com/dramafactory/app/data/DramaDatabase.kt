@@ -138,6 +138,13 @@ data class EpisodeEntity(
     val allowed_cross_era: String = "[]",
 )
 
+/** 第十三轮：分镜预览用渲染状态投影 */
+data class RenderStateRow(
+    @ColumnInfo(name = "shot_id") val shotId: String,
+    @ColumnInfo(name = "state") val state: String,
+    @ColumnInfo(name = "local_file_uri") val localFileUri: String?,
+)
+
 /** QualityEngine 资产质量状态投影（供 UI 展示评分/拒绝原因/姿态）。 */
 data class AssetQualityRow(
     @ColumnInfo(name = "asset_id") val assetId: String = "",
@@ -205,6 +212,10 @@ interface DramaDao {
     @Query("DELETE FROM shots WHERE episode_id=:episodeId") suspend fun deleteShotsOf(episodeId: String)
     /** 第十二轮：删除单镜 */
     @Query("DELETE FROM shots WHERE shot_id=:shotId") suspend fun deleteShot(shotId: String)
+
+    /** 第十三轮：本集全部镜的渲染结果（分镜页预览用） */
+    @Query("SELECT shot_id, state, local_file_uri FROM render_tasks WHERE episode_id=:episodeId")
+    suspend fun renderStatesOf(episodeId: String): List<RenderStateRow>
     /** 第六轮：图生视频首/尾帧 + 视频参考落库 */
     @Query("UPDATE shots SET first_image_uri=:first, last_image_uri=:last WHERE shot_id=:shotId")
     suspend fun setShotKeyframes(shotId: String, first: String?, last: String?)

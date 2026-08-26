@@ -22,6 +22,8 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         val shots: List<com.dramafactory.app.data.ShotEntity> = emptyList(),
         val generating: Boolean = false,
         val message: String? = null,
+        /** 第十三轮：shotId → 已出产视频本地路径（COMPLETED且有文件） */
+        val videoUris: Map<String, String> = emptyMap(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -32,7 +34,13 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
     fun refresh() = viewModelScope.launch {
         val rows = runCatching { withContext(Dispatchers.IO) { AppGraph.dao.shotsOf(episodeId) } }
             .getOrDefault(emptyList())
-        _state.value = _state.value.copy(shots = rows)
+        // 第十三轮：拉已出产视频（COMPLETED 且本地文件存在）
+        val vids = runCatching {
+            withContext(Dispatchers.IO) { AppGraph.dao.renderStatesOf(episodeId) }
+        }.getOrDefault(emptyList())
+            .filter { it.state == "COMPLETED" && !it.localFileUri.isNullOrBlank() }
+            .associate { it.shotId to it.localFileUri!! }
+        _state.value = _state.value.copy(shots = rows, videoUris = vids)
     }
 
     /** AI 一键生成分镜（LLM 不可用时提示） */

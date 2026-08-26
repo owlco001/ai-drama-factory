@@ -48,6 +48,8 @@ fun StoryboardPage(
     var editingShotId by remember { mutableStateOf<String?>(null) }
     var confirmDeleteShotId by remember { mutableStateOf<String?>(null) }
     var queuedCount by remember { mutableStateOf<Int?>(null) }
+    // 第十三轮：分镜视频预览（非空=正在播放该本地路径）
+    var previewUri by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -126,6 +128,10 @@ fun StoryboardPage(
                     shot.carry_over?.let { Text("承接：$it", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // 第十三轮：已出产视频 → 预览入口
+                        st.videoUris[shot.shot_id]?.let { uri ->
+                            Button(onClick = { previewUri = uri }) { Text("▶ 预览") }
+                        }
                         OutlinedButton(onClick = { editingShotId = shot.shot_id }) { Text("✏ 编辑") }
                         OutlinedButton(onClick = { confirmDeleteShotId = shot.shot_id }) { Text("🗑 删除") }
                     }
@@ -172,6 +178,26 @@ fun StoryboardPage(
                 }) { Text("保存") }
             },
             dismissButton = { OutlinedButton(onClick = { editingShotId = null }) { Text("取消") } },
+        )
+    }
+
+    // ---- 第十三轮：分镜视频预览（原生VideoView，零新增依赖）----
+    previewUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { previewUri = null },
+            title = { Text("镜头预览") },
+            text = {
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        android.widget.VideoView(ctx).apply {
+                            setVideoPath(uri)
+                            setOnPreparedListener { it.isLooping = true; it.start() }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = { Button(onClick = { previewUri = null }) { Text("关闭") } },
         )
     }
 
