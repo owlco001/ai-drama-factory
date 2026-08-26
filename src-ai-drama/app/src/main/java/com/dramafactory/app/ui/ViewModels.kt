@@ -462,6 +462,14 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     }
     /** 第十一轮：停止进行中的生成 */
     fun stopGenerate(assetId: String) = logic.stopGenerate(assetId)
+
+    /** 第十二轮：批量删除资产（级联子卡），逐个清理DB */
+    fun removeBatch(assetIds: List<String>) = viewModelScope.launch {
+        val ids = logic.removeAssetsCascade(assetIds)
+        withContext(Dispatchers.IO) {
+            for (id in ids) runCatching { AppGraph.dao.deleteAsset(id) }
+        }
+    }
     fun generate(assetId: String) = viewModelScope.launch { logic.generate(assetId) }
     fun review(assetId: String, keep: Boolean) = viewModelScope.launch { logic.review(assetId, keep) }
     fun reviewAllPassed() = logic.reviewAllPassed()

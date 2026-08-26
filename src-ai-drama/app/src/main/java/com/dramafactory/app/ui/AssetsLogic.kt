@@ -274,8 +274,17 @@ class AssetsLogic {
     }
 
     /** 删除资产卡片：母卡删除时连带6姿态子卡；返回被删的id列表供DB清理 */
-    fun removeAssetCascade(assetId: String): List<String> {
-        val ids = _assets.value.filter { it.assetId == assetId || it.parentId == assetId }.map { it.assetId }
+    fun removeAssetCascade(assetId: String): List<String> = removeAssetsCascade(listOf(assetId))
+
+    /** 第十二轮：批量删除（自动扩展6姿态子卡）；返回被删的id列表供DB清理 */
+    fun removeAssetsCascade(assetIds: List<String>): List<String> {
+        if (assetIds.isEmpty()) return emptyList()
+        val want = assetIds.toSet()
+        // 母卡被选 → 其子卡一并删；子卡被选 → 只删该子卡
+        val parentIds = _assets.value.filter { it.assetId in want && it.parentId == null }.map { it.assetId }.toSet()
+        val ids = _assets.value
+            .filter { it.assetId in want || (it.parentId != null && it.parentId in parentIds) }
+            .map { it.assetId }
         _assets.value = _assets.value.filterNot { it.assetId in ids }
         return ids
     }

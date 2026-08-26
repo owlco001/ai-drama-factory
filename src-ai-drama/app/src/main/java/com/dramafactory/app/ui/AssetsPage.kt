@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,10 @@ fun AssetsPage(
     var refPickForAsset by remember { mutableStateOf<String?>(null) }
     // 第十一轮：删除资产二次确认
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
+    // 第十二轮：批量选择模式（非空集合=多选模式激活）
+    var selectionMode by remember { mutableStateOf(false) }
+    val selectedIds = remember { mutableStateOf(setOf<String>()) }
+    var confirmBatchDeleteIds by remember { mutableStateOf<List<String>?>(null) }
 
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -220,7 +225,40 @@ fun AssetsPage(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (k in AssetsLogic.Kind.entries) {
-                    FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(k.label) })
+                    FilterChip(selected = kind == k && !selectionMode,
+                        onClick = { if (!selectionMode) kind = k }, label = { Text(k.label) },
+                        enabled = !selectionMode)
+                }
+                Spacer(Modifier.weight(1f))
+                // 第十二轮：批量管理开关
+                FilterChip(selected = selectionMode,
+                    onClick = {
+                        selectionMode = !selectionMode
+                        selectedIds.value = emptySet()
+                    }, label = { Text(if (selectionMode) "退出选择" else "☑ 批量") })
+            }
+        }
+        // 多选操作栏
+        if (selectionMode) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("已选 ${selectedIds.value.size} 项",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f))
+                        OutlinedButton(onClick = {
+                            // 全选当前显示资产
+                            selectedIds.value = (assetsState?.value ?: emptyList()).map { it.assetId }.toSet()
+                        }) { Text("全选") }
+                        Button(onClick = {
+                            val ids = selectedIds.value.toList()
+                            selectedIds.value = emptySet()
+                            selectionMode = false
+                            confirmBatchDeleteIds = ids
+                        }, enabled = selectedIds.value.isNotEmpty()) { Text("🗑 删除所选") }
+                    }
                 }
             }
         }
@@ -349,7 +387,15 @@ fun AssetsPage(
                         onBuildPosePack = if (card.kind == AssetsLogic.Kind.CHARACTER && card.parentId == null) {
                             { vm.buildCharacterPosePack(card.assetId) }
                         } else null,
-                        onOpenEditor = { editingAssetId = card.assetId },
+                        onOpenEditor = {
+                            if (selectionMode) {
+                                // 多选模式：点击切换勾选
+                                selectedIds.value = if (card.assetId in selectedIds.value)
+                                    selectedIds.value - card.assetId else selectedIds.value + card.assetId
+                            } else editingAssetId = card.assetId
+                        },
+                        batchSelected = selectionMode,
+                        selected = card.assetId in selectedIds.value,
                     )
                 }
             }
@@ -448,6 +494,22 @@ fun AssetsPage(
             )
         }
 
+        // ---- 第十二轮：批量删除二次确认 ----
+        confirmBatchDeleteIds?.let { ids ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmBatchDeleteIds = null },
+                title = { Text("删除所选 ${ids.size} 项资产？") },
+                text = { Text("将同时删除关联的6姿态子卡与已生成内容，不可恢复。") },
+                confirmButton = {
+                    Button(onClick = {
+                        vm?.removeBatch(ids)
+                        confirmBatchDeleteIds = null
+                    }) { Text("删除") }
+                },
+                dismissButton = { OutlinedButton(onClick = { confirmBatchDeleteIds = null }) { Text("取消") } },
+            )
+        }
+
         // 参考图相册选择器
         val refPickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
             val assetId = refPickForAsset
@@ -474,6 +536,9 @@ fun AssetCardView(
     onBuildPosePack: (() -> Unit)? = null,
     /** 第十一轮：点击卡片进入编辑（描述/参考图上传） */
     onOpenEditor: (() -> Unit)? = null,
+    /** 第十二轮：批量选择——batchSelected=true 进入多选态；selected=本卡是否已勾选 */
+    batchSelected: Boolean = false,
+    selected: Boolean = false,
 ) {
     Card(
         onClick = { onOpenEditor?.invoke() },
@@ -481,7 +546,20 @@ fun AssetCardView(
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             // 第八轮：资产缩略图预览（本地 imageUri / 生成 remoteUrl），无图/失败有占位
-            AssetThumb(card)
+            Box {
+                AssetThumb(card)
+                if (batchSelected) {
+                    Box(Modifier.size(22.dp).align(Alignment.TopEnd)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                            RoundedCornerShape(6.dp))
+                        .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)),
+                        contentAlignment = Alignment.Center) {
+                        if (selected) Text("✓", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(card.prompt, style = MaterialTheme.typography.bodyMedium)
