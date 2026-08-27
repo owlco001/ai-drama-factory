@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.4.8"  // v1.4.8: AI模式可切标签+开工同步导航+进度流可见
+        versionCode = 17
+        versionName = "1.4.9"  // v1.4.9: 流水线文字模型走TextModelRouter(DeepSeek)，Agnes只管视频/图像
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

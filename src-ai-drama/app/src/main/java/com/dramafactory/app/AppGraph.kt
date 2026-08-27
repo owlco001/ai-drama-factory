@@ -168,8 +168,10 @@ object AppGraph {
                 },
                 extractAssets = { text, _ ->
                     runCatching {
+                        // 文字模型走用户自选(DeepSeek等)，不再硬编码 Agnes
+                        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
                         val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req ->
-                            agnes.chat(req)
+                            tp.chat(req)
                         }
                         r.assets.map { a ->
                             DefaultAiOrchestrator.AiAsset(
@@ -204,8 +206,10 @@ object AppGraph {
                 },
                 generateShots = { script, _ ->
                     runCatching {
+                        // 文字模型走用户自选(DeepSeek等)
+                        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
                         val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req ->
-                            agnes.chat(req)
+                            tp.chat(req)
                         }
                         r.shots.map { s ->
                             DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue)
