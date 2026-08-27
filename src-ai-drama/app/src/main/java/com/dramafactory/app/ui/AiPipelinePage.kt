@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -81,17 +82,24 @@ class AiPipelineViewModel : ViewModel() {
     var isThinking by mutableStateOf(false)
         private set
 
-    /** 进入 AI 模式：用当前激活模型初始化智能体 */
+    /** 进入 AI 模式：用当前激活模型初始化智能体（异步，避免主线程网络） */
     fun initAgent() {
-        if (agent != null) return
-        buildAgent()
+        if (agent != null || _agentBuilding) return
+        _agentBuilding = true
+        viewModelScope.launch {
+            runCatching { buildAgent() }
+            _agentBuilding = false
+        }
     }
 
-    /** 切换模型后重建智能体（保留历史 UI 由调用方决定是否清空） */
+    /** 切换模型后重建智能体（异步） */
     fun reinitAgent() {
         agent = null
-        buildAgent()
+        _agentBuilding = false
+        initAgent()
     }
+
+    private var _agentBuilding = false
 
     /** 切换模型（suspend 包一层） */
     fun viewModelScopeSafeSetModel(modelId: String) {
@@ -100,10 +108,10 @@ class AiPipelineViewModel : ViewModel() {
         }
     }
 
-    private fun buildAgent() {
+    private suspend fun buildAgent() {
         val router = com.dramafactory.app.AppGraph.textModelRouter
         val modelId = router.activeTextModelId()
-        val provider = kotlinx.coroutines.runBlocking { router.resolve(modelId) }
+        val provider = router.resolve(modelId)  // 已在 viewModelScope，挂起安全
         agent = AiAgent(textProvider = provider, modelId = modelId)
         val welcome = DialogueTurn(DialogueTurn.Side.AI,
             "嗨，我是你的短剧编剧导演搭档 🎬 把小说/剧本粘给我，或者聊聊你的想法，咱们边聊边理清风格，聊好了你说「开工」我就动手。")
@@ -112,7 +120,11 @@ class AiPipelineViewModel : ViewModel() {
 
     /** 用户发送一句话（智能体式自由对话） */
     fun sendUserMessage(text: String) {
-        val a = agent ?: return
+        if (agent == null) {
+            statusMsg = "⏳ 智能体初始化中，稍等…"
+            return
+        }
+        val a = agent!!
         if (text.isBlank() || isThinking) return
         viewModelScope.launch {
             isThinking = true
@@ -236,6 +248,17 @@ fun AiPipelinePage(onBack: () -> Unit) {
             }
         }
 
+        // 状态提示（初始化中/错误等）
+        vm.statusMsg?.let {
+            Surface(tonalElevation = 1.dp, shape = RoundedCornerShape(10.dp),
+                color = if (it.startsWith("✅")) MaterialTheme.colorScheme.primaryContainer
+                        else if (it.startsWith("❌") || it.startsWith("⚠️")) Color(0x1AFF0000)
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()) {
+                Text(it, Modifier.padding(8.dp, 6.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
         // 对话区
         if (!running) {
             LazyColumn(
@@ -243,7 +266,7 @@ fun AiPipelinePage(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                items(history, key = { "${it.side.name}_${history.indexOf(it)}_${it.content.take(8)}" }) { turn ->
+                itemsIndexed(history, key = { index, _ -> "turn_$index" }) { _, turn ->
                     ChatBubble(turn)
                 }
                 if (thinking) item { ThinkingBubble() }
@@ -412,7 +435,7 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit)
             item { Text("等待启动…", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(16.dp),
                 color = MaterialTheme.colorScheme.outline) }
         }
-        items(events, key = { "${it.stage.ordinal}_${it.elapsedMs}_${it.subStep}" }) { ev ->
+        items(events, key = { "ev_${it.stage.ordinal}_${it.subStep}_${it.elapsedMs}" }) { ev ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // 阶段序号圆

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.4.4"  // v1.4.4: 修开工闪退+回车发送+AI自动开工(大脑控制APP)
+        versionCode = 13
+        versionName = "1.4.5"  // v1.4.5: 修聊天闪退(主线程网络/key碰撞)+状态提示
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }
