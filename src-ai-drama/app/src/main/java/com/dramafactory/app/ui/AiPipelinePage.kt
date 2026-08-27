@@ -56,7 +56,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dramafactory.core.orchestrate.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * T014 任务2：AI 模式流式对话页面。
@@ -108,14 +110,47 @@ class AiPipelineViewModel : ViewModel() {
         }
     }
 
+    private var _currentProjectId: String? = null
+    private var _currentEpisodeId: String? = null
+
     private suspend fun buildAgent() {
         val router = com.dramafactory.app.AppGraph.textModelRouter
         val modelId = router.activeTextModelId()
         val provider = router.resolve(modelId)  // 已在 viewModelScope，挂起安全
-        agent = AiAgent(textProvider = provider, modelId = modelId)
+        agent = AiAgent(
+            textProvider = provider,
+            modelId = modelId,
+            actionHandler = { act -> handleAction(act) },
+        )
         val welcome = DialogueTurn(DialogueTurn.Side.AI,
             "嗨，我是你的短剧编剧导演搭档 🎬 把小说/剧本粘给我，或者聊聊你的想法，咱们边聊边理清风格，聊好了你说「开工」我就动手。")
         historyFlow.value = listOf(welcome)
+    }
+
+    /** AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行） */
+    private suspend fun handleAction(act: ActionIntent): String? {
+        return when (act.verb) {
+            "set_cross_era" -> {
+                val proj = _currentProjectId ?: return "（还没有项目，先开工建项目后再设时代红线）"
+                val epId = "${proj}_ep1"
+                val allowed = act.paramList("allowed")
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.dramafactory.app.AppGraph.dao.setEpisodeAllowedCrossEra(epId,
+                        "[" + allowed.joinToString(",") { "\"$it\"" } + "]")
+                }
+                "已放开跨时代器物：${allowed.joinToString("、")}"
+            }
+            "list_assets" -> {
+                val ep = _currentEpisodeId ?: return "（还没有项目，先开工建项目）"
+                val shots = withContext(kotlinx.coroutines.Dispatchers.IO) { com.dramafactory.app.AppGraph.dao.shotsOf(ep) }
+                if (shots.isEmpty()) "（当前项目还没有分镜/资产）" else "当前项目共 ${shots.size} 镜"
+            }
+            "generate" -> {
+                val id = act.param("assetId") ?: return null
+                "（生成 $id 需在资产页操作，AI模式暂不支持直接重生成）"
+            }
+            else -> null
+        }
     }
 
     /** 用户发送一句话（智能体式自由对话） */
@@ -158,7 +193,13 @@ class AiPipelineViewModel : ViewModel() {
             statusMsg = "❌ 剧本太短（需≥100字），先多聊点或者粘入文本"
             return
         }
-        launchPipeline(script, null, onAutoCreated, onFinish)
+        launchPipeline(script, null,
+            onAutoCreated = { p, e ->
+                _currentProjectId = p
+                _currentEpisodeId = e
+                onAutoCreated(p, e)
+            },
+            onFinish = onFinish)
     }
 
     /** 从对话进流水线（UI 按钮调用） */

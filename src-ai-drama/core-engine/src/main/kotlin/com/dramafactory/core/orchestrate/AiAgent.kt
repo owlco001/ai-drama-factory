@@ -11,13 +11,18 @@ import com.dramafactory.core.provider.TextProvider
  *   - 系统 prompt 定义人设（短剧编剧导演智能体）
  *   - 多轮 messages 维持上下文
  *   - 用户自由输入，AI 自由回应、主动追问、澄清需求
- *   - 用户说"开始/开工/生成"或点 UI 按钮时，把累积的 [scriptDraft] + 对话摘要送编排器
+ *   - 用户说"开始/开工/生成"时进流水线（见 AiPipelineViewModel）
+ *
+ * 大脑控制 APP：AI 在回复里可附 [ACT] 标记调用本地能力（如放开时代红线、
+ * 删资产、改描述），由 actionHandler 在端侧执行并回显，用户无感。
  *
  * 模型无关：TextProvider 由调用方注入（App 走 TextModelRouter 让用户自选）。
  */
 class AiAgent(
     private val textProvider: TextProvider,
     private val modelId: String,
+    /** 本地动作执行器（挂起）：收到 ActionIntent 返回一句话执行结果（用于回显）；返回 null 表示无法执行 */
+    private val actionHandler: suspend (ActionIntent) -> String? = { null },
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val systemPrompt = buildString {
@@ -26,7 +31,13 @@ class AiAgent(
         append("1) 主动澄清关键创作要素：时代背景、视觉风格、主要角色数、情绪基调、是否要配音；\n")
         append("2) 给出专业建议（如分镜节奏、角色一致性），但尊重用户最终决定；\n")
         append("3) 当用户说「开始/开工/生成/成片」或明确表示要动手时，确认要素齐了就回应「好的，这就开工」。\n")
-        append("用中文、口语化、像真人搭档聊天，不要列点式官腔。每次回复控制在一两段内。")
+        append("用中文、口语化、像真人搭档聊天，不要列点式官腔。每次回复控制在一两段内。\n\n")
+        append("【控制本软件】需要真正修改项目时（如放开时代红线、删除/编辑资产、重生成某张图），")
+        append("在回复正文之后另起一行附机器指令，格式：\n")
+        append("  [ACT] <动作> | 参数=值 | 参数=值\n")
+        append("已知动作：${KNOWN_ACTIONS.joinToString(", ")}。\n")
+        append("例：放开跨时代器物 → 正文后加 \"[ACT] set_cross_era | allowed=手机,眼镜\"。")
+        append("不要编造不存在的 assetId/characterId；拿不准就先问用户要资产名。")
     }
 
     private val _messages = mutableListOf<ChatMessage>(
@@ -56,14 +67,38 @@ class AiAgent(
         val resp = textProvider.chat(
             ChatRequest(messages = _messages.toList(), model = modelId, temperature = 0.8),
         )
-        val aiText = resp.content.ifBlank { "（AI 没有回复，请重试）" }
-        lastAiText = aiText
-        _history.add(DialogueTurn(DialogueTurn.Side.AI, aiText, nowMs()))
-        _messages.add(ChatMessage(role = "assistant", content = aiText))
-        return aiText
+        val raw = resp.content.ifBlank { "（AI 没有回复，请重试）" }
+        lastAiText = raw
+
+        // 抽取 [ACT] 指令，剥离展示文本，逐条执行并回显
+        val actions = parseActions(raw)
+        val displayText = stripActions(raw)
+        val execNotes = mutableListOf<String>()
+        for (act in actions) {
+            runCatching { actionHandler(act) }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { execNotes.add(it) }
+        }
+        val finalText = if (execNotes.isNotEmpty()) {
+            buildString {
+                append(displayText)
+                if (displayText.isNotBlank()) append("\n")
+                append("（已为你执行：${execNotes.joinToString("；")}）")
+            }
+        } else displayText
+
+        _history.add(DialogueTurn(DialogueTurn.Side.AI, finalText, nowMs()))
+        _messages.add(ChatMessage(role = "assistant", content = raw)) // 上下文保留原始（含[ACT]），便于多轮连贯
+        return finalText
     }
 
-    /** 最近一次 AI 回复文本（用于意图识别） */
+    /** 从展示文本里剥掉 [ACT] 行 */
+    private fun stripActions(text: String): String =
+        text.lines().filter { !it.trim().startsWith(ActionIntent.MARK) }
+            .joinToString("\n").trimEnd()
+
+    /** 最近一次 AI 原始回复文本（用于意图识别） */
     var lastAiText: String = ""
         private set
 

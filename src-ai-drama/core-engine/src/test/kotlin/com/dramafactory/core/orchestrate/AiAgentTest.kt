@@ -58,4 +58,32 @@ class AiAgentTest {
         assertTrue(agent.messages.first().role == "system")
         assertTrue(agent.messages.first().content.contains("编剧导演"))
     }
+
+    @Test
+    fun `AI回复带ACT被剥离且handler执行回显`() = runBlocking {
+        // 固定回复：正文 + [ACT] 指令
+        val provider = object : TextProvider {
+            override val id = "fake2"
+            override suspend fun chat(req: ChatRequest): ChatResponse =
+                ChatResponse(content = "好的，已为你放开现代器物限制。\n[ACT] set_cross_era | allowed=手机,眼镜,手表", raw = "{}")
+        }
+        var handled: String? = null
+        val agent = AiAgent(
+            textProvider = provider, modelId = "fake",
+            actionHandler = { act ->
+                if (act.verb == "set_cross_era") "已放开：${act.paramList("allowed").joinToString("、")}" else null
+            },
+        )
+        val out = agent.say("放开跨时代器物吧")
+        assertTrue(out.contains("好的，已为你放开"), "展示文本保留正文: $out")
+        assertTrue(!out.contains("[ACT]"), "展示文本不应含[ACT]标记: $out")
+        assertTrue(out.contains("已放开：手机、眼镜、手表"), "应回显执行结果: $out")
+    }
+
+    @Test
+    fun `无ACT时回复原样展示`() = runBlocking {
+        val agent = AiAgent(textProvider = FakeAgentProvider(), modelId = "fake")
+        val out = agent.say("随便聊聊想法")
+        assertTrue(out.startsWith("收到："), "无ACT时应原样展示: $out")
+    }
 }
