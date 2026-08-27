@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.4.6"  // v1.4.6: 聊天闪退修复+AI大脑细粒度控APP([ACT]指令引擎)
+        versionCode = 15
+        versionName = "1.4.7"  // v1.4.7: AI模式跑完自动渲染+合成成片+成品展示
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

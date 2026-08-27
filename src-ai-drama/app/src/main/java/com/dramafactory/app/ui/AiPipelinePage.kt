@@ -39,6 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.LinearLayout
+import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -229,6 +232,9 @@ class AiPipelineViewModel : ViewModel() {
         }
     }
 
+    var finishedFilmPath: String? = null
+        private set
+
     private fun launchPipeline(
         script: String,
         brief: Brief?,
@@ -236,6 +242,7 @@ class AiPipelineViewModel : ViewModel() {
         onFinish: (String?) -> Unit,
     ) {
         isRunning = true
+        finishedFilmPath = null
         viewModelScope.launch {
             val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
             val res = orchestrator.run(script, brief = brief, onAutoCreatedProject = onAutoCreated)
@@ -244,6 +251,8 @@ class AiPipelineViewModel : ViewModel() {
                 else "⚠️ 流水线异常：" + run.errors.firstOrNull()?.msg
                 finishedEpId = run.episodeId.takeIf { it.isNotBlank() }
                 onFinish(finishedEpId)
+                // 自动接力：等渲染完成 → 合成成片 → 展示
+                if (finishedEpId != null) pollRenderAndCompose(finishedEpId!!)
             }.onFailure { e ->
                 statusMsg = when (e) {
                     is AiOrchestrator.AiError.InputTooShort -> "❌ 文本太短：" + e.msg
@@ -254,6 +263,32 @@ class AiPipelineViewModel : ViewModel() {
             }
             isRunning = false
         }
+    }
+
+    /** 轮询渲染进度，全部完成则自动合成成片（最多约3分钟） */
+    private suspend fun pollRenderAndCompose(episodeId: String) {
+        val dao = com.dramafactory.app.AppGraph.dao
+        val ctx = com.dramafactory.app.AppGraph.appContext() ?: return
+        repeat(60) { i ->
+            val tasks = runCatching { dao.renderTasksOf(episodeId) }.getOrNull() ?: emptyList()
+            val total = tasks.size
+            val done = tasks.count { it.state == "COMPLETED" }
+            statusMsg = if (total == 0) "⏳ 渲染任务准备中…"
+            else "🎬 渲染中 $done/$total 镜…"
+            if (total > 0 && done >= total) {
+                statusMsg = "🎬 渲染完成，正在合成成片…"
+                val file = runCatching { com.dramafactory.app.AppGraph.composeFilmIfReady(episodeId, ctx) }.getOrNull()
+                if (file != null) {
+                    finishedFilmPath = file.absolutePath
+                    statusMsg = "✅ 成片已生成，可播放/分享"
+                } else {
+                    statusMsg = "✅ 渲染完成，但暂无可用视频片段合成（检查视频生成 key）"
+                }
+                return
+            }
+            kotlinx.coroutines.delay(3000)
+        }
+        statusMsg = "⏳ 渲染超时（3分钟未完成），可稍后到「成片库」手动合成"
     }
 }
 
@@ -518,6 +553,43 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit)
     }
     if (vm.finishedEpId != null) {
         Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("去分镜页查看 →") }
+    }
+    // 成品展示：成片就绪直接内嵌播放器
+    vm.finishedFilmPath?.let { path ->
+        Surface(tonalElevation = 2.dp, shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🎬 成品成片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                AndroidView(
+                    factory = { ctx ->
+                        android.widget.VideoView(ctx).apply {
+                            setVideoPath(path)
+                            setOnPreparedListener { it.isLooping = true; start() }
+                            layoutParams = android.widget.LinearLayout.LayoutParams(
+                                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                                (220 * ctx.resources.displayMetrics.density).toInt())
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        val ctx = com.dramafactory.app.AppGraph.appContext()
+                        ctx?.let {
+                            val f = java.io.File(path)
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                it, it.packageName + ".fileprovider", f)
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "video/mp4")
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            it.startActivity(android.content.Intent.createChooser(intent, "播放成片"))
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text("▶ 播放") }
+                    OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("去成片库") }
+                }
+            }
+        }
     }
 }
 

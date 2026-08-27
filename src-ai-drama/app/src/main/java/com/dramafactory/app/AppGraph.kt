@@ -52,6 +52,46 @@ object AppGraph {
     @Volatile private var initialized = false
     @Volatile private var appContextRef: Context? = null
     fun appContext(): Context? = appContextRef
+
+    /**
+     * 自动合成成片：查询该集 COMPLETED 且已落盘的视频镜，ffmpeg 拼装为 mp4。
+     * 返回成片 File；无可用镜头/合成失败返回 null。
+     * 复用成片库(S7)逻辑，供 AI 模式跑完自动产出成品展示。
+     */
+    suspend fun composeFilmIfReady(episodeId: String, ctx: Context): java.io.File? {
+        val composer = movieAssembler
+        if (composer is EmptyMovieAssembler) return null
+        return runCatching {
+            val tasks = dao.renderTasksOf(episodeId)
+                .filter { it.state == "COMPLETED" && !it.local_file_uri.isNullOrBlank() }
+                .sortedBy { it.shot_id }
+            val clips = tasks.mapNotNull { java.io.File(it.local_file_uri ?: "") }
+                .filter { it.exists() && it.length() > 0L }
+            if (clips.isEmpty()) return@runCatching null
+            val outDir = java.io.File(ctx.cacheDir, "movies")
+            if (!outDir.exists()) outDir.mkdirs()
+            val out = java.io.File(outDir, "$episodeId.mp4")
+            val res = composer.assemble(clips, out)
+            when (res) {
+                is com.dramafactory.core.assemble.MovieAssembler.AssembleResult.Success -> {
+                    if (res.output.exists()) {
+                        runCatching {
+                            movieLibraryDao.upsertFilmOf(
+                                com.dramafactory.app.data.FinishedFilmEntity(
+                                    film_id = episodeId, episode_id = episodeId,
+                                    project_id = episodeId.substringBefore("_ep"),
+                                    filePath = out.absolutePath, fileSize = out.length(),
+                                    durationMs = (res.durationSeconds * 1000).toLong(),
+                                    createdAt = System.currentTimeMillis(),
+                                ))
+                        }
+                        out
+                    } else null
+                }
+                else -> null
+            }
+        }.getOrNull()
+    }
     val isInitialized: Boolean get() = initialized
 
     private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
