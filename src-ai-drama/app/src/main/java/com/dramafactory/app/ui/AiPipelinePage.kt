@@ -291,13 +291,16 @@ class AiPipelineViewModel : ViewModel() {
                 onAutoCreatedCallback?.invoke(p, e)
             })
             res.onSuccess { run ->
+                android.util.Log.d("DramaAI", "run onSuccess ep=${run.episodeId} success=${run.success} errs=${run.errors.size}")
                 statusMsg = if (run.success) "✅ 全流程完成，共 ${run.errors.size} 条异常"
                 else "⚠️ 流水线异常：" + run.errors.firstOrNull()?.msg
                 finishedEpId = run.episodeId.takeIf { it.isNotBlank() }
                 onFinish(finishedEpId)
                 // 自动接力：等渲染完成 → 合成成片 → 展示
                 if (finishedEpId != null) pollRenderAndCompose(finishedEpId!!)
+                else android.util.Log.w("DramaAI", "finishedEpId 为空，未启动渲染轮询")
             }.onFailure { e ->
+                android.util.Log.e("DramaAI", "run onFailure", e)
                 statusMsg = when (e) {
                     is AiOrchestrator.AiError.InputTooShort -> "❌ 文本太短：" + e.msg
                     is AiOrchestrator.AiError.ModelBlocked -> "❌ 模型不可用（${e.modelId}）：" + e.msg
@@ -312,16 +315,21 @@ class AiPipelineViewModel : ViewModel() {
     /** 轮询渲染进度，全部完成则自动合成成片（最多约3分钟） */
     private suspend fun pollRenderAndCompose(episodeId: String) {
         val dao = com.dramafactory.app.AppGraph.dao
-        val ctx = com.dramafactory.app.AppGraph.appContext() ?: return
+        val ctx = com.dramafactory.app.AppGraph.appContext()
+        android.util.Log.d("DramaAI", "pollRenderAndCompose start ep=$episodeId ctx=${ctx != null}")
         repeat(60) { i ->
             val tasks = runCatching { dao.renderTasksOf(episodeId) }.getOrNull() ?: emptyList()
             val total = tasks.size
             val done = tasks.count { it.state == "COMPLETED" }
+            android.util.Log.d("DramaAI", "poll#$i ep=$episodeId total=$total done=$done")
             statusMsg = if (total == 0) "⏳ 渲染任务准备中…"
             else "🎬 渲染中 $done/$total 镜…"
             if (total > 0 && done >= total) {
                 statusMsg = "🎬 渲染完成，正在合成成片…"
-                val file = runCatching { com.dramafactory.app.AppGraph.composeFilmIfReady(episodeId, ctx) }.getOrNull()
+                val file = if (ctx != null) {
+                    runCatching { com.dramafactory.app.AppGraph.composeFilmIfReady(episodeId, ctx) }.getOrNull()
+                } else null
+                android.util.Log.d("DramaAI", "compose result=${file?.absolutePath}")
                 if (file != null) {
                     finishedFilmPath = file.absolutePath
                     statusMsg = "✅ 成片已生成，可播放/分享"
@@ -601,7 +609,11 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
         }
     }
     if (vm.finishedEpId != null) {
-        Button(onClick = { onNavigate(Page.STORYBOARD) }, modifier = Modifier.fillMaxWidth()) { Text("去分镜页查看 →") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onNavigate(Page.ASSETS) }, modifier = Modifier.weight(1f)) { Text("🎨 资产库") }
+            Button(onClick = { onNavigate(Page.STORYBOARD) }, modifier = Modifier.weight(1f)) { Text("🎬 分镜") }
+            Button(onClick = { onNavigate(Page.LIBRARY) }, modifier = Modifier.weight(1f)) { Text("📽 成片库") }
+        }
     }
     // 成品展示：成片就绪直接内嵌播放器
     vm.finishedFilmPath?.let { path ->

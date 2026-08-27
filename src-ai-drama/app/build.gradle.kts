@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 18
-        versionName = "1.5.0"  // v1.5.0: AI大脑[ACT]全粒度控(删除/编辑/停止/过审/姿态包/列出资产)
+        versionCode = 19
+        versionName = "1.5.1"  // v1.5.1: 修复AI模式开工后"无展示"：pollRender不再因ctx提前return+finishedEpId回显+退出重进恢复nav+成片三按钮
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

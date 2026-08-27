@@ -121,6 +121,15 @@ fun DramaApp() {
     var mode by remember { mutableStateOf(prefs.getString("mode", "manual") ?: "manual") }
     if (!splashDone) { SplashScreen(onDone = { splashDone = true }); return }
     val nav = remember { AppNavState() }
+    // 退出重进恢复：记住上次 AI/手动模式的项目上下文，避免"什么都没有"
+    LaunchedEffect(Unit) {
+        val lastPid = prefs.getString("last_pid", null)
+        val lastEp = prefs.getString("last_ep", null)
+        if (lastPid != null) {
+            nav.currentProjectId = lastPid
+            nav.currentEpisodeId = lastEp ?: "${lastPid}_ep1"
+        }
+    }
     var page by remember { mutableStateOf(Page.PROJECTS) }
 
     // ★第五轮修复：Android 13+ 渲染触发前必须授予POST_NOTIFICATIONS，否则前台服务通知
@@ -197,12 +206,17 @@ fun DramaApp() {
                             onNavigate = { target ->
                                 mode = "manual"
                                 prefs.edit().putString("mode", "manual").apply()
+                                // 记住上下文，退出重进可恢复
+                                nav.currentProjectId?.let { prefs.edit().putString("last_pid", it).apply() }
+                                prefs.edit().putString("last_ep", nav.currentEpisodeId).apply()
                                 page = target
                             },
                             onAutoCreated = { pid, epId ->
                                 nav.currentProjectId = pid
                                 nav.currentProjectName = null
                                 nav.currentEpisodeId = epId
+                                prefs.edit().putString("last_pid", pid).apply()
+                                prefs.edit().putString("last_ep", epId).apply()
                             },
                         )
                         else -> when (page) {
