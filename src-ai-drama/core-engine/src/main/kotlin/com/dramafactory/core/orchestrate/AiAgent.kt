@@ -57,9 +57,23 @@ class AiAgent(
             ChatRequest(messages = _messages.toList(), model = modelId, temperature = 0.8),
         )
         val aiText = resp.content.ifBlank { "（AI 没有回复，请重试）" }
+        lastAiText = aiText
         _history.add(DialogueTurn(DialogueTurn.Side.AI, aiText, nowMs()))
         _messages.add(ChatMessage(role = "assistant", content = aiText))
         return aiText
+    }
+
+    /** 最近一次 AI 回复文本（用于意图识别） */
+    var lastAiText: String = ""
+        private set
+
+    /** AI 是否表达要开工/生成（大脑控制 APP：识别意图自动进流水线） */
+    fun lastAiWantsGenerate(): Boolean {
+        val t = lastAiText
+        if (t.isBlank()) return false
+        return t.contains("开工") || t.contains("生成") || t.contains("开始做") ||
+            t.contains("这就干") || t.contains("开始生成") || t.contains("我来弄") ||
+            t.contains("直接做") || t.contains("开始吧") || t.contains("动手")
     }
 
     /** 是否已具备开工条件（有剧本 + 对话非空） */

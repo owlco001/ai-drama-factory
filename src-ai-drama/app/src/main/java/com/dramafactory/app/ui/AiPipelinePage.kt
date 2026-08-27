@@ -40,6 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -115,6 +120,12 @@ class AiPipelineViewModel : ViewModel() {
                 .onSuccess {
                     historyFlow.value = a.history
                     canGenerateFlow.value = a.canGenerate()
+                    // 大脑控制 APP：AI 主动说要开工，自动进流水线
+                    if (a.lastAiWantsGenerate()) {
+                        isThinking = false
+                        triggerGenerateFromAgent()
+                        return@launch
+                    }
                 }
                 .onFailure { e ->
                     historyFlow.value = a.history + DialogueTurn(DialogueTurn.Side.AI,
@@ -124,8 +135,8 @@ class AiPipelineViewModel : ViewModel() {
         }
     }
 
-    /** 从对话进流水线（用累积剧本/对话作为 script） */
-    fun generateFromAgent(
+    /** AI 说要开工时自动触发（UI 层观察到 running 变化） */
+    fun triggerGenerateFromAgent(
         onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
         onFinish: (episodeId: String?) -> Unit = {},
     ) {
@@ -138,6 +149,14 @@ class AiPipelineViewModel : ViewModel() {
         launchPipeline(script, null, onAutoCreated, onFinish)
     }
 
+    /** 从对话进流水线（UI 按钮调用） */
+    fun generateFromAgent(
+        onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
+        onFinish: (episodeId: String?) -> Unit = {},
+    ) {
+        triggerGenerateFromAgent(onAutoCreated, onFinish)
+    }
+
     /** 跳过对话直接成片（手动粘文本） */
     fun skipAndRun(
         script: String,
@@ -147,16 +166,23 @@ class AiPipelineViewModel : ViewModel() {
         launchPipeline(script, null, onAutoCreated, onFinish)
     }
 
+    var isRunning by mutableStateOf(false)
+        private set
+
+    init {
+        // 一次性收集编排器事件流（避免多次 collect 同一 StateFlow 抛异常）
+        viewModelScope.launch {
+            com.dramafactory.app.AppGraph.aiOrchestrator.events.collect { pipelineEvents = it }
+        }
+    }
+
     private fun launchPipeline(
         script: String,
         brief: Brief?,
         onAutoCreated: (String, String) -> Unit,
         onFinish: (String?) -> Unit,
     ) {
-        viewModelScope.launch {
-            val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
-            orchestrator.events.collect { pipelineEvents = it }
-        }
+        isRunning = true
         viewModelScope.launch {
             val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
             val res = orchestrator.run(script, brief = brief, onAutoCreatedProject = onAutoCreated)
@@ -173,6 +199,7 @@ class AiPipelineViewModel : ViewModel() {
                 }
                 onFinish(null)
             }
+            isRunning = false
         }
     }
 }
@@ -181,10 +208,10 @@ class AiPipelineViewModel : ViewModel() {
 fun AiPipelinePage(onBack: () -> Unit) {
     val vm = viewModel<AiPipelineViewModel>()
     var userInput by remember { mutableStateOf("") }
-    var running by remember { mutableStateOf(false) }
     val history by vm.historyFlow.collectAsState()
     val canGenerate by vm.canGenerateFlow.collectAsState()
     val thinking = vm.isThinking
+    val running = vm.isRunning
 
     LaunchedEffect(Unit) { vm.initAgent() }
 
@@ -231,8 +258,14 @@ fun AiPipelinePage(onBack: () -> Unit) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = userInput, onValueChange = { userInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("跟 AI 聊聊剧本/想法，或直接粘贴文本…") },
+                        modifier = Modifier.fillMaxWidth()
+                            .onKeyEvent { ev ->
+                                if (ev.type == KeyEventType.KeyUp && ev.key == Key.Enter) {
+                                    if (userInput.isNotBlank() && !thinking) { vm.sendUserMessage(userInput); userInput = "" }
+                                    true
+                                } else false
+                            },
+                        placeholder = { Text("跟 AI 聊聊剧本/想法，或直接粘贴文本…（回车发送）") },
                         minLines = 2, maxLines = 5,
                         shape = RoundedCornerShape(12.dp),
                     )
@@ -245,7 +278,7 @@ fun AiPipelinePage(onBack: () -> Unit) {
                             Text("发送")
                         }
                         Button(
-                            onClick = { running = true; vm.generateFromAgent(onFinish = {}) },
+                            onClick = { vm.generateFromAgent(onFinish = {}) },
                             enabled = canGenerate && !thinking,
                             modifier = Modifier.weight(1f),
                         ) {
