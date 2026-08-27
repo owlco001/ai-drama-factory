@@ -15,18 +15,37 @@ class BriefDialogueTest {
 
     private fun fresh() = BriefDialogue(maxRounds = 6, nowMs = { 0L })
 
-    @Test fun `start 进入问询并问出第一个问题`() {
+    @Test fun `start 进入问询并先问剧本`() {
         val d = fresh()
-        d.start("东汉末年，群雄并起……（长文本）")
+        d.start()
         assertEquals(BriefState.QUESTIONING, d.state.value)
         assertNotNull(d.nextQuestion.value)
-        assertTrue(d.nextQuestion.value!!.contains("时代"))
+        assertTrue(d.nextQuestion.value!!.contains("剧本"))
         assertTrue(d.history.value.any { it.side == DialogueTurn.Side.AI })
+    }
+
+    @Test fun `剧本太短被驳回继续问剧本`() {
+        val d = fresh()
+        d.start()
+        d.onAnswer(BriefField.SCRIPT, "太短了")
+        assertEquals(BriefState.QUESTIONING, d.state.value)
+        assertTrue(d.nextQuestion.value!!.contains("100"))
+        assertEquals(0, d.brief.value.rawScript.length)
+    }
+
+    @Test fun `粘入足够长剧本后转问时代`() {
+        val d = fresh()
+        d.start()
+        d.onAnswer(BriefField.SCRIPT, "东汉末年群雄并起天下大乱英雄辈出故事绵延百年权谋争斗不断上演于此江湖朝堂风云变幻英雄落寞美人迟暮。".repeat(3))
+        assertEquals(BriefState.QUESTIONING, d.state.value)
+        assertTrue(d.nextQuestion.value!!.contains("时代"))
+        assertTrue(d.brief.value.rawScript.length >= 100)
     }
 
     @Test fun `完整5问流程推进到 ANSWERED`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
+        d.onAnswer(BriefField.SCRIPT, "东汉末年群雄并起天下大乱英雄辈出故事绵延百年权谋争斗不断上演于此江湖朝堂风云变幻英雄落寞美人迟暮。".repeat(3))
         d.onAnswer(BriefField.ERA, "东汉")
         d.onAnswer(BriefField.STYLE, "cinematic")
         d.onAnswer(BriefField.CHARACTER_COUNT, "4")
@@ -43,7 +62,7 @@ class BriefDialogueTest {
 
     @Test fun `用户自由补充进入 customNotes`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
         d.onUserNote("男主是哑巴，关键情节用手语")
         assertTrue(d.brief.value.customNotes.contains("手语"))
         // 历史里能看到用户补充 turn
@@ -52,7 +71,7 @@ class BriefDialogueTest {
 
     @Test fun `回答后不再重复问已填字段`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
         d.onAnswer(BriefField.ERA, "唐")
         // 下一个问题不应再含"时代"
         assertFalse(d.nextQuestion.value!!.contains("时代"))
@@ -61,7 +80,7 @@ class BriefDialogueTest {
 
     @Test fun `confirm 进入 CONFIRMED`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
         d.onAnswer(BriefField.ERA, "明")
         d.onAnswer(BriefField.STYLE, "noir")
         d.onAnswer(BriefField.CHARACTER_COUNT, "3")
@@ -76,7 +95,7 @@ class BriefDialogueTest {
 
     @Test fun `cancel 随时可中断`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
         d.onAnswer(BriefField.ERA, "现代")
         d.cancel()
         assertEquals(BriefState.CANCELLED, d.state.value)
@@ -85,7 +104,7 @@ class BriefDialogueTest {
 
     @Test fun `超过 maxRounds 自动结束问询`() {
         val d = BriefDialogue(maxRounds = 2, nowMs = { 0L })
-        d.start("长剧本")
+        d.start()
         d.onAnswer(BriefField.ERA, "架空")
         // 第二轮问风格，回答后 round>=2 → 直接 ANSWERED
         d.onAnswer(BriefField.STYLE, "anime")
@@ -114,7 +133,7 @@ class BriefDialogueTest {
 
     @Test fun `editField 在确认阶段可改`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
         d.onAnswer(BriefField.ERA, "宋")
         d.onAnswer(BriefField.STYLE, "real")
         d.onAnswer(BriefField.CHARACTER_COUNT, "3")
@@ -126,7 +145,7 @@ class BriefDialogueTest {
 
     @Test fun `editField 在非确认阶段无效`() {
         val d = fresh()
-        d.start("长剧本")
+        d.start()
         d.onAnswer(BriefField.ERA, "宋")
         d.editField(BriefField.ERA, "南宋")  // 此时还在 QUESTIONING，应被忽略
         assertEquals("宋", d.brief.value.era)

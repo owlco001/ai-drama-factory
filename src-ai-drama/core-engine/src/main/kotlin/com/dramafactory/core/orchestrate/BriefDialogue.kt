@@ -93,27 +93,35 @@ class BriefDialogue(
     /** 对话轮数（用于"6 轮内"判定） */
     val round: Int get() = _history.value.count { it.side == DialogueTurn.Side.AI }
 
-    /** 启动对话：先问第一个未填字段 */
-    fun start(rawScript: String) {
+    /** 启动对话（无参：AI 先请用户粘贴剧本） */
+    fun start() {
         if (_state.value != BriefState.IDLE) return
-        _brief.value = Brief(rawScript = rawScript)
         _state.value = BriefState.QUESTIONING
-        val q = nextQuestionFor(_brief.value)
+        val q = "请把剧本/小说文本粘给我（≥100 字），我会先帮你理清风格再开工～"
         _nextQuestion.value = q
-        if (q != null) _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, q)
+        _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, q)
     }
 
     /** 用户回答主问（field 由 nextQuestion 文案决定） */
     fun onAnswer(field: BriefField, value: String) {
         if (_state.value != BriefState.QUESTIONING) return
-        // 记录用户上一题回答
         _history.value = _history.value + DialogueTurn(DialogueTurn.Side.USER, value)
-        _brief.value = when (field) {
-            BriefField.ERA -> _brief.value.copy(era = value)
-            BriefField.STYLE -> _brief.value.copy(style = value)
-            BriefField.CHARACTER_COUNT -> _brief.value.copy(characterCount = value.toIntOrNull() ?: 0)
-            BriefField.MOOD -> _brief.value.copy(mood = value)
-            BriefField.WITH_AUDIO -> _brief.value.copy(withAudio = value.lowercase() in listOf("是","y","yes","true","1","要","开"))
+        when (field) {
+            BriefField.SCRIPT -> {
+                if (value.length < 100) {
+                    // 太短，AI 提醒并继续问剧本
+                    val hint = "文本只有 ${value.length} 字，请粘贴≥100字剧本～"
+                    _nextQuestion.value = hint
+                    _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, hint)
+                    return
+                }
+                _brief.value = _brief.value.copy(rawScript = value)
+            }
+            BriefField.ERA -> _brief.value = _brief.value.copy(era = value)
+            BriefField.STYLE -> _brief.value = _brief.value.copy(style = value)
+            BriefField.CHARACTER_COUNT -> _brief.value = _brief.value.copy(characterCount = value.toIntOrNull() ?: 0)
+            BriefField.MOOD -> _brief.value = _brief.value.copy(mood = value)
+            BriefField.WITH_AUDIO -> _brief.value = _brief.value.copy(withAudio = value.lowercase() in listOf("是","y","yes","true","1","要","开"))
         }
         val nextQ = nextQuestionFor(_brief.value)
         if (nextQ == null || round >= maxRounds) {
@@ -157,6 +165,7 @@ class BriefDialogue(
     fun editField(field: BriefField, value: String) {
         if (_state.value != BriefState.CONFIRMING) return
         _brief.value = when (field) {
+            BriefField.SCRIPT -> return  // 剧本不可在确认阶段编辑（重新对话可改）
             BriefField.ERA -> _brief.value.copy(era = value)
             BriefField.STYLE -> _brief.value.copy(style = value)
             BriefField.CHARACTER_COUNT -> _brief.value.copy(characterCount = value.toIntOrNull() ?: 0)
@@ -165,10 +174,11 @@ class BriefDialogue(
         }
     }
 
-    /** 给当前 brief 选下一个问题（按未填顺序；最多问 maxRounds 轮） */
+    /** 给当前 brief 选下一个问题（剧本优先；最多问 maxRounds 轮） */
     private fun nextQuestionFor(b: Brief): String? {
         if (round >= maxRounds) return null
         return when {
+            b.rawScript.length < 100 -> "请把剧本/小说文本粘给我（≥100 字），我会先帮你理清风格再开工～"
             b.era.isBlank() -> "本剧时代是？（西汉 / 唐 / 明清 / 民国 / 现代 / 架空）"
             b.style.isBlank() -> "视觉风格偏好？（cinema 写实 / 古风水墨 / 黑白默片 / 动漫番剧 / 自定义）"
             b.characterCount <= 0 -> "主要角色数？（2-6 个，太多分镜会散）"
@@ -185,7 +195,7 @@ class BriefDialogue(
 }
 
 /** 字段枚举（避免传字符串） */
-enum class BriefField { ERA, STYLE, CHARACTER_COUNT, MOOD, WITH_AUDIO }
+enum class BriefField { SCRIPT, ERA, STYLE, CHARACTER_COUNT, MOOD, WITH_AUDIO }
 
 /** 一轮对话（AI 问题 / 用户回答 / 用户补充） */
 data class DialogueTurn(
