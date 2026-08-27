@@ -142,8 +142,20 @@ object AppGraph {
                 generateImage = { asset ->
                     runCatching {
                         runBlocking {
+                            val preset = com.dramafactory.core.quality.EraDetector.presetFor("han")
+                            val prompt = if (asset.kind == "character") {
+                                preset.withCharacterStudioConstraints(asset.prompt)
+                            } else {
+                                preset.withEraConstraints(asset.prompt)
+                            }
+                            val neg = if (asset.kind == "character") {
+                                preset.studioNegativePromptFor()
+                            } else {
+                                preset.negativePromptFor()
+                            }
                             agnes.generateImage(
-                                com.dramafactory.core.model.ImageGenRequest(prompt = asset.prompt))
+                                com.dramafactory.core.model.ImageGenRequest(
+                                    prompt = prompt, negativePrompt = neg))
                         }
                     }
                 },

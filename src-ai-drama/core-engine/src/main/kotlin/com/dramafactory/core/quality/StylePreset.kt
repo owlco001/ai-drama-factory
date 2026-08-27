@@ -23,6 +23,18 @@ data class StylePreset(
     val era: EraSpec = EraSpec(),
     /** 角色 6 姿态定义（B 子模块用） */
     val characterPoses: List<PoseSpec> = defaultCharacterPoses(),
+    /**
+     * 角色棚拍无干扰背景约束（T014 任务1：用户要求角色生成用纯色/无背景模式，
+     * 与场景/道具解耦，便于后续跨镜合成与绿幕抠图）。
+     * 正向：纯色背景、影棚布景、主体孤立、无环境。
+     * 负向：场景/环境/家具/杂物等干扰元素。
+     */
+    val studioBackdropPositive: String = "plain solid color background, studio backdrop, isolated subject, no environment, no scenery, product shot style, clean seamless backdrop",
+    val studioBackdropNegative: List<String> = listOf(
+        "scene background", "environment", "landscape", "furniture", "props around",
+        "complex background", "outdoor", "interior setting", "decorated room",
+        "场景背景", "环境", "风景", "家具", "杂物", "复杂背景", "室外", "室内陈设",
+    ),
 ) {
 
     /** 角色资产生成尺寸（1024x1024 正方形，对齐 pavo v0.9.8） */
@@ -75,6 +87,24 @@ data class StylePreset(
      */
     fun negativePromptFor(allowed: List<String> = emptyList()): String =
         (globalNegativePrompt + effectiveForbidden(allowed)).distinct().joinToString(", ")
+
+    /**
+     * 角色棚拍专用约束（T014 任务1）：在 era 正向约束之外，额外追加纯色无干扰背景指令，
+     * 使角色资产与场景/环境解耦。仅用于 [AssetsLogic.Kind.CHARACTER] 类资产。
+     */
+    fun withCharacterStudioConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
+        val eraConstrained = withEraConstraints(basePrompt, allowed)
+        return buildString {
+            append(eraConstrained)
+            if (studioBackdropPositive.isNotBlank()) append("。${studioBackdropPositive}")
+        }
+    }
+
+    /**
+     * 角色棚拍专用 negative（T014 任务1）：在 era 禁词之外，叠加棚拍负向干扰词。
+     */
+    fun studioNegativePromptFor(allowed: List<String> = emptyList()): String =
+        (globalNegativePrompt + effectiveForbidden(allowed) + studioBackdropNegative).distinct().joinToString(", ")
 
     /** 默认「西汉末年至新莽」红线（对齐 style_cinema.json era 块）。 */
     data class EraSpec(

@@ -219,8 +219,18 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 }.getOrNull()?.content ?: card.prompt
                 // C. era 红线：正负分离——prompt只带正向，禁词走 negative_prompt API字段
                 // （第十一轮修复：旧实现把禁词表拼进正面prompt，图像模型把"手机/塑料"全画出来了）
-                val erPrompt = preset.withEraConstraints(basePrompt)
-                val negPrompt = preset.negativePromptFor()
+                // T014 任务1：角色类资产额外追加棚拍无干扰背景约束，与场景/环境解耦
+                val isCharacter = card.kind == AssetsLogic.Kind.CHARACTER
+                val erPrompt = if (isCharacter) {
+                    preset.withCharacterStudioConstraints(basePrompt)
+                } else {
+                    preset.withEraConstraints(basePrompt)
+                }
+                val negPrompt = if (isCharacter) {
+                    preset.studioNegativePromptFor()
+                } else {
+                    preset.negativePromptFor()
+                }
                 val url = AppGraph.image.generateImage(
                     com.dramafactory.core.model.ImageGenRequest(
                         prompt = erPrompt,
