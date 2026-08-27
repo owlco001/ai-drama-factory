@@ -9,3 +9,4 @@ dependencyResolutionManagement {
 rootProject.name = "ai-drama-factory"
 include(":core-engine")
 include(":app")
+include(":desktop")

@@ -1,4 +1,4 @@
-package com.dramafactory.app.ui
+package com.dramafactory.core.provider
 
 import com.dramafactory.core.model.ConnectionInfo
 import com.dramafactory.core.model.ProviderError
@@ -22,6 +22,8 @@ data class TextModelEntry(
  *
  * 注册：Agnes 自动选模 + DeepSeek Chat 两个默认候选。
  * Key 各自独立保存（T014 决议 Q4 b：文本/视频 Key 分池）。
+ *
+ * 已从安卓 :app 上移到 core-engine（v1.4.9 桌面版共享）。
  */
 interface TextModelRouter {
     fun registeredTextModels(): List<TextModelEntry>
@@ -44,7 +46,7 @@ interface TextModelStore {
 }
 
 /**
- * 默认路由 —— 生产注入 AndroidKeyVault，测试注入内存 store 直跑 JVM。
+ * 默认路由 —— 生产注入 AndroidKeyVault（安卓）或 FileKeyVault（桌面），测试注入内存 store 直跑 JVM。
  */
 object DefaultTextModelRouter : TextModelRouter {
 
@@ -143,7 +145,6 @@ class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModel
             ?: keyVault?.masked("text-$providerId")?.takeIf { it != "<empty>" }
 
     override fun isVerified(providerId: String): Boolean = verified.contains(providerId)
-
     override suspend fun markVerified(providerId: String, ok: Boolean) {
         if (ok) verified.add(providerId) else verified.remove(providerId)
     }

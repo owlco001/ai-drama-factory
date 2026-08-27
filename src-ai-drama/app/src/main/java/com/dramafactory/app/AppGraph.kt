@@ -46,8 +46,8 @@ object AppGraph {
     lateinit var aiOrchestrator: DefaultAiOrchestrator; internal set
 
     /** T014：文本模型路由（Agnes/DeepSeek 双模型并存） */
-    lateinit var textModelRouter: com.dramafactory.app.ui.TextModelRouter; internal set
-    lateinit var textModelStore: com.dramafactory.app.ui.TextModelStore; internal set
+    lateinit var textModelRouter: com.dramafactory.core.provider.TextModelRouter; internal set
+    lateinit var textModelStore: com.dramafactory.core.provider.TextModelStore; internal set
 
     @Volatile private var initialized = false
     @Volatile private var appContextRef: Context? = null
@@ -122,9 +122,9 @@ object AppGraph {
             agnes = AgnesProvider(apiKeyProvider = { keyVault.load(CONFIG_VIDEO) })
             budgetGuard = DefaultBudgetGuard()
 
-            textModelStore = com.dramafactory.app.ui.InMemoryTextModelStore(keyVault = keyVault)
-            textModelRouter = com.dramafactory.app.ui.DefaultTextModelRouter
-            com.dramafactory.app.ui.DefaultTextModelRouter.store = textModelStore
+            textModelStore = com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault)
+            textModelRouter = com.dramafactory.core.provider.DefaultTextModelRouter
+            com.dramafactory.core.provider.DefaultTextModelRouter.store = textModelStore
 
             try {
                 movieAssembler = MovieAssemblerImpl(executor = androidFfmpegKitExecutor())
