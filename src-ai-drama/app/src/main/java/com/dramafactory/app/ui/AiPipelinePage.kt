@@ -116,6 +116,7 @@ class AiPipelineViewModel : ViewModel() {
 
     private var _currentProjectId: String? = null
     private var _currentEpisodeId: String? = null
+    private val assetsLogic = com.dramafactory.app.ui.AssetsLogic()
 
     private suspend fun buildAgent() {
         val router = com.dramafactory.app.AppGraph.textModelRouter
@@ -133,25 +134,77 @@ class AiPipelineViewModel : ViewModel() {
 
     /** AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行） */
     private suspend fun handleAction(act: ActionIntent): String? {
+        val dao = com.dramafactory.app.AppGraph.dao
+        val projectId = _currentProjectId
+        val epId = _currentEpisodeId
         return when (act.verb) {
             "set_cross_era" -> {
-                val proj = _currentProjectId ?: return "（还没有项目，先开工建项目后再设时代红线）"
-                val epId = "${proj}_ep1"
+                val proj = projectId ?: return "（还没有项目，先开工建项目后再设时代红线）"
                 val allowed = act.paramList("allowed")
+                if (allowed.isEmpty()) return "（请告知要放开的器物，例如 allowed=手机,眼镜）"
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    com.dramafactory.app.AppGraph.dao.setEpisodeAllowedCrossEra(epId,
+                    dao.setEpisodeAllowedCrossEra("${proj}_ep1",
                         "[" + allowed.joinToString(",") { "\"$it\"" } + "]")
                 }
                 "已放开跨时代器物：${allowed.joinToString("、")}"
             }
             "list_assets" -> {
-                val ep = _currentEpisodeId ?: return "（还没有项目，先开工建项目）"
-                val shots = withContext(kotlinx.coroutines.Dispatchers.IO) { com.dramafactory.app.AppGraph.dao.shotsOf(ep) }
-                if (shots.isEmpty()) "（当前项目还没有分镜/资产）" else "当前项目共 ${shots.size} 镜"
+                val ep = epId ?: return "（还没有项目，先开工建项目）"
+                val assets = withContext(kotlinx.coroutines.Dispatchers.IO) { dao.assetsAllOf(projectId!!) }
+                if (assets.isEmpty()) "（当前项目还没有资产）"
+                else "当前项目共 ${assets.size} 个资产：\n" +
+                    assets.joinToString("\n") { "· ${it.kind}（id=${it.asset_id}，描述：${it.prompt.take(20)}…）" } +
+                    "\n你可让我对这些资产操作，例如：删掉某角色 / 改某资产描述 / 让某角色过审"
             }
             "generate" -> {
                 val id = act.param("assetId") ?: return null
-                "（生成 $id 需在资产页操作，AI模式暂不支持直接重生成）"
+                assetsLogic.generate(id)
+                "已触发重新生成：$id"
+            }
+            "stop_generate" -> {
+                val id = act.param("assetId") ?: return null
+                assetsLogic.stopGenerate(id)
+                "已停止生成：$id"
+            }
+            "remove_asset" -> {
+                val id = act.param("assetId") ?: return null
+                val ids = assetsLogic.removeAssetsCascade(listOf(id))
+                withContext(kotlinx.coroutines.Dispatchers.IO) { for (i in ids) runCatching { dao.deleteAsset(i) } }
+                "已删除资产：$id${if (ids.size > 1) "（含 ${ids.size - 1} 张子卡）" else ""}"
+            }
+            "remove_asset_batch" -> {
+                val ids = act.paramList("assetIds").ifEmpty { act.paramList("assetId") }
+                if (ids.isEmpty()) return null
+                val all = assetsLogic.removeAssetsCascade(ids)
+                withContext(kotlinx.coroutines.Dispatchers.IO) { for (i in all) runCatching { dao.deleteAsset(i) } }
+                "已批量删除 ${all.size} 个资产"
+            }
+            "edit_asset" -> {
+                val id = act.param("assetId") ?: return null
+                val newPrompt = act.param("prompt") ?: return "（请告知新的描述，例如 prompt=穿红衣的少女）"
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val cur = dao.assetsAllOf(projectId!!).firstOrNull { it.asset_id == id }
+                    if (cur != null) dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
+                        cur.reference_image_uri, newPrompt, System.currentTimeMillis())
+                }
+                "已更新资产描述：$id → $newPrompt"
+            }
+            "review_pass" -> {
+                val id = act.param("assetId") ?: return null
+                assetsLogic.review(id, true)
+                "已通过评审：$id"
+            }
+            "review_all_pass" -> {
+                assetsLogic.reviewAllPassed()
+                "已全部通过评审"
+            }
+            "build_pose_pack" -> {
+                val cid = act.param("characterId") ?: act.param("assetId") ?: return null
+                val n = assetsLogic.buildPosePack(cid) { "pose_${System.currentTimeMillis()}_${System.nanoTime()}" }
+                "已为角色 $cid 生成 $n 张姿态子卡"
+            }
+            "retry_stage" -> {
+                "（retry_stage 暂由流水线内部自动重试，AI模式暂不直接触发）"
             }
             else -> null
         }

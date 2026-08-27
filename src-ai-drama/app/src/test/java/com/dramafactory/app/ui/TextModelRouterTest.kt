@@ -7,6 +7,8 @@ import com.dramafactory.core.model.ConnectionInfo
 import com.dramafactory.core.model.ProviderError
 import com.dramafactory.core.provider.AgnesProvider
 import com.dramafactory.core.provider.DeepSeekProvider
+import com.dramafactory.core.provider.DefaultTextModelRouter
+import com.dramafactory.core.provider.InMemoryTextModelStore
 import com.dramafactory.core.provider.TextProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine

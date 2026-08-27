@@ -53,10 +53,17 @@ class AiAgentTest {
     }
 
     @Test
-    fun `system prompt 注入人设`() = runBlocking {
+    fun `system prompt 教学全粒度控动作`() = runBlocking {
         val agent = AiAgent(textProvider = FakeAgentProvider(), modelId = "fake")
-        assertTrue(agent.messages.first().role == "system")
-        assertTrue(agent.messages.first().content.contains("编剧导演"))
+        val sys = agent.messages.first().content
+        assertTrue(sys.contains("编剧导演"))
+        // 全粒度控 verb 应出现在系统 prompt（让 LLM 知道能用）
+        listOf("set_cross_era", "list_assets", "remove_asset", "edit_asset",
+            "stop_generate", "review_pass", "build_pose_pack", "generate").forEach {
+            assertTrue(sys.contains(it), "系统prompt应教 [$it] 动作: $sys")
+        }
+        // 应先 list_assets 再操作带 assetId 的流程说明
+        assertTrue(sys.contains("list_assets"), "应提示先查资产拿 id")
     }
 
     @Test
