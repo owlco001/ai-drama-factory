@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.dramafactory.app.ui.Page
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.LinearLayout
 import androidx.core.content.FileProvider
@@ -186,44 +187,31 @@ class AiPipelineViewModel : ViewModel() {
     }
 
     /** AI 说要开工时自动触发（UI 层观察到 running 变化） */
-    fun triggerGenerateFromAgent(
-        onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
-        onFinish: (episodeId: String?) -> Unit = {},
-    ) {
+    fun triggerGenerateFromAgent(onFinish: (episodeId: String?) -> Unit = {}) {
         val a = agent ?: return
         val script = a.resolveScript()
         if (script.length < 100) {
             statusMsg = "❌ 剧本太短（需≥100字），先多聊点或者粘入文本"
             return
         }
-        launchPipeline(script, null,
-            onAutoCreated = { p, e ->
-                _currentProjectId = p
-                _currentEpisodeId = e
-                onAutoCreated(p, e)
-            },
-            onFinish = onFinish)
+        launchPipeline(script, null, onFinish)
     }
 
     /** 从对话进流水线（UI 按钮调用） */
-    fun generateFromAgent(
-        onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
-        onFinish: (episodeId: String?) -> Unit = {},
-    ) {
-        triggerGenerateFromAgent(onAutoCreated, onFinish)
+    fun generateFromAgent(onFinish: (episodeId: String?) -> Unit = {}) {
+        triggerGenerateFromAgent(onFinish)
     }
 
     /** 跳过对话直接成片（手动粘文本） */
-    fun skipAndRun(
-        script: String,
-        onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
-        onFinish: (episodeId: String?) -> Unit = {},
-    ) {
-        launchPipeline(script, null, onAutoCreated, onFinish)
+    fun skipAndRun(script: String, onFinish: (episodeId: String?) -> Unit = {}) {
+        launchPipeline(script, null, onFinish)
     }
 
     var isRunning by mutableStateOf(false)
         private set
+
+    /** 由 UI 注入：开工建项目后回调（用于同步 DramaApp 导航状态） */
+    var onAutoCreatedCallback: ((projectId: String, episodeId: String) -> Unit)? = null
 
     init {
         // 一次性收集编排器事件流（避免多次 collect 同一 StateFlow 抛异常）
@@ -238,14 +226,17 @@ class AiPipelineViewModel : ViewModel() {
     private fun launchPipeline(
         script: String,
         brief: Brief?,
-        onAutoCreated: (String, String) -> Unit,
         onFinish: (String?) -> Unit,
     ) {
         isRunning = true
         finishedFilmPath = null
         viewModelScope.launch {
             val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
-            val res = orchestrator.run(script, brief = brief, onAutoCreatedProject = onAutoCreated)
+            val res = orchestrator.run(script, brief = brief, onAutoCreatedProject = { p, e ->
+                _currentProjectId = p
+                _currentEpisodeId = e
+                onAutoCreatedCallback?.invoke(p, e)
+            })
             res.onSuccess { run ->
                 statusMsg = if (run.success) "✅ 全流程完成，共 ${run.errors.size} 条异常"
                 else "⚠️ 流水线异常：" + run.errors.firstOrNull()?.msg
@@ -293,13 +284,18 @@ class AiPipelineViewModel : ViewModel() {
 }
 
 @Composable
-fun AiPipelinePage(onBack: () -> Unit) {
+fun AiPipelinePage(
+    onBack: () -> Unit,
+    onNavigate: (Page) -> Unit = {},
+    onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
+) {
     val vm = viewModel<AiPipelineViewModel>()
     var userInput by remember { mutableStateOf("") }
     val history by vm.historyFlow.collectAsState()
     val canGenerate by vm.canGenerateFlow.collectAsState()
     val thinking = vm.isThinking
     val running = vm.isRunning
+    LaunchedEffect(Unit) { vm.onAutoCreatedCallback = onAutoCreated }
 
     LaunchedEffect(Unit) { vm.initAgent() }
 
@@ -390,7 +386,7 @@ fun AiPipelinePage(onBack: () -> Unit) {
 
         // 流水线进度流
         if (running || vm.pipelineEvents.isNotEmpty()) {
-            PipelineProgressSection(vm = vm, onBack = onBack)
+            PipelineProgressSection(vm = vm, onBack = onBack, onNavigate = onNavigate)
         }
     }
 }
@@ -498,7 +494,7 @@ private fun ModelChip(vm: AiPipelineViewModel) {
 }
 
 @Composable
-private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit) {
+private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit, onNavigate: (Page) -> Unit) {
     val events = vm.pipelineEvents
     val listState = rememberLazyListState()
     LaunchedEffect(events.lastOrNull()?.elapsedMs) {
@@ -552,7 +548,7 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit)
         }
     }
     if (vm.finishedEpId != null) {
-        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("去分镜页查看 →") }
+        Button(onClick = { onNavigate(Page.STORYBOARD) }, modifier = Modifier.fillMaxWidth()) { Text("去分镜页查看 →") }
     }
     // 成品展示：成片就绪直接内嵌播放器
     vm.finishedFilmPath?.let { path ->
@@ -586,7 +582,7 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit)
                             it.startActivity(android.content.Intent.createChooser(intent, "播放成片"))
                         }
                     }, modifier = Modifier.weight(1f)) { Text("▶ 播放") }
-                    OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("去成片库") }
+                    OutlinedButton(onClick = { onNavigate(Page.LIBRARY) }, modifier = Modifier.weight(1f)) { Text("去成片库") }
                 }
             }
         }

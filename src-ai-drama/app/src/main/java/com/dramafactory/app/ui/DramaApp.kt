@@ -141,8 +141,13 @@ fun DramaApp() {
             NavigationBar {
                 for (p in Page.entries) {
                     NavigationBarItem(
-                        selected = page == p,
-                        onClick = { page = p },
+                        selected = (mode != "ai") && page == p,
+                        onClick = {
+                            // AI 模式下点底部标签：退出 AI 模式并跳转（解决切不了标签）
+                            mode = "manual"
+                            prefs.edit().putString("mode", "manual").apply()
+                            page = p
+                        },
                         icon = { Icon(pageIcon(p), contentDescription = p.label) },
                         label = { Text(p.label) },
                     )
@@ -183,7 +188,23 @@ fun DramaApp() {
 
                 androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                     when (mode) {
-                        "ai" -> AiPipelinePage(onBack = { page = Page.PROJECTS })
+                        "ai" -> AiPipelinePage(
+                            onBack = {
+                                mode = "manual"
+                                prefs.edit().putString("mode", "manual").apply()
+                                page = Page.PROJECTS
+                            },
+                            onNavigate = { target ->
+                                mode = "manual"
+                                prefs.edit().putString("mode", "manual").apply()
+                                page = target
+                            },
+                            onAutoCreated = { pid, epId ->
+                                nav.currentProjectId = pid
+                                nav.currentProjectName = null
+                                nav.currentEpisodeId = epId
+                            },
+                        )
                         else -> when (page) {
                             // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页
                             Page.PROJECTS -> ProjectsPage(
