@@ -20,12 +20,14 @@ interface AiOrchestrator {
     /** 当前编排运行中的 episodeId；未启动为 null */
     val currentEpisodeId: StateFlow<String?>
 
-    /** 一键成片主入口（文本<100 抛 InputTooShort；模型不可用抛 ModelBlocked） */
+    /** 一键成片主入口（文本<100 抛 InputTooShort；模型不可用抛 ModelBlocked）
+     * @param brief 用户已确认的成片 Brief（T014 任务2）；传入则把风格约束折叠进流水线 */
     suspend fun run(
         scriptText: String,
         textModelId: String = "",
         onAutoCreatedProject: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
-    ): Result<PipelineRun>
+        brief: Brief? = null,
+    ): Result<AiOrchestrator.PipelineRun>
 
     /** 从指定阶段重试：已完成阶段结果不重复调用 */
     suspend fun retryFrom(fromStage: PipelineStage5): Result<PipelineRun>
@@ -121,7 +123,8 @@ class DefaultAiOrchestrator(
     override suspend fun run(
         scriptText: String,
         textModelId: String,
-        onAutoCreatedProject: (String, String) -> Unit,
+        onAutoCreatedProject: (projectId: String, episodeId: String) -> Unit,
+        brief: Brief?,
     ): Result<AiOrchestrator.PipelineRun> {
         if (scriptText.length < 100) {
             throw AiOrchestrator.AiError.InputTooShort("请粘贴≥100字剧本")
@@ -131,7 +134,14 @@ class DefaultAiOrchestrator(
             ?: throw AiOrchestrator.AiError.ModelBlocked(
                 "文本模型 $resolvedModelId 未验证或 Key 为空", resolvedModelId)
 
-        return runStages(scriptText, resolvedModelId, onAutoCreatedProject,
+        // T014 任务2：若用户已确认 brief，把 Brief 折叠进脚本（供资产/分镜提取参考风格约束）
+        val effectiveScript = if (brief != null && brief.confirmed) {
+            "${brief.toPromptFragment()}\n\n$scriptText"
+        } else {
+            scriptText
+        }
+
+        return runStages(effectiveScript, resolvedModelId, onAutoCreatedProject,
             PipelineStage5.EXTRACT_ASSETS)
     }
 
