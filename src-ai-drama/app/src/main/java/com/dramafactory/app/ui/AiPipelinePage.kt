@@ -281,15 +281,24 @@ class AiPipelineViewModel : ViewModel() {
 
     var isRunning by mutableStateOf(false)
         private set
+    /** 开工后永真：保证进度区常驻显示，不会被 running 一结束就消失 */
+    var hasStarted by mutableStateOf(false)
+        private set
 
     /** 由 UI 注入：开工建项目后回调（用于同步 DramaApp 导航状态） */
     var onAutoCreatedCallback: ((projectId: String, episodeId: String) -> Unit)? = null
 
-    init {
-        // 一次性收集编排器事件流（避免多次 collect 同一 StateFlow 抛异常）
-        viewModelScope.launch {
+    private var eventsJob: kotlinx.coroutines.Job? = null
+    /** 重新绑定事件流到当前 aiOrchestrator 实例（避免 init 时收集到默认实例而收不到进度） */
+    private fun rebindEvents() {
+        eventsJob?.cancel()
+        eventsJob = viewModelScope.launch {
             com.dramafactory.app.AppGraph.aiOrchestrator.events.collect { pipelineEvents = it }
         }
+    }
+
+    init {
+        rebindEvents()
     }
 
     var finishedFilmPath: String? = null
@@ -301,7 +310,9 @@ class AiPipelineViewModel : ViewModel() {
         onFinish: (String?) -> Unit,
     ) {
         isRunning = true
+        hasStarted = true
         finishedFilmPath = null
+        rebindEvents()  // 确保收集的是当前真实 aiOrchestrator 实例的进度流
         viewModelScope.launch(kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
             // 协程未捕获异常兜底：写崩溃日志 + 显示，绝不杀进程
             android.util.Log.e("DramaAI", "launchPipeline crashed", e)
@@ -507,10 +518,12 @@ fun AiPipelinePage(
             }
         }
 
-        // 流水线进度流
-        if (running || vm.pipelineEvents.isNotEmpty() || vm.finishedEpId != null) {
+        // 流水线进度流：开工后就常驻显示（hasStarted），不再因 running 一结束就消失
+        if (vm.hasStarted || vm.finishedEpId != null) {
             if (running) {
                 androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("⏳ 流水线运行中…", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary)
             }
             PipelineProgressSection(vm = vm, onBack = onBack, onNavigate = onNavigate)
         }
