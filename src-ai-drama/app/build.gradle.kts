@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 33
-        versionName = "1.6.4"  // v1.6.4: 修合成失败(ffmpeg-kit 8.1.7类名改为FFmpegKit+executeWithArguments)
+        versionCode = 34
+        versionName = "1.6.5"  // v1.6.5: 修合成假成功(8.1.7 executeWithArguments是异步返回,getReturnCode拿初始值)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

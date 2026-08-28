@@ -261,35 +261,28 @@ fun androidFfmpegKitExecutor(): MovieAssemblerExecutor {
             val lv = Class.forName("com.arthenica.ffmpegkit.Level")
             @Suppress("UNCHECKED_CAST")
             val lvlQuiet = lv.getField("QUIET").get(null)
-            // 优先同步 API：8.1.7 改名为 executeWithArguments(String[])，老版是 executeFFmpeg(String[])。
-            // 也支持单字符串 execute(String)（8.1.7 新增）。
-            val syncArray = runCatching { fc.getMethod("executeWithArguments", Array<String>::class.java) }
-                .recoverCatching { fc.getMethod("executeFFmpeg", Array<String>::class.java) }
-                .getOrNull()
-            val syncSingle = runCatching { fc.getMethod("execute", String::class.java) }.getOrNull()
-            val session = if (syncArray != null) {
-                syncArray.invoke(null, args.toTypedArray())
-            } else if (syncSingle != null) {
-                syncSingle.invoke(null, args.joinToString(" "))
-            } else {
-                @Suppress("UNCHECKED_CAST")
-                val callback = Class.forName("com.arthenica.ffmpegkit.FFmpegSessionCompleteCallback")
-                @Suppress("UNCHECKED_CAST")
-                val async = runCatching { fc.getMethod("executeWithArgumentsAsync", Array<String>::class.java, callback) }
-                    .recoverCatching { fc.getMethod("executeAsyncFFmpeg", Array<String>::class.java, callback) }
-                    .getOrNull() ?: throw MovieAssembler.NotAvailableException("ffmpeg-kit 找不到 executeWithArgumentsAsync 方法")
-                val latch = java.util.concurrent.CountDownLatch(1)
-                var result: Any? = null
-                val cb = java.lang.reflect.Proxy.newProxyInstance(
-                    callback.classLoader, arrayOf(callback),
-                    { _, m, a ->
-                        if (m.name == "apply") { result = a?.first(); latch.countDown() }
-                        null
-                    })
-                async.invoke(null, args.toTypedArray(), cb)
-                latch.await(30, java.util.concurrent.TimeUnit.MINUTES)
-                result
-            }
+            // v1.6.5 修：8.1.7 的 FFmpegKit.executeWithArguments(String[]) 是异步立即返回，
+            // 不等执行完成（老版 executeFFmpeg 是同步等）。直接 getReturnCode 拿到的是创建时
+            // 初始值（SUCCESS），永远成功 → 合成看似成功实际没跑。
+            // 解决：放弃同步 API，统一走异步 + CountDownLatch 等 FFmpegSessionCompleteCallback。
+            @Suppress("UNCHECKED_CAST")
+            val callback = Class.forName("com.arthenica.ffmpegkit.FFmpegSessionCompleteCallback")
+            @Suppress("UNCHECKED_CAST")
+            val async = runCatching { fc.getMethod("executeWithArgumentsAsync", Array<String>::class.java, callback) }
+                .recoverCatching { fc.getMethod("executeAsyncFFmpeg", Array<String>::class.java, callback) }
+                .getOrNull() ?: throw MovieAssembler.NotAvailableException("ffmpeg-kit 找不到 executeWithArgumentsAsync 方法")
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var result: Any? = null
+            val cb = java.lang.reflect.Proxy.newProxyInstance(
+                callback.classLoader, arrayOf(callback),
+                { _, m, a ->
+                    if (m.name == "apply") { result = a?.firstOrNull(); latch.countDown() }
+                    null
+                })
+            async.invoke(null, args.toTypedArray(), cb)
+            val completed = latch.await(30, java.util.concurrent.TimeUnit.MINUTES)
+            if (!completed) throw MovieAssembler.NotAvailableException("ffmpeg-kit 30分钟未完成")
+            val session = result ?: throw MovieAssembler.NotAvailableException("ffmpeg-kit 回调 session 为空")
             val getRc = sc.getMethod("getReturnCode")
             val getVal = rc.getMethod("getValue")
             (getVal.invoke(getRc.invoke(session)) as Int) to ""
