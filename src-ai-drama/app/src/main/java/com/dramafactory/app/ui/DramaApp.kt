@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.dramafactory.app.ui.AiAssistantFloating
+import com.dramafactory.app.ui.AiAssistantViewModel
 import java.io.File
 
 /**
@@ -118,10 +120,9 @@ fun DramaApp() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("mode_prefs", 0) }
     var splashDone by remember { mutableStateOf(false) }
-    var mode by remember { mutableStateOf(prefs.getString("mode", "manual") ?: "manual") }
     if (!splashDone) { SplashScreen(onDone = { splashDone = true }); return }
     val nav = remember { AppNavState() }
-    // 退出重进恢复：记住上次 AI/手动模式的项目上下文，避免"什么都没有"
+    // 退出重进恢复：记住上次的项目上下文，避免"什么都没有"
     LaunchedEffect(Unit) {
         val lastPid = prefs.getString("last_pid", null)
         val lastEp = prefs.getString("last_ep", null)
@@ -131,6 +132,8 @@ fun DramaApp() {
         }
     }
     var page by remember { mutableStateOf(Page.PROJECTS) }
+    // 全局 AI 助手（悬浮球）：贯穿整个 App，所有标签页共享同一对话与 agent
+    val aiVm: AiAssistantViewModel = viewModel()
 
     // ★第五轮修复：Android 13+ 渲染触发前必须授予POST_NOTIFICATIONS，否则前台服务通知
     // 发不出且部分ROM直接拒启FGS导致崩溃。进入App时静默请求一次（拒绝也不阻断使用）。
@@ -147,24 +150,18 @@ fun DramaApp() {
 
     Scaffold(
         bottomBar = {
-            if (mode != "ai") {
-                NavigationBar {
-                    for (p in Page.entries) {
-                        NavigationBarItem(
-                            selected = (mode != "ai") && page == p,
-                            onClick = {
-                                mode = "manual"
-                                prefs.edit().putString("mode", "manual").apply()
-                                page = p
-                            },
-                            icon = { Icon(pageIcon(p), contentDescription = p.label) },
-                            label = { Text(p.label) },
-                        )
-                    }
+            NavigationBar {
+                for (p in Page.entries) {
+                    NavigationBarItem(
+                        selected = page == p,
+                        onClick = {
+                            page = p
+                        },
+                        icon = { Icon(pageIcon(p), contentDescription = p.label) },
+                        label = { Text(p.label) },
+                    )
                 }
             }
-            // AI 模式下不显示底部导航：资产/分镜/成片库在 AI 模式内用按钮(subView)访问，
-            // 点底部标签会被误判跳人工模式（"不进项目"根因）
         },
     ) { padding ->
         androidx.compose.foundation.layout.Box(Modifier.padding(padding)) {
@@ -172,82 +169,36 @@ fun DramaApp() {
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 第十三轮 P0-1：首页双模式入口（全局记忆）
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            mode = "ai"
-                            prefs.edit().putString("mode", "ai").apply()
-                            page = Page.PROJECTS
-                        },
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = if (mode == "ai") MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.weight(1f),
-                    ) { Text("🤖 AI 全托管") }
-                    Button(
-                        onClick = {
-                            mode = "manual"
-                            prefs.edit().putString("mode", "manual").apply()
-                            page = Page.PROJECTS
-                        },
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = if (mode == "manual") MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.weight(1f),
-                    ) { Text("✍️ 人工模式") }
-                }
-
                 androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
-                    when (mode) {
-                        "ai" -> AiPipelinePage(
-                            onBack = {
-                                mode = "manual"
-                                prefs.edit().putString("mode", "manual").apply()
-                                page = Page.PROJECTS
-                            },
-                            onNavigate = { target ->
-                                mode = "manual"
-                                prefs.edit().putString("mode", "manual").apply()
-                                nav.currentProjectId?.let { prefs.edit().putString("last_pid", it).apply() }
-                                prefs.edit().putString("last_ep", nav.currentEpisodeId).apply()
-                                page = target
-                            },
-                            onAutoCreated = { pid, epId ->
-                                nav.currentProjectId = pid
+                    when (page) {
+                        // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页
+                        Page.PROJECTS -> ProjectsPage(
+                            onEnterProject = { id ->
+                                nav.currentProjectId = id
                                 nav.currentProjectName = null
-                                nav.currentEpisodeId = epId
-                                prefs.edit().putString("last_pid", pid).apply()
-                                prefs.edit().putString("last_ep", epId).apply()
-                            },
-                            currentEpisodeId = nav.currentEpisodeId,
-                        )
-                        else -> when (page) {
-                            // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页
-                            Page.PROJECTS -> ProjectsPage(
-                                onEnterProject = { id ->
-                                    nav.currentProjectId = id
-                                    nav.currentProjectName = null
-                                    page = Page.EPISODES
+                                page = Page.EPISODES
+                            })
+                        Page.EPISODES -> nav.currentProjectId?.let { pid ->
+                            EpisodePage(
+                                projectId = pid,
+                                projectName = nav.currentProjectName,
+                                onOpenEpisode = { epId ->
+                                    nav.currentEpisodeId = epId
+                                    page = Page.ASSETS
                                 })
-                            Page.EPISODES -> nav.currentProjectId?.let { pid ->
-                                EpisodePage(
-                                    projectId = pid,
-                                    projectName = nav.currentProjectName,
-                                    onOpenEpisode = { epId ->
-                                        nav.currentEpisodeId = epId
-                                        page = Page.ASSETS
-                                    })
-                            }
-                            Page.ASSETS -> AssetsPage(projectId = nav.currentEpisodeId,
-                                onContinue = { page = Page.QUEUE })
-                            Page.STORYBOARD -> StoryboardPage(episodeId = nav.currentEpisodeId)
-                            Page.QUEUE -> QueuePage(episodeId = nav.currentEpisodeId)
-                            Page.LIBRARY -> LibraryPage()
-                            Page.SETTINGS -> SettingsPage()
                         }
+                        Page.ASSETS -> AssetsPage(projectId = nav.currentEpisodeId,
+                            onContinue = { page = Page.QUEUE })
+                        Page.STORYBOARD -> StoryboardPage(episodeId = nav.currentEpisodeId)
+                        Page.QUEUE -> QueuePage(episodeId = nav.currentEpisodeId)
+                        Page.LIBRARY -> LibraryPage()
+                        Page.SETTINGS -> SettingsPage()
                     }
                 }
+                // 全局 AI 悬浮球：把当前导航选中的项目/集注入 AI 助手
+                aiVm.currentProjectId = nav.currentProjectId
+                aiVm.currentEpisodeId = nav.currentEpisodeId
+                AiAssistantFloating(aiVm)
             }
         }
     }
