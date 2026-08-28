@@ -78,6 +78,21 @@ class AiPipelineViewModel : ViewModel() {
     private var agent: AiAgent? = null
     val historyFlow = MutableStateFlow<List<DialogueTurn>>(emptyList())
     val canGenerateFlow = MutableStateFlow(false)
+    /** 输入框草稿：用户粘入但未发送的剧本也作为开工候选（避免"粘了没发就报太短"） */
+    var inputDraft by mutableStateOf("")
+    fun updateInputDraft(text: String) {
+        inputDraft = text
+        // 输入框有≥100字剧本时，即使没发送也允许开工
+        canGenerateFlow.value = inputDraft.length >= 100 || (agent?.canGenerate() ?: false)
+    }
+
+    private fun resolveScriptWithDraft(): String {
+        val a = agent ?: return inputDraft.takeIf { it.length >= 100 } ?: ""
+        val fromAgent = a.resolveScript()
+        if (fromAgent.length >= 100) return fromAgent
+        // agent 里不足100，用输入框草稿兜底
+        return inputDraft.takeIf { it.length >= 100 } ?: fromAgent
+    }
 
     // ---- 流水线状态 ----
     var statusMsg by mutableStateOf<String?>(null)
@@ -261,9 +276,9 @@ class AiPipelineViewModel : ViewModel() {
     /** AI 说要开工时自动触发（UI 层观察到 running 变化） */
     fun triggerGenerateFromAgent(onFinish: (episodeId: String?) -> Unit = {}) {
         val a = agent ?: return
-        val script = a.resolveScript()
+        val script = resolveScriptWithDraft()
         if (script.length < 100) {
-            statusMsg = "❌ 剧本太短（需≥100字），先多聊点或者粘入文本"
+            statusMsg = "❌ 剧本太短（需≥100字），先多聊点或者粘入文本后点开工"
             return
         }
         launchPipeline(script, null, onFinish)
@@ -389,7 +404,6 @@ fun AiPipelinePage(
     currentEpisodeId: String? = null,
 ) {
     val vm = viewModel<AiPipelineViewModel>()
-    var userInput by remember { mutableStateOf("") }
     val history by vm.historyFlow.collectAsState()
     val canGenerate by vm.canGenerateFlow.collectAsState()
     val thinking = vm.isThinking
@@ -486,21 +500,21 @@ fun AiPipelinePage(
             ) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = userInput, onValueChange = { userInput = it },
+                        value = vm.inputDraft, onValueChange = { vm.updateInputDraft(it) },
                         modifier = Modifier.fillMaxWidth()
                             .onKeyEvent { ev ->
                                 if (ev.type == KeyEventType.KeyUp && ev.key == Key.Enter) {
-                                    if (userInput.isNotBlank() && !thinking) { vm.sendUserMessage(userInput); userInput = "" }
+                                    if (vm.inputDraft.isNotBlank() && !thinking) { vm.sendUserMessage(vm.inputDraft); vm.updateInputDraft("") }
                                     true
                                 } else false
                             },
-                        placeholder = { Text("跟 AI 聊聊剧本/想法，或直接粘贴文本…（回车发送）") },
+                        placeholder = { Text("跟 AI 聊聊剧本/想法，或直接粘贴文本…（回车发送；粘文本后也可直接点开工）") },
                         minLines = 2, maxLines = 5,
                         shape = RoundedCornerShape(12.dp),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = { if (userInput.isNotBlank()) { vm.sendUserMessage(userInput); userInput = "" } },
+                            onClick = { if (vm.inputDraft.isNotBlank()) { vm.sendUserMessage(vm.inputDraft); vm.updateInputDraft("") } },
                             enabled = !thinking,
                             modifier = Modifier.weight(1f),
                         ) {
