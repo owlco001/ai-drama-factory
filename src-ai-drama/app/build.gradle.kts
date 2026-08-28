@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 24
-        versionName = "1.5.6"  // v1.5.6: 输入框草稿纳入开工判定(粘了没发也能开工)+底部导航AI模式已隐藏
+        versionCode = 25
+        versionName = "1.5.7"  // v1.5.7: 修文本模型id硬编码default致流水线启动即失败(用activeTextModelId兜底)
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

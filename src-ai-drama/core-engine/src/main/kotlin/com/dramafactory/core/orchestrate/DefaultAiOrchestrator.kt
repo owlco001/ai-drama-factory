@@ -101,6 +101,8 @@ class DefaultAiOrchestrator(
                                            assetCount: Int, shotCount: Int, renderEnqueued: Boolean,
                                            failedStage: PipelineStage5?) -> Unit = { _, _, _, _, _, _ -> },
     private val readCheckpoint: suspend (episodeId: String) -> PipelineStage5? = { null },
+    /** 激活的文本模型 id 提供方（AppGraph 注入当前激活的 DeepSeek 模型 id；不能硬编码 default） */
+    private val activeTextModelIdProvider: () -> String = { "default" },
 ) : AiOrchestrator {
 
     private val _events = MutableStateFlow<List<ProgressEvent>>(emptyList())
@@ -131,7 +133,9 @@ class DefaultAiOrchestrator(
         if (scriptText.length < 100) {
             throw AiOrchestrator.AiError.InputTooShort("请粘贴≥100字剧本")
         }
-        val resolvedModelId = textModelId.ifBlank { "default" }
+        // 文本模型 id 兜底：优先用传入的，否则用当前激活的文本模型（activeTextModelId），
+        // 不能硬编码 "default"——store 里 DeepSeek 的 id 是其真实模型名，否则 checkModel 必失败
+        val resolvedModelId = textModelId.ifBlank { activeTextModelIdProvider() }
         checkModel(resolvedModelId).getOrNull()
             ?: throw AiOrchestrator.AiError.ModelBlocked(
                 "文本模型 $resolvedModelId 未验证或 Key 为空", resolvedModelId)

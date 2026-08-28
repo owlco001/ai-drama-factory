@@ -139,6 +139,7 @@ object AppGraph {
 
             // T014：AI 全托管编排器 —— 内部用 ioScope 承载 suspend 调用
             aiOrchestrator = DefaultAiOrchestrator(
+                activeTextModelIdProvider = { textModelRouter.activeTextModelId() },
                 createProject = { name ->
                     val id = "p_" + System.currentTimeMillis()
                     dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
