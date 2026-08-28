@@ -11,7 +11,7 @@ import java.io.File
  * - 共享 [MovieAssembler.AssembleResult] / [MovieAssembler.Strategy] / [MovieAssembler.ColorGradePreset]
  *   契约（全部复用自 FfmpegAssembler 的语义，此处重定义枚举以脱离 FfmpegAssembler 的
  *   "内部类"耦合，标签字符串与 FfmpegAssembler 一致，供断言对齐）。
- * - 端侧执行器从 JVM 命令行 ffmpeg 换成 ffmpeg-kit 5.1 的 Java API
+ * - 端侧执行器从 JVM 命令行 ffmpeg 换成 ffmpeg-kit community 维护版 8.1.7 的 Java API
  *   (`com.arthenica.ffmpegkit.FFmpeg.executeAsyncFFmpeg` + `FFmpegSession` 回调)。
  *   因 ffmpeg-kit 是 Android AAR，本 core-engine 模块不直接依赖；具体执行器注入。
  *
@@ -144,7 +144,12 @@ class MovieAssemblerImpl(
                 val args = listOf(
                     "-y", "-i", clip.absolutePath,
                     "-vf", filter,
-                    "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                    // community 维护版为 LGPL，不含 libx264（GPL 编码器），端上执行会报
+                    // "encoder not found"；改用 ffmpeg 内置 LGPL 编码器 mpeg4（所有构建均含），
+                    // 保证分级真正生效（而非降级回原文件）。
+                    // 注意：-crf / -preset 均为 libx264 专有选项，mpeg4 不支持，故用
+                    // mpeg4 原生的 -qscale:v 控制质量（值越小质量越高，3≈高画质）。
+                    "-c:v", "mpeg4", "-qscale:v", "3",
                     "-c:a", "copy",
                     gOut.absolutePath,
                 )
@@ -234,7 +239,8 @@ class MovieAssemblerImpl(
 }
 
 /**
- * 端侧 executor：用 Java 反射调用 ffmpeg-kit 5.1 (com.arthenica.ffmpegkit.FFmpeg)。
+ * 端侧 executor：用 Java 反射调用 ffmpeg-kit community 维护版 8.1.7
+ * (com.arthenica.ffmpegkit.FFmpeg，包名与原版一致，drop-in 兼容)。
  *
  * 说明：core-engine 是 JVM 纯 Kotlin 模块，不能直接依赖 Android AAR；生产端通过
  * 此 factory 在 app 模块初始化 [MovieAssemblerImpl] 时注入。反射兜底兼容未来 ffmpeg-kit 版本。

@@ -164,7 +164,9 @@ fun DramaApp() {
             }
         },
     ) { padding ->
-        androidx.compose.foundation.layout.Box(Modifier.padding(padding)) {
+        androidx.compose.foundation.layout.Box(
+            Modifier.padding(padding).fillMaxSize()
+        ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -195,24 +197,27 @@ fun DramaApp() {
                         Page.SETTINGS -> SettingsPage()
                     }
                 }
-                // 全局 AI 悬浮球：把当前导航选中的项目/集注入 AI 助手，并接导航回调
-                aiVm.currentProjectId = nav.currentProjectId
-                aiVm.currentEpisodeId = nav.currentEpisodeId
-                aiVm.onGoto = { target ->
-                    val p = when (target.lowercase()) {
-                        "projects", "项目" -> Page.PROJECTS
-                        "episodes", "剧集" -> Page.EPISODES
-                        "assets", "资产" -> Page.ASSETS
-                        "storyboard", "分镜" -> Page.STORYBOARD
-                        "queue", "渲染" -> Page.QUEUE
-                        "library", "成片", "成片库" -> Page.LIBRARY
-                        "settings", "设置" -> Page.SETTINGS
-                        else -> null
-                    }
-                    p?.let { page = it }
-                }
-                AiAssistantFloating(aiVm)
             }
+            // ★布局修复（MuMu 真机验证发现）：AiAssistantFloating 的 Box(fillMaxSize()) 原先直接
+            // 放在上述 Column 内——非 weight 子项按 maxHeight 优先测量，悬浮球会抢走全部高度，
+            // 把内容区 weight(1f) 挤成 0，导致「看不到任何页面、标签切换看似无效」。
+            // 现改为放在外层 Box 中：与内容区重叠，真正"悬浮"覆盖，不参与 Column 测量。
+            aiVm.currentProjectId = nav.currentProjectId
+            aiVm.currentEpisodeId = nav.currentEpisodeId
+            aiVm.onGoto = { target ->
+                val p = when (target.lowercase()) {
+                    "projects", "项目" -> Page.PROJECTS
+                    "episodes", "剧集" -> Page.EPISODES
+                    "assets", "资产" -> Page.ASSETS
+                    "storyboard", "分镜" -> Page.STORYBOARD
+                    "queue", "渲染" -> Page.QUEUE
+                    "library", "成片", "成片库" -> Page.LIBRARY
+                    "settings", "设置" -> Page.SETTINGS
+                    else -> null
+                }
+                p?.let { page = it }
+            }
+            AiAssistantFloating(aiVm)
         }
     }
 }

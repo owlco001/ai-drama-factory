@@ -101,6 +101,9 @@ class DefaultAiOrchestrator(
                                            assetCount: Int, shotCount: Int, renderEnqueued: Boolean,
                                            failedStage: PipelineStage5?) -> Unit = { _, _, _, _, _, _ -> },
     private val readCheckpoint: suspend (episodeId: String) -> PipelineStage5? = { null },
+    /** ★F4 修复：断点续跑时按 episodeId 读回真实剧本（episodes.script_json）。
+     *  默认返回空串——:app 层（AppGraph）注入从 Room 读取真实脚本的实现。 */
+    private val readScript: suspend (episodeId: String) -> String = { "" },
     /** 激活的文本模型 id 提供方（AppGraph 注入当前激活的 DeepSeek 模型 id；不能硬编码 default） */
     private val activeTextModelIdProvider: () -> String = { "default" },
 ) : AiOrchestrator {
@@ -152,11 +155,14 @@ class DefaultAiOrchestrator(
     }
 
     override suspend fun retryFrom(fromStage: PipelineStage5): Result<AiOrchestrator.PipelineRun> {
-        if (currentEpisodeId.value.isNullOrBlank()) {
+        val epId = currentEpisodeId.value
+        if (epId.isNullOrBlank()) {
             throw AiOrchestrator.AiError.StageFailed("当前无进行中的编排", fromStage, "no running episode")
         }
-        // 续跑：脚本走占位（由 :app 层接入真实 episode.script_json）
-        return runStages("RETRY_STUB".repeat(10), "default",
+        // ★F4 修复：续跑时读回真实剧本（episodes.script_json），不再用 "RETRY_STUB" 占位。
+        // 若读不到真实脚本（如 :app 层未接线 / 记录缺失）才退化为占位，避免对空脚本烧 token。
+        val script = runCatching { readScript(epId) }.getOrElse { "" }.ifBlank { "RETRY_STUB".repeat(10) }
+        return runStages(script, "default",
             { _, _ -> }, fromStage)
     }
 

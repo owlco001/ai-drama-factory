@@ -83,6 +83,7 @@ class Round2FixRegressionTest {
             "无video_id的镜不进re-poll；须先对账而非盲目重提→零重复付费")
         assertEquals(listOf("s2"), pendingOf(store), "仅未动过的s2仍为PENDING")
         gate.complete(Unit)
+        Unit   // 关键：使 fun 推断返回 Unit(void)，否则 gate.complete 返回 Boolean → JUnit 静默丢弃该 @Test
     }
 
     @Test

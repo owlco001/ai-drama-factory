@@ -23,9 +23,23 @@ class DefaultPipelineOrchestrator(
     override val stage: StateFlow<PipelineStage> get() = _stage
 
     override suspend fun evaluateGates(projectId: String): GateReport {
-        // MVP桩：四闸门由UI/分镜层回填真实结果；此处按当前阶段给出结构
-        return GateReport(stage = _stage.value, budgetOk = true, keyValid = true,
-            reviewPassed = true, storyboardPassed = true)
+        // ★P0-6 修复（诚实化）：原实现恒返回四个 true 属「假通过」，会误导任何未来依赖此方法的调用方
+        // （评审/六铁律/Key 有效性/预算四闸门全绿 → 渲染无条件放行），与 PRD F04 / 架构 §4.1 矛盾。
+        //
+        // 当前 DefaultPipelineOrchestrator 仅持有 CheckpointStore（render_tasks 对账态），
+        // 没有读取 assets.review_state / shots.sb_check / provider_configs.is_verified / 预算态的通道，
+        // 因此无法给出真实判定。为避免「假通过」，改为 fail-closed：凡无法验证的闸门一律返回 false，
+        // 绝不谎报通行。
+        //
+        // TODO(P0-6): 真实实现需在构造时注入 DramaDao（或各 gate 判定 λ），从 review_state / sb_check /
+        //   is_verified / 预算状态读取布尔后返回真实 GateReport，并接上生产调用点（当前全仓库无生产调用点）。
+        return GateReport(
+            stage = _stage.value,
+            budgetOk = false,
+            keyValid = false,
+            reviewPassed = false,
+            storyboardPassed = false,
+        )
     }
 
     override suspend fun advanceTo(stage: PipelineStage) { _stage.value = stage }

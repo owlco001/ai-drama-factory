@@ -1,6 +1,7 @@
 *.bak_*
 build/
 .gradle/
+.kotlin/
 local.properties
 *.apk
 *.keystore

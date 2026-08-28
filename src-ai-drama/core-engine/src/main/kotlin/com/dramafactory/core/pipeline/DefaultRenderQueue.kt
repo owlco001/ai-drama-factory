@@ -68,6 +68,9 @@ class DefaultRenderQueue(
     companion object {
         const val FETCH_RETRY_BASE_MS = 2_000L
         const val FETCH_RETRY_CAP_MS = 60_000L
+        /** ★F5 修复：取回失败重试次数上限。达到上限后保持 SUBMITTED 退出本 repoll，
+         *  避免已付费镜头因缓存目录不可写等原因「永久空转」（下次 recoverOnBoot 经 pendingRepoll 重试一次）。 */
+        const val FETCH_RETRY_MAX = 8
     }
 
     override suspend fun enqueueEpisode(episodeId: String, shots: List<ShotMeta>) {
@@ -178,6 +181,7 @@ class DefaultRenderQueue(
      */
     private suspend fun repoll(shotId: String, taskId: String) {
         var fetchBackoff = FETCH_RETRY_BASE_MS
+        var fetchFails = 0
         while (!paused && shotId !in cancelledShots) {
             val r = try {
                 videoProvider.pollResult(taskId)
@@ -199,6 +203,12 @@ class DefaultRenderQueue(
                         throw e
                     } catch (e: Exception) {
                         // 取回失败≠生成失败：保持SUBMITTED，退避后重新下载
+                        fetchFails++
+                        if (fetchFails >= FETCH_RETRY_MAX) {
+                            // ★F5：取回失败达到上限，保持 SUBMITTED 退出本 repoll，避免永久空转；
+                            // 恢复路径（pendingRepoll）会在下次 recoverOnBoot 时重试一次。
+                            return
+                        }
                         delay(fetchBackoff); fetchBackoff = minOf(fetchBackoff * 2, FETCH_RETRY_CAP_MS)
                     }
                 }

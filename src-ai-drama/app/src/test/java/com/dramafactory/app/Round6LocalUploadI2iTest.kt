@@ -73,6 +73,8 @@ class Round6LocalUploadI2iTest {
             assets.removeIf { it.asset_id == assetId }
             assets.add(a0.copy(remote_url = remoteUrl, updated_at = updatedAt))
         }
+        override suspend fun assetRemoteUrl(assetId: String): String? =
+            assets.firstOrNull { it.asset_id == assetId }?.remote_url
         override suspend fun deleteAsset(assetId: String) { assets.removeIf { it.asset_id == assetId } }
         override suspend fun assetQuality(assetId: String): com.dramafactory.app.data.AssetQualityRow? = null
         override suspend fun assetQualities(projectId: String): List<com.dramafactory.app.data.AssetQualityRow> = emptyList()

@@ -39,7 +39,7 @@ object AppGraph {
     lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
     lateinit var movieLibraryDao: MovieLibraryDao; internal set
 
-    /** T014：端上成片合成器（MovieAssembler，app 模块初始化，注入 ffmpeg-kit 5.1） */
+    /** T014：端上成片合成器（MovieAssembler，app 模块初始化，注入 ffmpeg-kit-full 8.1.7 community 维护版） */
     var movieAssembler: MovieAssembler = EmptyMovieAssembler; internal set
 
     /** T014：AI 全托管编排器（接 AppGraph 真实依赖） */
@@ -52,6 +52,13 @@ object AppGraph {
     @Volatile private var initialized = false
     @Volatile private var appContextRef: Context? = null
     fun appContext(): Context? = appContextRef
+
+    /**
+     * ★F3 修复：当前 AI 管线的时代红线 key（由 createEpisode 按剧本自动推断，
+     * 不再写死西汉）。generateImage 生成链路一律用 presetFor(currentEraKey) 组装约束。
+     * 单活跃 run 假设下用 @Volatile 保证可见性；并发多 run 由上层串行保证。
+     */
+    @Volatile private var currentEraKey: String = "han"
 
     /**
      * 自动合成成片：查询该集 COMPLETED 且已落盘的视频镜，ffmpeg 拼装为 mp4。
@@ -93,6 +100,31 @@ object AppGraph {
         }.getOrNull()
     }
     val isInitialized: Boolean get() = initialized
+
+    // ---- 图像下载 / 降采样工具（F2 审计用，与 ViewModels.auditGeneratedAsset 同策略）----
+
+    /** 下载图像为字节数组（data:image 直接 base64 解码；http(s) 走 java.net）。 */
+    private fun fetchImageBytes(url: String): ByteArray? = runCatching {
+        if (url.startsWith("data:image")) {
+            val b64 = url.substringAfter(",")
+            android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        } else {
+            java.net.URL(url).openStream().use { it.readBytes() }
+        }
+    }.getOrNull()
+
+    /** 降采样到 512px 内 JPEG 并返回 data URI（配合 G2 多模态审计，防 base64 爆上下文）。 */
+    private fun downscaleToDataUri(bytes: ByteArray): String? = runCatching {
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
+        val scale = 512.0 / maxOf(bmp.width, bmp.height).coerceAtLeast(1)
+        val w = (bmp.width * scale).toInt().coerceIn(1, 512)
+        val h = (bmp.height * scale).toInt().coerceIn(1, 512)
+        val small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
+        val bos = java.io.ByteArrayOutputStream()
+        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, bos)
+        "data:image/jpeg;base64," + android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+    }.getOrNull()
+
 
     // ---- AI 助手可调用的内部能力（自然语言 agent 的"手"）----
     // 把 init 里的流水线 lambda 抽成独立方法，供 AiAssistantViewModel 分步/整体驱动
@@ -196,6 +228,16 @@ object AppGraph {
                 },
                 createEpisode = { projectId, scriptText ->
                     val epId = "${projectId}_ep1"
+                    // ★F3 修复：按剧本自动推断时代红线（LLM 优先，规则兜底），替换原写死 "han"。
+                    // 第十三轮 EraDetector 与人工模式（ViewModels:370-374）同策略。
+                    val llmReady = runCatching {
+                        !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
+                    }.getOrDefault(false)
+                    currentEraKey = runCatching {
+                        com.dramafactory.core.quality.EraDetector.detect(scriptText, llmReady) { req ->
+                            agnes.chat(req)
+                        }
+                    }.getOrElse { com.dramafactory.core.quality.EraDetector.Detection("han", "", false) }.eraKey
                     val flags = DramaDatabase.Companion.AiStageFlags
                     val stageFlags =
                         flags.put(flags.putBool("", flags.AI_MANAGED, true),
@@ -236,7 +278,8 @@ object AppGraph {
                 generateImage = { asset ->
                     runCatching {
                         runBlocking {
-                            val preset = com.dramafactory.core.quality.EraDetector.presetFor("han")
+                            // ★F3 修复：用按剧本自动推断的 currentEraKey 取预设，不再写死 "han"
+                            val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
                             val prompt = if (asset.kind == "character") {
                                 preset.withCharacterStudioConstraints(asset.prompt)
                             } else {
@@ -256,8 +299,37 @@ object AppGraph {
                         }
                     }
                 },
-                auditAsset = { _ ->
-                    Result.success(DefaultAiOrchestrator.AuditResult(passed = true))
+                auditAsset = { asset ->
+                    // ★F2 修复：真实质量审计——调用 AssetAuditor.audit（G1 文件级硬校验 + G2 多模态打分），
+                    // 替换原直接返回 passed=true 的「假通过」（原实现关闭了 PRD F03 两层闸门）。
+                    // 未生成图像/未配置 Key 时不阻断流水线，但明确标注未审计（audit_skipped_*）。
+                    // 注意：λ 返回类型必须是 Result<AuditResult>，故整体包在 runCatching 内；
+                    // 异常会变为 Result.failure，由编排器 AUDIT 阶段按「未过」处理（WARN 标红放行）。
+                    runCatching {
+                        val remoteUrl = runCatching { dao.assetRemoteUrl(asset.assetId) }.getOrNull()
+                        val llmReady = runCatching {
+                            !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
+                        }.getOrDefault(false)
+                        if (remoteUrl.isNullOrBlank() || !llmReady) {
+                            return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_skipped_no_image_or_key")
+                        }
+                        val bytes = fetchImageBytes(remoteUrl)
+                            ?: return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_image_fetch_failed")
+                        val dataUri = downscaleToDataUri(bytes)
+                            ?: return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_image_decode_failed")
+                        val describer = com.dramafactory.core.quality.AssetAuditor.agnesDescriber(agnes, "")
+                        val engine = com.dramafactory.app.ui.QualityEngine()
+                        val outcome = engine.auditAsset(
+                            imageBytes = bytes, imageDataUri = dataUri,
+                            description = asset.prompt, assetType = asset.kind,
+                            describer = describer,
+                        )
+                        DefaultAiOrchestrator.AuditResult(
+                            passed = outcome.auditState == com.dramafactory.core.model.AuditState.APPROVED,
+                            score = outcome.qualityScore,
+                            reason = outcome.rejectReason,
+                        )
+                    }
                 },
                 generateShots = { script, _ ->
                     runCatching {
@@ -333,6 +405,10 @@ object AppGraph {
                     if (stageName != null) runCatching { PipelineStage5.valueOf(stageName) }.getOrNull()
                     else null
                 },
+                // ★F4 修复：断点续跑时读回真实剧本（episodes.script_json），替换 DefaultAiOrchestrator 内的 "RETRY_STUB" 占位
+                readScript = { episodeId ->
+                    runCatching { dao.episode(episodeId)?.script_json }.getOrNull().orEmpty()
+                },
             )
 
             initialized = true
@@ -366,6 +442,7 @@ object AppGraph {
         override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) {}
         override suspend fun updateAssetPrompt(assetId: String, prompt: String, updatedAt: Long) {}
         override suspend fun setAssetRemoteUrl(assetId: String, remoteUrl: String, updatedAt: Long) {}
+        override suspend fun assetRemoteUrl(assetId: String): String? = null
         override suspend fun deleteAsset(assetId: String) {}
         override suspend fun assetQuality(assetId: String): com.dramafactory.app.data.AssetQualityRow? = null
         override suspend fun assetQualities(projectId: String): List<com.dramafactory.app.data.AssetQualityRow> = emptyList()

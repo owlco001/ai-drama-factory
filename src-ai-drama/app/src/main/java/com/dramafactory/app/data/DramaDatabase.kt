@@ -180,6 +180,10 @@ interface DramaDao {
     @Query("UPDATE assets SET remote_url=:remoteUrl, updated_at=:updatedAt WHERE asset_id=:assetId")
     suspend fun setAssetRemoteUrl(assetId: String, remoteUrl: String, updatedAt: Long)
 
+    /** ★F2 修复：读单资产的生成图 remote_url，供 AI 管线质量审计（AssetAuditor.audit）下载多模态打分。 */
+    @Query("SELECT remote_url FROM assets WHERE asset_id=:assetId")
+    suspend fun assetRemoteUrl(assetId: String): String?
+
     /** 第十一轮：删除资产（含6姿态子卡由外层逐个删） */
     @Query("DELETE FROM assets WHERE asset_id=:assetId") suspend fun deleteAsset(assetId: String)
     @Query("UPDATE assets SET reference_image_uri=:referenceImageUri, updated_at=:updatedAt WHERE asset_id=:assetId")

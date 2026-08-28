@@ -17,6 +17,7 @@ android {
         versionCode = 30
         versionName = "1.6.1"  // v1.6.1: AI自然语言调控全部功能(建项目/传剧本/提取/生成图/分镜/渲染/成片/切标签)
         ndk { abiFilters += "arm64-v8a" }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -29,12 +30,10 @@ android {
 }
 
 repositories {
-    // 保留默认 google() + mavenCentral()
+    // 默认仓库；ffmpeg-kit 现已改用 community 维护版（Maven Central，见下方依赖注释），
+    // 不再依赖 jitpack.io（旧 5.1 在 jitpack 仅为纯 Java 壳，APK 无 .so）。
     google()
     mavenCentral()
-    // ffmpeg-kit 上游 maven 已归档；jitpack.io 仍托管历史构建（架构§5.1 + Q1）。
-    // 坐标：com.github.arthenica:ffmpeg-kit:5.1（base 版，含 concat/filter，足够成片合成）
-    maven("https://jitpack.io")
 }
 
 dependencies {
@@ -77,14 +76,32 @@ dependencies {
     // EncryptedSharedPreferences（架构§6 Key安全存储）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // T014：端上成片合成 —— ffmpeg-kit 5.1 base（concat + filter 能力足够）。
-    // 上游仓库已归档，仅 jitpack.io 有 5.1 构建；锁 4.5.LTS / 6.0 均 404（见决策 Q1 复盘）。
-    // Package: com.arthenica.ffmpegkit.FFmpeg / FFprobeKit。
-    implementation("com.github.arthenica:ffmpeg-kit:5.1")
+    // T014：端上成片合成 —— ffmpeg-kit community 维护版 8.1.7（ffmpeg-kit-full，LGPL）。
+    // 官方 5.x/6.x 二进制已于 2025-04-01 下架；jitpack 5.1 仅为纯 Java 壳（APK 无 .so）。
+    // 现用 dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7（Maven Central，含真实原生库：
+    // libavcodec/libavformat/libavutil/libswscale/libswresample/libavfilter/libffmpegkit 等），
+    // Android SDK 35 + 16KB page 兼容；LGPL 版无 GPL 编码器（不含 libx264/x265），
+    // 故 MovieAssembler 改用 ffmpeg 内置 LGPL 编码器 mpeg4 替代 libx264（见 MovieAssembler.kt）。
+    // Package 仍为 com.arthenica.ffmpegkit.FFmpeg / FFprobeKit（drop-in 兼容，反射层无需改动）。
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
+    // 关键补丁：社区版 ffmpeg-kit-full:8.1.7 的 AAR 打包缺陷——classes.jar 缺
+    // com.arthenica.smartexception.java.Exceptions，而 FFmpegKitConfig.<clinit> 引用它，
+    // 导致 FFmpegKit.execute() 首次调用即 NoClassDefFoundError（MuMu 真机验证发现）。
+    // 该胶水类由官方 arthenica 单独发布的 smart-exception-java artifact 提供，必须显式引入。
+    // （注意：坐标不是 com.arthenica.smartexception:smartexception —— 该坐标在 Maven Central 不存在；
+    //   正确坐标为 com.arthenica:smart-exception-java:0.2.1，其 POM 自动传递依赖 smart-exception-common:0.2.1。
+    //   已实测验证 jar 内含 com/arthenica/smartexception/java/Exceptions.class。）
+    implementation("com.arthenica:smart-exception-java:0.2.1")
 
     // ViewModel JVM单测（不依赖Robolectric，纯逻辑测试）
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // 第六轮：AgnesProvider 参数组装单测用 Ktor MockEngine
     testImplementation("io.ktor:ktor-client-mock:2.3.12")
+
+    // 设备端插桩测试（MuMu 模拟器真机验证 ffmpeg 原生库加载/执行，关闭 P1-6 运行时风险）
+    // 仅用 androidx.test.ext:junit（含 AndroidJUnitRunner）；不引 espresso-core，
+    // 否则 espresso 会往测试 APK 注入 <uses-library android.test.mock required=true>，
+    // MuMu 模拟器不暴露该共享库，导致 INSTALL_FAILED_MISSING_SHARED_LIBRARY。
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
