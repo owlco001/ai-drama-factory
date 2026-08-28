@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 20
-        versionName = "1.5.2"  // v1.5.2: AI模式内嵌资产/分镜/成片(不跳人工)+落盘修复(persistAssets/Shots/回填图URL)+进度条常在
+        versionCode = 21
+        versionName = "1.5.3"  // v1.5.3: 防闪退(协程异常兜底+aiOrchestrator防lateinit+textModelStore容错)+崩溃日志写Download
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

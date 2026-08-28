@@ -102,6 +102,10 @@ object AppGraph {
             if (initialized) return
             val app = context.applicationContext
             appContextRef = app
+            // 先建一个安全默认编排器，确保即使后续步骤失败，aiOrchestrator 也已赋值（防 lateinit 崩）
+            if (!::aiOrchestrator.isInitialized) {
+                aiOrchestrator = DefaultAiOrchestrator()
+            }
             keyVault = runCatching { AndroidKeyVault.create(app) as KeyVault }
                 .getOrElse { e ->
                     android.util.Log.e("AppGraph", "keyvault init failed", e)
@@ -122,7 +126,8 @@ object AppGraph {
             agnes = AgnesProvider(apiKeyProvider = { keyVault.load(CONFIG_VIDEO) })
             budgetGuard = DefaultBudgetGuard()
 
-            textModelStore = com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault)
+            textModelStore = runCatching { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault) }
+                .getOrElse { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = com.dramafactory.core.storage.InMemoryKeyVault()) }
             textModelRouter = com.dramafactory.core.provider.DefaultTextModelRouter
             com.dramafactory.core.provider.DefaultTextModelRouter.store = textModelStore
 
@@ -359,12 +364,20 @@ object AppGraph {
 
         private fun writeCrash(app: android.content.Context, header: String, throwable: Throwable) {
             try {
+                val stack = android.util.Log.getStackTraceString(throwable)
                 crashFile(app).apply { parentFile?.mkdirs() }.writeText(
                     buildString {
                         appendLine("time=${System.currentTimeMillis()}")
                         appendLine(header)
-                        appendLine(android.util.Log.getStackTraceString(throwable))
+                        appendLine(stack)
                     })
+                // 同时写外部可读路径（/sdcard/Download/ai-drama-crash.log），便于无 root 取日志
+                runCatching {
+                    val ext = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS), "ai-drama-crash.log")
+                    ext.writeText("time=${System.currentTimeMillis()}\n$header\n$stack\n\n")
+                }
             } catch (_: Throwable) {}
         }
 

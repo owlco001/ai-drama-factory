@@ -302,7 +302,14 @@ class AiPipelineViewModel : ViewModel() {
     ) {
         isRunning = true
         finishedFilmPath = null
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+            // 协程未捕获异常兜底：写崩溃日志 + 显示，绝不杀进程
+            android.util.Log.e("DramaAI", "launchPipeline crashed", e)
+            com.dramafactory.app.AppGraph.CrashLog.record(
+                com.dramafactory.app.AppGraph.appContext() ?: return@CoroutineExceptionHandler, "launchPipeline", e)
+            statusMsg = "❌ 运行异常：" + (e.message ?: e.javaClass.simpleName)
+            isRunning = false
+        }) {
             val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
             val res = orchestrator.run(script, brief = brief, onAutoCreatedProject = { p, e ->
                 _currentProjectId = p
