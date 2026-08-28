@@ -147,21 +147,24 @@ fun DramaApp() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                for (p in Page.entries) {
-                    NavigationBarItem(
-                        selected = (mode != "ai") && page == p,
-                        onClick = {
-                            // AI 模式下点底部标签：退出 AI 模式并跳转（解决切不了标签）
-                            mode = "manual"
-                            prefs.edit().putString("mode", "manual").apply()
-                            page = p
-                        },
-                        icon = { Icon(pageIcon(p), contentDescription = p.label) },
-                        label = { Text(p.label) },
-                    )
+            if (mode != "ai") {
+                NavigationBar {
+                    for (p in Page.entries) {
+                        NavigationBarItem(
+                            selected = (mode != "ai") && page == p,
+                            onClick = {
+                                mode = "manual"
+                                prefs.edit().putString("mode", "manual").apply()
+                                page = p
+                            },
+                            icon = { Icon(pageIcon(p), contentDescription = p.label) },
+                            label = { Text(p.label) },
+                        )
+                    }
                 }
             }
+            // AI 模式下不显示底部导航：资产/分镜/成片库在 AI 模式内用按钮(subView)访问，
+            // 点底部标签会被误判跳人工模式（"不进项目"根因）
         },
     ) { padding ->
         androidx.compose.foundation.layout.Box(Modifier.padding(padding)) {

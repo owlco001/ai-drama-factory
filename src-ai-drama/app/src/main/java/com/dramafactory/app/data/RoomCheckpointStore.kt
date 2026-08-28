@@ -41,6 +41,7 @@ abstract class DramaDatabase : RoomDatabase() {
                 // 第十轮：v3→v4 shots 新增 visual_prompt + duration_seconds。
                 // T014：v4→v5 新增成片库表 finished_films。
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .fallbackToDestructiveMigration()  // 版本不匹配时删库重建（避免 schema 错导致静默降级空实现→不落盘）
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
         }

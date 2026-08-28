@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 22
-        versionName = "1.5.4"  // v1.5.4: 进度区常驻(hasStarted)+running强制进度条+rebindEvents防实例分裂
+        versionCode = 23
+        versionName = "1.5.5"  // v1.5.5: 修AI模式底部导航误跳人工+Room静默降级致不落盘(fallbackToDestructiveMigration)
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }
