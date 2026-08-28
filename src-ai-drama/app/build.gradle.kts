@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 25
-        versionName = "1.5.7"  // v1.5.7: 修文本模型id硬编码default致流水线启动即失败(用activeTextModelId兜底)
+        versionCode = 26
+        versionName = "1.5.8"  // v1.5.8: 去手写migration链改fallbackToDestructiveMigration，修finished_films迁移校验失败
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

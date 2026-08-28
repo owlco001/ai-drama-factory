@@ -40,8 +40,10 @@ abstract class DramaDatabase : RoomDatabase() {
                 // 第九轮：v2→v3 新增 QualityEngine 列（assets 质量闸门 + episodes 按剧集放行）。
                 // 第十轮：v3→v4 shots 新增 visual_prompt + duration_seconds。
                 // T014：v4→v5 新增成片库表 finished_films。
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
-                .fallbackToDestructiveMigration()  // 版本不匹配时删库重建（避免 schema 错导致静默降级空实现→不落盘）
+                // 移除手写 migration 链：手写 SQL 与 FinishedFilmEntity 期望 schema 不一致会触发
+                // "Migration didn't properly handle: finished_films"，直接只留破坏性重建，
+                // Room 用最新 schema(version=5) 直接建库，旧库不匹配自动删重建（本地库数据本就未落盘）。
+                .fallbackToDestructiveMigration()  // 版本/ schema 不匹配时删库重建，永不卡迁移
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
         }
