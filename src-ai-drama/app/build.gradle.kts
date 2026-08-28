@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.5.1"  // v1.5.1: 修复AI模式开工后"无展示"：pollRender不再因ctx提前return+finishedEpId回显+退出重进恢复nav+成片三按钮
+        versionCode = 20
+        versionName = "1.5.2"  // v1.5.2: AI模式内嵌资产/分镜/成片(不跳人工)+落盘修复(persistAssets/Shots/回填图URL)+进度条常在
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

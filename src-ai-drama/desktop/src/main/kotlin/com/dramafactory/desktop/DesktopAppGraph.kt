@@ -111,6 +111,8 @@ object DesktopAppGraph {
                 // 触发异步真实渲染（agnes 视频）—— 简化：标记 COMPLETED 后由轮询合成
                 Result.success(n)
             },
+            persistAssets = { _, _ -> },
+            persistShots = { _, _ -> },
             writeCheckpoint = { _, _, _, _, _, _ -> },
             readCheckpoint = { null },
         )

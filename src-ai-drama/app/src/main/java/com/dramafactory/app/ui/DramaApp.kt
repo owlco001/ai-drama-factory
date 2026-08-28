@@ -206,7 +206,6 @@ fun DramaApp() {
                             onNavigate = { target ->
                                 mode = "manual"
                                 prefs.edit().putString("mode", "manual").apply()
-                                // 记住上下文，退出重进可恢复
                                 nav.currentProjectId?.let { prefs.edit().putString("last_pid", it).apply() }
                                 prefs.edit().putString("last_ep", nav.currentEpisodeId).apply()
                                 page = target
@@ -218,6 +217,7 @@ fun DramaApp() {
                                 prefs.edit().putString("last_pid", pid).apply()
                                 prefs.edit().putString("last_ep", epId).apply()
                             },
+                            currentEpisodeId = nav.currentEpisodeId,
                         )
                         else -> when (page) {
                             // 第十轮：进入项目先到剧集列表，再点选具体集进入资产页

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -87,6 +88,24 @@ class AiPipelineViewModel : ViewModel() {
         private set
     var isThinking by mutableStateOf(false)
         private set
+
+    /** AI 模式内嵌子视图：直接在 AI 模式里看/管资产、分镜、成片，不跳出 AI */
+    enum class SubView { NONE, ASSETS, STORYBOARD, LIBRARY }
+    var subView by mutableStateOf(SubView.NONE)
+        private set
+    fun showAssets() { subView = SubView.ASSETS }
+    fun showStoryboard() { subView = SubView.STORYBOARD }
+    fun showLibrary() { subView = SubView.LIBRARY }
+    fun backToAi() { subView = SubView.NONE }
+
+    /** 供 AI 模式内嵌子页面读取当前集（private 字段的只读出口） */
+    val currentEpisodeId: String? get() = _currentEpisodeId
+
+    /** 退出重进恢复上下文：DramaApp 已从 SharedPreferences 恢复 currentEpisodeId，注入 VM */
+    fun restoreContext(episodeId: String) {
+        _currentEpisodeId = episodeId
+        if (_currentProjectId == null) _currentProjectId = episodeId.substringBeforeLast("_ep")
+    }
 
     /** 进入 AI 模式：用当前激活模型初始化智能体（异步，避免主线程网络） */
     fun initAgent() {
@@ -349,6 +368,7 @@ fun AiPipelinePage(
     onBack: () -> Unit,
     onNavigate: (Page) -> Unit = {},
     onAutoCreated: (projectId: String, episodeId: String) -> Unit = { _, _ -> },
+    currentEpisodeId: String? = null,
 ) {
     val vm = viewModel<AiPipelineViewModel>()
     var userInput by remember { mutableStateOf("") }
@@ -357,8 +377,43 @@ fun AiPipelinePage(
     val thinking = vm.isThinking
     val running = vm.isRunning
     LaunchedEffect(Unit) { vm.onAutoCreatedCallback = onAutoCreated }
+    // 退出重进恢复：DramaApp 已恢复 nav.currentEpisodeId，注入 AI VM 避免空白
+    LaunchedEffect(currentEpisodeId) {
+        if (currentEpisodeId != null) vm.restoreContext(currentEpisodeId)
+    }
 
     LaunchedEffect(Unit) { vm.initAgent() }
+
+    // AI 模式内嵌子视图：直接在 AI 模式里看/管资产、分镜、成片，不跳出 AI
+    if (vm.subView != AiPipelineViewModel.SubView.NONE) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Surface(tonalElevation = 2.dp, shape = RoundedCornerShape(14.dp)) {
+                Row(Modifier.fillMaxWidth().padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("🤖 AI · " + when (vm.subView) {
+                        AiPipelineViewModel.SubView.ASSETS -> "资产库"
+                        AiPipelineViewModel.SubView.STORYBOARD -> "分镜"
+                        AiPipelineViewModel.SubView.LIBRARY -> "成片库"
+                        else -> ""
+                    }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { vm.backToAi() }) { Text("← 返回 AI") }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            when (vm.subView) {
+                AiPipelineViewModel.SubView.ASSETS ->
+                    AssetsPage(projectId = vm.currentEpisodeId, onContinue = { vm.backToAi() })
+                AiPipelineViewModel.SubView.STORYBOARD ->
+                    StoryboardPage(episodeId = vm.currentEpisodeId ?: "default")
+                AiPipelineViewModel.SubView.LIBRARY ->
+                    LibraryPage()
+                else -> {}
+            }
+        }
+        return
+    }
 
     Column(
         Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -446,7 +501,10 @@ fun AiPipelinePage(
         }
 
         // 流水线进度流
-        if (running || vm.pipelineEvents.isNotEmpty()) {
+        if (running || vm.pipelineEvents.isNotEmpty() || vm.finishedEpId != null) {
+            if (running) {
+                androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
             PipelineProgressSection(vm = vm, onBack = onBack, onNavigate = onNavigate)
         }
     }
@@ -610,9 +668,9 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
     }
     if (vm.finishedEpId != null) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onNavigate(Page.ASSETS) }, modifier = Modifier.weight(1f)) { Text("🎨 资产库") }
-            Button(onClick = { onNavigate(Page.STORYBOARD) }, modifier = Modifier.weight(1f)) { Text("🎬 分镜") }
-            Button(onClick = { onNavigate(Page.LIBRARY) }, modifier = Modifier.weight(1f)) { Text("📽 成片库") }
+            Button(onClick = { vm.showAssets() }, modifier = Modifier.weight(1f)) { Text("🎨 资产库") }
+            Button(onClick = { vm.showStoryboard() }, modifier = Modifier.weight(1f)) { Text("🎬 分镜") }
+            Button(onClick = { vm.showLibrary() }, modifier = Modifier.weight(1f)) { Text("📽 成片库") }
         }
     }
     // 成品展示：成片就绪直接内嵌播放器

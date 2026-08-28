@@ -195,9 +195,12 @@ object AppGraph {
                             } else {
                                 preset.negativePromptFor()
                             }
-                            agnes.generateImage(
+                            val url = agnes.generateImage(
                                 com.dramafactory.core.model.ImageGenRequest(
                                     prompt = prompt, negativePrompt = neg))
+                            // 落盘：生成成功回填资产图的 remote_url
+                            runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }
+                            url
                         }
                     }
                 },
@@ -227,6 +230,34 @@ object AppGraph {
                     val queue = com.dramafactory.app.ui.RenderRuntime.queueFor(episodeId)
                     runCatching { runBlocking { queue.enqueueEpisode(episodeId, metas) } }
                         .map { metas.size }
+                },
+                persistAssets = { episodeId, assets ->
+                    val projectId = episodeId.substringBeforeLast("_ep")
+                    for (a in assets) {
+                        runCatching {
+                            dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                                asset_id = a.assetId,
+                                project_id = projectId,
+                                kind = a.kind,
+                                prompt = a.name + "：" + a.prompt,
+                                updated_at = System.currentTimeMillis(),
+                            ))
+                        }
+                    }
+                },
+                persistShots = { episodeId, shots ->
+                    for (s in shots) {
+                        runCatching {
+                            dao.upsertShot(com.dramafactory.app.data.ShotEntity(
+                                shot_id = "${episodeId}_shot${s.shotNo}",
+                                episode_id = episodeId,
+                                project_id = episodeId.substringBeforeLast("_ep"),
+                                shot_no = s.shotNo,
+                                action = s.action,
+                                dialogue = s.dialogue,
+                            ))
+                        }
+                    }
                 },
                 writeCheckpoint = { episodeId, stage, assetCount, shotCount, renderEnqueued, failed ->
                     val flags = DramaDatabase.Companion.AiStageFlags

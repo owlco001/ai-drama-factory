@@ -95,6 +95,8 @@ class DefaultAiOrchestrator(
         { _, _ -> Result.success(emptyList()) },
     private val enqueueRender: suspend (episodeId: String, shots: List<AiShot>) -> Result<Int> =
         { _, _ -> Result.success(0) },
+    private val persistAssets: suspend (episodeId: String, assets: List<AiAsset>) -> Unit = { _, _ -> },
+    private val persistShots: suspend (episodeId: String, shots: List<AiShot>) -> Unit = { _, _ -> },
     private val writeCheckpoint: suspend (episodeId: String, lastSuccessStage: PipelineStage5,
                                            assetCount: Int, shotCount: Int, renderEnqueued: Boolean,
                                            failedStage: PipelineStage5?) -> Unit = { _, _, _, _, _, _ -> },
@@ -195,6 +197,7 @@ class DefaultAiOrchestrator(
                 }
                 assetCount = assets.size
                 emit(PipelineStage5.EXTRACT_ASSETS, assetCount, "已提取 ${assetCount} 张资产", st)
+                persistAssets(episodeId, assets)
                 writeCheckpoint(episodeId, PipelineStage5.EXTRACT_ASSETS, assetCount, 0, false, null)
 
                 // ---- ② generateImages ----
@@ -240,6 +243,7 @@ class DefaultAiOrchestrator(
                 }
                 shotCount = shots.size
                 emit(PipelineStage5.GENERATE_STORYBOARD, shotCount, "已生成 ${shotCount} 镜", stS)
+                persistShots(episodeId, shots)
                 writeCheckpoint(episodeId, PipelineStage5.GENERATE_STORYBOARD, assetCount, shotCount, false, null)
 
                 // ---- ⑤ enqueueRender ----
