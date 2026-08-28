@@ -34,7 +34,7 @@ abstract class DramaDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: DramaDatabase? = null
         fun get(context: Context): DramaDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, DramaDatabase::class.java, "drama_factory.db")
+            instance ?: Room.databaseBuilder(context.applicationContext, DramaDatabase::class.java, "drama_factory_v2.db")
                 // 第六轮：v1→v2 新增 assets.source/image_uri/video_uri/reference_image_uri
                 // 及 shots.first_image_uri/last_image_uri/reference_video_uri 列，旧库破坏性迁移。
                 // 第九轮：v2→v3 新增 QualityEngine 列（assets 质量闸门 + episodes 按剧集放行）。
