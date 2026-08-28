@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 30
-        versionName = "1.6.1"  // v1.6.1: AI自然语言调控全部功能(建项目/传剧本/提取/生成图/分镜/渲染/成片/切标签)
+        versionCode = 31
+        versionName = "1.6.2"  // v1.6.2: 修文本模型key读不到(text-前缀不一致,多候选兜底)+无key时引导去设置页
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

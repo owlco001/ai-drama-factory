@@ -63,7 +63,7 @@ class AiAssistantViewModel : ViewModel() {
         runCatching {
             val router = AppGraph.textModelRouter
             val modelId = router.activeTextModelId()
-            val provider = router.resolve(modelId)
+            val provider = AppGraph.textProviderFor()
             agent = AiAgent(
                 textProvider = provider,
                 modelId = modelId,
@@ -241,18 +241,26 @@ class AiAssistantViewModel : ViewModel() {
 
     /** 用户自然语言发一句话 */
     fun sendUserMessage(text: String) {
-        val a = agent ?: run {
-            viewModelScope.launch {
-                isThinking = true
-                runCatching { ensureAgent() }.onSuccess { sendUserMessage(text) }
-                    .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 智能体初始化失败：${e.message?.take(120)}") }
-                isThinking = false
-            }
-            return
-        }
         if (text.isBlank() || isThinking) return
         viewModelScope.launch {
             isThinking = true
+            // 前置检查：没有任何文本模型 key 时，直接引导去设置页，避免无意义的模型调用失败
+            if (!AppGraph.hasAnyTextKey()) {
+                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI,
+                    "⚠️ 还没配置文本模型 Key（DeepSeek / Agnes）。请点底部「设置」→ 文本模型，选一个模型并填入 Key、点「测试连通」保存。配好后再跟我说就行。")
+                isThinking = false
+                return@launch
+            }
+            val a = agent ?: run {
+                runCatching { ensureAgent() }.getOrNull().also { built ->
+                    if (built == null) {
+                        _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 智能体初始化失败，请检查文本模型 Key 配置")
+                        isThinking = false
+                        return@launch
+                    }
+                }
+                agent!!
+            }
             runCatching { a.say(text) }
                 .onSuccess { _history.value = a.history }
                 .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.message?.take(120)}") }

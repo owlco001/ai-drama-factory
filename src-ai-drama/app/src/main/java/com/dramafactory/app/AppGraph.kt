@@ -129,9 +129,38 @@ object AppGraph {
     // ---- AI 助手可调用的内部能力（自然语言 agent 的"手"）----
     // 把 init 里的流水线 lambda 抽成独立方法，供 AiAssistantViewModel 分步/整体驱动
 
-    /** 从剧本文本提取资产（文字模型走用户自选 DeepSeek 等） */
+    /** 是否任一文本模型候选 configId 有非空 key（用于 AI 助手前置提示） */
+    internal suspend fun hasAnyTextKey(): Boolean {
+        val active = textModelRouter.activeTextModelId()
+        val candidates = if (active.startsWith("deepseek"))
+            listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes")
+        else listOf("text-agnes", "agnes", "agnes-text", "agnes-video", "agnes-image")
+        return candidates.any { keyVault.load(it).isNotBlank() }
+    }
+
+    /**
+     * 解析当前激活的文本模型 Provider，key 多候选兜底。
+     * 修「no key for config text-agnes」：AndroidKeyVault 存文本 key 用 text- 前缀，
+     * 而 router 内部按裸 agnes/deepseek 读 → 不匹配。这里按候选顺序取第一个非空 key，
+     * 无论用户在设置页把 key 存到 text-agnes / agnes / deepseek / text-deepseek / agnes-text 哪个 id 都能读到。
+     */
+    internal suspend fun textProviderFor(): com.dramafactory.core.provider.TextProvider {
+        val active = textModelRouter.activeTextModelId()
+        val candidates = when (active) {
+            "agnes", "agnes-2.5-flash", " text-agnes" -> listOf("text-agnes", "agnes", "agnes-text", "agnes-video", "agnes-image")
+            else -> listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes")
+        }
+        val key = candidates.firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }.orEmpty()
+        return when {
+            active.startsWith("deepseek") || candidates.any { it.contains("deepseek") } && key.isNotBlank() ->
+                com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
+            else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key })
+        }
+    }
+
+    /** 从剧本文本提取资产（文字模型走用户自选 DeepSeek 等，key 多候选兜底） */
     internal suspend fun extractAssetsFor(text: String): List<DefaultAiOrchestrator.AiAsset> {
-        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
+        val tp = textProviderFor()
         val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req -> tp.chat(req) }
         return r.assets.map { a ->
             DefaultAiOrchestrator.AiAsset(assetId = "a_${System.nanoTime()}", kind = a.kind, name = a.name, prompt = a.desc)
@@ -140,7 +169,7 @@ object AppGraph {
 
     /** 生成分镜（文字模型） */
     internal suspend fun genShotsFor(script: String): List<DefaultAiOrchestrator.AiShot> {
-        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
+        val tp = textProviderFor()
         val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req -> tp.chat(req) }
         return r.shots.map { s -> DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue) }
     }
@@ -262,8 +291,8 @@ object AppGraph {
                 },
                 extractAssets = { text, _ ->
                     runCatching {
-                        // 文字模型走用户自选(DeepSeek等)，不再硬编码 Agnes
-                        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
+                        // 文字模型走用户自选(DeepSeek等)，key 多候选兜底（修 text-agnes 读不到）
+                        val tp = textProviderFor()
                         val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req ->
                             tp.chat(req)
                         }
@@ -333,8 +362,8 @@ object AppGraph {
                 },
                 generateShots = { script, _ ->
                     runCatching {
-                        // 文字模型走用户自选(DeepSeek等)
-                        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
+                        // 文字模型走用户自选(DeepSeek等)，key 多候选兜底
+                        val tp = textProviderFor()
                         val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req ->
                             tp.chat(req)
                         }
