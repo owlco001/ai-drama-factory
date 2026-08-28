@@ -3,6 +3,7 @@ package com.dramafactory.app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -301,8 +302,10 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         if (vm.history.value.isNotEmpty()) listState.animateScrollToItem(vm.history.value.lastIndex)
                     }
                     LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(vm.history.value) { turn -> ChatBubbleLocal(turn) }
-                        if (vm.isThinking) item { ThinkingBubbleLocal() }
+                        // v1.6.3 修对话闪退：之前 items 没传 key，_history.value 整体替换后
+                        // LazyColumn 不知道每个 item 的稳定标识，触发原生 crash（用户消息+AI回复序列重组时）。
+                        itemsIndexed(vm.history.value, key = { i, _ -> i }) { _, turn -> ChatBubbleLocal(turn) }
+                        if (vm.isThinking) item("thinking") { ThinkingBubbleLocal() }
                     }
                     var input by remember { mutableStateOf("") }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -2,6 +2,7 @@ package com.dramafactory.core.orchestrate
 
 import com.dramafactory.core.model.ChatMessage
 import com.dramafactory.core.model.ChatRequest
+import com.dramafactory.core.model.ChatResponse
 import com.dramafactory.core.provider.TextProvider
 
 /**
@@ -77,9 +78,17 @@ class AiAgent(
         }
         _history.add(DialogueTurn(DialogueTurn.Side.USER, trimmed, nowMs()))
         _messages.add(ChatMessage(role = "user", content = trimmed))
-        val resp = textProvider.chat(
-            ChatRequest(messages = _messages.toList(), model = modelId, temperature = 0.8),
-        )
+        // v1.6.3 修对话闪退：textProvider.chat 是 Ktor/OkHttp，可能在某些 ROM 上抛 native
+        // 异常逃过 Kotlin try-catch（红旗/澎湃OS 偶发）。这里包 try-catch 转成空回复，
+        // 不让异常冒泡到 sendUserMessage 的 runCatching 之外的 native 路径。
+        val resp: ChatResponse = try {
+            textProvider.chat(
+                ChatRequest(messages = _messages.toList(), model = modelId, temperature = 0.8),
+            )
+        } catch (t: Throwable) {
+            println("AiAgent chat failed: ${t.message}")
+            ChatResponse(content = "（AI 调用失败：${t.javaClass.simpleName}：${t.message?.take(80)}）", raw = "")
+        }
         val raw = resp.content.ifBlank { "（AI 没有回复，请重试）" }
         lastAiText = raw
 

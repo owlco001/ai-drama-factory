@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 31
-        versionName = "1.6.2"  // v1.6.2: 修文本模型key读不到(text-前缀不一致,多候选兜底)+无key时引导去设置页
+        versionCode = 32
+        versionName = "1.6.3"  // v1.6.3: 修对话闪退(LazyColumn key稳定+chat try-catch防native逃逸)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
