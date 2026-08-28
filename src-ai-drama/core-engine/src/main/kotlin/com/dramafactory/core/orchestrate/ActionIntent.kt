@@ -56,9 +56,10 @@ fun parseActions(text: String): List<ActionIntent> {
     return out
 }
 
-/** 已知的动作 verb（用于系统 prompt 提示 LLM） */
+/** 已知的动作 verb（用于系统 prompt 提示 LLM，覆盖全部可调控功能） */
 val KNOWN_ACTIONS: List<String> = listOf(
-    "generate", "stop_generate", "remove_asset", "remove_asset_batch",
-    "edit_asset", "review_pass", "review_all_pass", "build_pose_pack",
-    "set_cross_era", "list_assets", "retry_stage",
+    "new_project", "open_project", "set_script",
+    "extract_assets", "generate", "stop_generate", "remove_asset", "edit_asset",
+    "review_pass", "review_all_pass", "build_pose_pack", "set_cross_era", "list_assets",
+    "gen_shots", "render", "compose_film", "run_pipeline", "goto",
 )

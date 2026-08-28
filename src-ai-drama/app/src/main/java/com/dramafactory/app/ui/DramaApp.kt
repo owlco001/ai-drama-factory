@@ -195,9 +195,22 @@ fun DramaApp() {
                         Page.SETTINGS -> SettingsPage()
                     }
                 }
-                // 全局 AI 悬浮球：把当前导航选中的项目/集注入 AI 助手
+                // 全局 AI 悬浮球：把当前导航选中的项目/集注入 AI 助手，并接导航回调
                 aiVm.currentProjectId = nav.currentProjectId
                 aiVm.currentEpisodeId = nav.currentEpisodeId
+                aiVm.onGoto = { target ->
+                    val p = when (target.lowercase()) {
+                        "projects", "项目" -> Page.PROJECTS
+                        "episodes", "剧集" -> Page.EPISODES
+                        "assets", "资产" -> Page.ASSETS
+                        "storyboard", "分镜" -> Page.STORYBOARD
+                        "queue", "渲染" -> Page.QUEUE
+                        "library", "成片", "成片库" -> Page.LIBRARY
+                        "settings", "设置" -> Page.SETTINGS
+                        else -> null
+                    }
+                    p?.let { page = it }
+                }
                 AiAssistantFloating(aiVm)
             }
         }

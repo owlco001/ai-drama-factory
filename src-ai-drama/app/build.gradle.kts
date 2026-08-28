@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 29
-        versionName = "1.6.0"  // v1.6.0: UI重构-取消AI模式(首页=项目列表)+右下角全局悬浮球AI助手(全局对话+[ACT]指令映射到后端)
+        versionCode = 30
+        versionName = "1.6.1"  // v1.6.1: AI自然语言调控全部功能(建项目/传剧本/提取/生成图/分镜/渲染/成片/切标签)
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

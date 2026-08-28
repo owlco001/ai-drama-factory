@@ -94,6 +94,46 @@ object AppGraph {
     }
     val isInitialized: Boolean get() = initialized
 
+    // ---- AI 助手可调用的内部能力（自然语言 agent 的"手"）----
+    // 把 init 里的流水线 lambda 抽成独立方法，供 AiAssistantViewModel 分步/整体驱动
+
+    /** 从剧本文本提取资产（文字模型走用户自选 DeepSeek 等） */
+    internal suspend fun extractAssetsFor(text: String): List<DefaultAiOrchestrator.AiAsset> {
+        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
+        val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req -> tp.chat(req) }
+        return r.assets.map { a ->
+            DefaultAiOrchestrator.AiAsset(assetId = "a_${System.nanoTime()}", kind = a.kind, name = a.name, prompt = a.desc)
+        }
+    }
+
+    /** 生成分镜（文字模型） */
+    internal suspend fun genShotsFor(script: String): List<DefaultAiOrchestrator.AiShot> {
+        val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
+        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req -> tp.chat(req) }
+        return r.shots.map { s -> DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue) }
+    }
+
+    /** 入渲染队（按分镜生成视频任务） */
+    internal suspend fun enqueueRenderFor(episodeId: String, shots: List<DefaultAiOrchestrator.AiShot>): Int {
+        val metas = shots.map {
+            com.dramafactory.core.model.ShotMeta(shotId = "${episodeId}_shot${it.shotNo}", episodeId = episodeId, prompt = it.action)
+        }
+        val queue = com.dramafactory.app.ui.RenderRuntime.queueFor(episodeId)
+        runCatching { runBlocking { queue.enqueueEpisode(episodeId, metas) } }.map { metas.size }.getOrElse { 0 }
+        return metas.size
+    }
+
+    /** 合成成片（渲染任务齐全后） */
+    internal suspend fun composeFilmFor(episodeId: String, ctx: Context): java.io.File? =
+        composeFilmIfReady(episodeId, ctx)
+
+    /** 完整流水线：用户说"开工/生成整部短剧"时调用（自动建项目+集、跑提取→图→分镜→渲染） */
+    internal suspend fun runFullPipeline(scriptText: String): Result<com.dramafactory.core.orchestrate.AiOrchestrator.PipelineRun> {
+        return aiOrchestrator.run(scriptText, "", { pid, epId ->
+            // 同步到导航上下文（让 AI 知道当前项目）
+        })
+    }
+
     private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     fun init(context: Context) {

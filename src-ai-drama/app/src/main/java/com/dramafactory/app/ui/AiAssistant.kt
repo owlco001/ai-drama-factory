@@ -9,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,10 +24,14 @@ import kotlinx.coroutines.withContext
 
 /**
  * 全局 AI 助手（悬浮球 + 聊天面板）。
- * - 全局单例语义：在 DramaApp 顶层用 remember 持有，所有标签页共享同一个对话与 agent。
- * - 知道"当前项目"（由 DramaApp 的导航选中项目注入 currentProjectId / currentEpisodeId）。
- * - AI 的 [ACT] 指令映射到 AppGraph 后端（资产/分镜/渲染/集），执行结果落 dao，
- *   即"生成对应的手动操作记录，可撤回/手改"（与手动操作并存、融合）。
+ *
+ * 设计要点（按老王要求"自然语言处理，大脑调控所有功能"）：
+ * - 用户侧是纯自然语言对话，AI 自己理解意图、调用 App 能力。
+ * - [ACT] 只是 AI 内部 → App 的调用协议（用户永不可见），由 AiAgent 在回复里附带。
+ * - 系统 prompt 把 AI 定位为"能操控这个短剧 App 的助手"，它可调用：建项目、传剧本、提取资产、
+ *   生成图、生成分镜、入渲染、合成成片、切标签等全部功能。
+ * - 全局单例语义：DramaApp 顶层持有，所有标签页共享同一对话与 agent，且知道"当前项目"。
+ * - AI 指令执行结果落 dao = 生成对应的手动操作记录，与手动操作并存、可手改/撤回（融合）。
  */
 class AiAssistantViewModel : ViewModel() {
     private val _history = MutableStateFlow<List<DialogueTurn>>(emptyList())
@@ -41,18 +44,19 @@ class AiAssistantViewModel : ViewModel() {
     var currentProjectId: String? = null
     var currentEpisodeId: String? = null
 
+    /** AI 请求前端跳转标签（如"打开资产页看看"） */
+    var onGoto: ((String) -> Unit)? = null
+
     private var agent: AiAgent? = null
     private var _building = false
 
     init {
-        // 欢迎语
         _history.value = listOf(
             DialogueTurn(DialogueTurn.Side.AI,
-                "嗨，我是你的短剧编剧导演搭档 🎬 选中一个项目后，我可以帮你提取资产、生成分镜、入渲染、审资产——直接跟我说就行，也可以随时手动操作。")
+                "嗨，我是你的短剧创作搭档 🎬 你用大白话跟我说就行——比如「给这个项目提取资产」「把主角改成红衣」「生成分镜」「跑完整流程出成片」「打开资产页看看」。我直接动手，你随时也能手动改。")
         )
     }
 
-    /** 确保 agent 已构建（首次对话时懒加载，避免启动期网络调用） */
     private suspend fun ensureAgent() {
         if (agent != null || _building) return
         _building = true
@@ -69,53 +73,67 @@ class AiAssistantViewModel : ViewModel() {
         _building = false
     }
 
-    /** AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行） */
+    /**
+     * AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行）。
+     * verb 覆盖全部功能，由 AiAgent 的 LLM 按自然语言意图自行选择。
+     */
     private suspend fun handleAction(act: ActionIntent): String? {
         val dao = AppGraph.dao
-        val projectId = currentProjectId ?: return "（请先在底部「项目」里选一个项目，我才能操作）"
-        val epId = currentEpisodeId ?: "${projectId}_ep1"
+        val ctx = AppGraph.appContext()
+        val projectId = currentProjectId
+        val epId = currentEpisodeId ?: projectId?.let { "${it}_ep1" }
+
         return when (act.verb) {
-            "set_cross_era" -> {
-                val allowed = act.paramList("allowed")
-                if (allowed.isEmpty()) return "（请告知要放开的器物，例如 allowed=手机,眼镜）"
-                withContext(Dispatchers.IO) {
-                    dao.setEpisodeAllowedCrossEra(epId,
-                        "[" + allowed.joinToString(",") { "\"$it\"" } + "]")
+            // ===== 项目 / 剧本 =====
+            "new_project" -> {
+                val name = act.param("name") ?: act.param("title") ?: "AI项目"
+                val id = withContext(Dispatchers.IO) {
+                    val pid = "p_${System.currentTimeMillis()}"
+                    dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
+                        project_id = pid, name = name, created_at = System.currentTimeMillis()))
+                    pid
                 }
-                "已放开跨时代器物：${allowed.joinToString("、")}"
+                currentProjectId = id
+                currentEpisodeId = "${id}_ep1"
+                "已建项目：$name（id=$id）"
             }
-            "list_assets" -> {
-                val assets = withContext(Dispatchers.IO) { dao.assetsAllOf(projectId) }
-                if (assets.isEmpty()) "（当前项目还没有资产，先让我「提取资产」吧）"
-                else "当前项目共 ${assets.size} 个资产：\n" +
-                    assets.joinToString("\n") { "· ${it.kind}（id=${it.asset_id}，描述：${it.prompt.take(20)}…）" }
+            "set_script" -> {
+                val pid = projectId ?: return "（请先建或打开一个项目）"
+                val text = act.param("text") ?: act.param("script") ?: return "（请给我剧本文本，例如 text=…）"
+                val eid = "${pid}_ep1"
+                withContext(Dispatchers.IO) {
+                    val cur = dao.episode(eid)
+                    if (cur != null) dao.upsertEpisode(cur.copy(script_json = text.take(100_000)))
+                    else dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
+                        episode_id = eid, project_id = pid, ep_no = 1, script_json = text.take(100_000)))
+                }
+                "已把剧本存入项目（${text.length}字）"
             }
+            "open_project" -> {
+                val id = act.param("id") ?: act.param("projectId") ?: return null
+                currentProjectId = id
+                currentEpisodeId = "${id}_ep1"
+                "已切换到项目：$id"
+            }
+            // ===== 资产 =====
             "extract_assets" -> {
-                val script = withContext(Dispatchers.IO) { dao.episode(epId)?.script_json } ?: ""
-                if (script.isBlank()) return "（当前集还没有剧本/小说文本，请先在项目里上传剧本）"
-                val n = runCatching {
-                    val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(script) { req ->
-                        AppGraph.textModelRouter.resolve(AppGraph.textModelRouter.activeTextModelId()).chat(req)
+                val pid = projectId ?: return "（请先建或打开一个项目）"
+                val e = epId ?: "${pid}_ep1"
+                val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
+                if (script.isBlank()) return "（当前集还没有剧本/小说文本，先『上传剧本』或跟我说『剧本是：…』）"
+                val assets = runCatching { AppGraph.extractAssetsFor(script) }.getOrElse { emptyList() }
+                withContext(Dispatchers.IO) {
+                    assets.forEach { a ->
+                        dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                            asset_id = a.assetId, project_id = pid, kind = a.kind,
+                            prompt = a.name + "：" + a.prompt, updated_at = System.currentTimeMillis()))
                     }
-                    withContext(Dispatchers.IO) {
-                        r.assets.forEach { a ->
-                            dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
-                                asset_id = "a_${System.currentTimeMillis()}_${a.name.hashCode()}",
-                                project_id = projectId,
-                                kind = a.kind,
-                                prompt = a.name + "：" + a.desc,
-                                updated_at = System.currentTimeMillis(),
-                            ))
-                        }
-                    }
-                    r.assets.size
-                }.getOrElse { 0 }
-                "已提取 $n 张资产卡（可到「资产」标签查看/手改）"
+                }
+                "已提取 ${assets.size} 张资产卡（去「资产」标签可看/手改）"
             }
             "generate" -> {
                 val id = act.param("assetId") ?: return null
-                val logic = AssetsLogic()
-                logic.generate(id)
+                AssetsLogic().generate(id)
                 "已触发重新生成：$id"
             }
             "stop_generate" -> {
@@ -125,16 +143,16 @@ class AiAssistantViewModel : ViewModel() {
             }
             "remove_asset" -> {
                 val id = act.param("assetId") ?: return null
-                val logic = AssetsLogic()
-                val ids = logic.removeAssetsCascade(listOf(id))
+                val ids = AssetsLogic().removeAssetsCascade(listOf(id))
                 withContext(Dispatchers.IO) { for (i in ids) runCatching { dao.deleteAsset(i) } }
                 "已删除资产：$id${if (ids.size > 1) "（含 ${ids.size - 1} 张子卡）" else ""}"
             }
             "edit_asset" -> {
                 val id = act.param("assetId") ?: return null
-                val newPrompt = act.param("prompt") ?: return "（请告知新的描述，例如 prompt=穿红衣的少女）"
+                val newPrompt = act.param("prompt") ?: return "（请告诉我新的描述，例如 prompt=穿红衣的少女）"
+                val pid = projectId ?: return "（请先打开项目）"
                 withContext(Dispatchers.IO) {
-                    val cur = dao.assetsAllOf(projectId).firstOrNull { it.asset_id == id }
+                    val cur = dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
                     if (cur != null) dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
                         cur.reference_image_uri, newPrompt, System.currentTimeMillis())
                 }
@@ -154,21 +172,80 @@ class AiAssistantViewModel : ViewModel() {
                 val n = AssetsLogic().buildPosePack(cid) { "pose_${System.currentTimeMillis()}_${System.nanoTime()}" }
                 "已为角色 $cid 生成 $n 张姿态子卡"
             }
+            "set_cross_era" -> {
+                val e = epId ?: return "（请先打开项目）"
+                val allowed = act.paramList("allowed")
+                if (allowed.isEmpty()) return "（请告诉我放开的器物，例如 allowed=手机,眼镜）"
+                withContext(Dispatchers.IO) {
+                    dao.setEpisodeAllowedCrossEra(e, "[" + allowed.joinToString(",") { "\"$it\"" } + "]")
+                }
+                "已放开跨时代器物：${allowed.joinToString("、")}"
+            }
+            "list_assets" -> {
+                val pid = projectId ?: return "（请先打开项目）"
+                val assets = withContext(Dispatchers.IO) { dao.assetsAllOf(pid) }
+                if (assets.isEmpty()) "（当前项目还没有资产，先让我「提取资产」吧）"
+                else "当前项目共 ${assets.size} 个资产：\n" +
+                    assets.joinToString("\n") { "· ${it.kind}（id=${it.asset_id}，描述：${it.prompt.take(20)}…）" }
+            }
+            // ===== 分镜 / 渲染 / 成片 =====
+            "gen_shots" -> {
+                val pid = projectId ?: return "（请先建或打开一个项目）"
+                val e = epId ?: "${pid}_ep1"
+                val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
+                if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本）"
+                val shots = runCatching { AppGraph.genShotsFor(script) }.getOrElse { emptyList() }
+                withContext(Dispatchers.IO) {
+                    shots.forEach { s ->
+                        dao.upsertShot(com.dramafactory.app.data.ShotEntity(
+                            shot_id = "${e}_shot${s.shotNo}", episode_id = e, project_id = pid,
+                            shot_no = s.shotNo, action = s.action, dialogue = s.dialogue))
+                    }
+                }
+                "已生成 ${shots.size} 条分镜（去「分镜」标签查看）"
+            }
+            "render" -> {
+                val pid = projectId ?: return "（请先打开项目）"
+                val e = epId ?: "${pid}_ep1"
+                val shots = withContext(Dispatchers.IO) { dao.shotsOf(e) }
+                if (shots.isEmpty()) return "（还没有分镜，先让我「生成分镜」）"
+                val aiShots = shots.map { com.dramafactory.core.orchestrate.DefaultAiOrchestrator.AiShot(it.shot_no, it.action ?: "", it.dialogue) }
+                val n = AppGraph.enqueueRenderFor(e, aiShots)
+                "已入渲染队 $n 条（去「渲染」标签看进度）"
+            }
+            "compose_film" -> {
+                val e = epId ?: return "（请先打开项目并跑渲染）"
+                val f = if (ctx != null) AppGraph.composeFilmFor(e, ctx) else null
+                if (f != null) "已成片：${f.absolutePath}（去「成片」标签播放）" else "（渲染还没完成，暂时无法合成成片）"
+            }
+            "run_pipeline" -> {
+                val pid = projectId ?: return "（请先建或打开一个项目）"
+                val e = epId ?: "${pid}_ep1"
+                val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
+                if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本或跟我说『剧本是：…』）"
+                val res = AppGraph.runFullPipeline(script)
+                if (res.isSuccess) {
+                    currentEpisodeId = AppGraph.aiOrchestrator.currentEpisodeId.value ?: e
+                    "已启动完整流水线（提取→图→分镜→渲染），跑完去「成片」标签看成片"
+                } else "（流水线启动失败：${res.exceptionOrNull()?.message?.take(80)}）"
+            }
+            // ===== 导航 =====
+            "goto" -> {
+                val target = act.param("page") ?: act.param("tab") ?: return null
+                onGoto?.invoke(target)
+                "已切换到：$target"
+            }
             else -> null
         }
     }
 
+    /** 用户自然语言发一句话 */
     fun sendUserMessage(text: String) {
         val a = agent ?: run {
-            // 首次未构建则同步一条提示，触发构建
             viewModelScope.launch {
                 isThinking = true
-                runCatching { ensureAgent() }
-                    .onSuccess { sendUserMessage(text) }
-                    .onFailure { e ->
-                        _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI,
-                            "⚠️ 智能体初始化失败：${e.message?.take(120)}")
-                    }
+                runCatching { ensureAgent() }.onSuccess { sendUserMessage(text) }
+                    .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 智能体初始化失败：${e.message?.take(120)}") }
                 isThinking = false
             }
             return
@@ -178,10 +255,7 @@ class AiAssistantViewModel : ViewModel() {
             isThinking = true
             runCatching { a.say(text) }
                 .onSuccess { _history.value = a.history }
-                .onFailure { e ->
-                    _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI,
-                        "⚠️ 调用模型失败：${e.message?.take(120)}")
-                }
+                .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.message?.take(120)}") }
             isThinking = false
         }
     }
@@ -192,7 +266,6 @@ class AiAssistantViewModel : ViewModel() {
 fun AiAssistantFloating(vm: AiAssistantViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
-        // 悬浮球
         FloatingActionButton(
             onClick = { expanded = !expanded },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -200,16 +273,11 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
         ) { Text("💬", style = MaterialTheme.typography.titleLarge) }
 
         if (expanded) {
-            // 半屏聊天面板，覆盖在内容上方
             Surface(
                 tonalElevation = 4.dp,
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .fillMaxWidth(0.95f)
-                    .fillMaxHeight(0.8f)
-                    .padding(8.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(0.95f).fillMaxHeight(0.8f).padding(8.dp),
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -217,17 +285,14 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         Spacer(Modifier.weight(1f))
                         val proj = vm.currentProjectId
                         Text(if (proj != null) "项目:$proj" else "未选项目",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline)
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         IconButton(onClick = { expanded = false }) { Text("✕") }
                     }
                     val listState = rememberLazyListState()
                     LaunchedEffect(vm.history.value.size) {
-                        if (vm.history.value.isNotEmpty())
-                            listState.animateScrollToItem(vm.history.value.lastIndex)
+                        if (vm.history.value.isNotEmpty()) listState.animateScrollToItem(vm.history.value.lastIndex)
                     }
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(vm.history.value) { turn -> ChatBubbleLocal(turn) }
                         if (vm.isThinking) item { ThinkingBubbleLocal() }
                     }
@@ -236,13 +301,11 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         OutlinedTextField(
                             value = input,
                             onValueChange = { input = it },
-                            placeholder = { Text("跟 AI 说：提取资产 / 给主角生成服装 / 入渲染…") },
+                            placeholder = { Text("跟 AI 说：提取资产 / 改主角红衣 / 生成分镜 / 跑完整流程出成片…") },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = 120.dp),
                             shape = RoundedCornerShape(12.dp),
                         )
-                        Button(onClick = {
-                            if (input.isNotBlank()) { vm.sendUserMessage(input); input = "" }
-                        }) { Text("发送") }
+                        Button(onClick = { if (input.isNotBlank()) { vm.sendUserMessage(input); input = "" } }) { Text("发送") }
                     }
                 }
             }
@@ -254,13 +317,9 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
 private fun ChatBubbleLocal(turn: DialogueTurn) {
     val isAi = turn.side == DialogueTurn.Side.AI
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isAi) Arrangement.Start else Arrangement.End) {
-        Surface(
-            color = if (isAi) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(0.85f),
-        ) {
-            Text(turn.content, Modifier.padding(10.dp),
-                style = MaterialTheme.typography.bodyMedium,
+        Surface(color = if (isAi) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary,
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(0.85f)) {
+            Text(turn.content, Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium,
                 color = if (isAi) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary)
         }
     }
