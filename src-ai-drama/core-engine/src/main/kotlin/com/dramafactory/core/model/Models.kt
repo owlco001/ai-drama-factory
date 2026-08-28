@@ -72,7 +72,7 @@ data class ChatResponse(val content: String, val raw: String)
 /** 图像生成请求（6pose包/场景/道具母图/i2i合成） */
 data class ImageGenRequest(
     val prompt: String,
-    val size: String = "1024x1024",
+    val size: String = "512x512",
     val inputImages: List<String> = emptyList(),  // URL或data URI，非空即i2i
     val negativePrompt: String? = null,
 )

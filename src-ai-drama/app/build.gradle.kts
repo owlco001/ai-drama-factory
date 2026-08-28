@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 27
-        versionName = "1.5.9"  // v1.5.9: 换库名drama_factory_v2.db彻底绕过旧库迁移包袱(终局修复migration from4to5)
+        versionCode = 28
+        versionName = "1.5.10"  // v1.5.10: 修图像生成key读不到(多configId兜底)+size改512x512
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true }

@@ -123,7 +123,13 @@ object AppGraph {
                 checkpointStore = com.dramafactory.core.storage.InMemoryCheckpointStore()
                 roomInitError = t.message ?: t.javaClass.name
             }
-            agnes = AgnesProvider(apiKeyProvider = { keyVault.load(CONFIG_VIDEO) })
+            // 图像/视频统一走 Agnes：key 可能在设置页被存到 agnes / agnes-video / agnes-image 任一 configId，
+            // 这里按候选顺序取第一个非空，避免"设了key但读不到"导致图像/视频生成401失败
+            agnes = AgnesProvider(apiKeyProvider = {
+                listOf(CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes")
+                    .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
+                    .orEmpty()
+            })
             budgetGuard = DefaultBudgetGuard()
 
             textModelStore = runCatching { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault) }
