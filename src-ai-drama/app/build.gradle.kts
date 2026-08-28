@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 32
-        versionName = "1.6.3"  // v1.6.3: 修对话闪退(LazyColumn key稳定+chat try-catch防native逃逸)
+        versionCode = 33
+        versionName = "1.6.4"  // v1.6.4: 修合成失败(ffmpeg-kit 8.1.7类名改为FFmpegKit+executeWithArguments)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
