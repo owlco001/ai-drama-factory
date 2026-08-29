@@ -2,6 +2,7 @@ package com.dramafactory.app
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.withContext
 import com.dramafactory.app.data.DramaDatabase
 import com.dramafactory.app.data.MovieLibraryDao
 import com.dramafactory.app.data.RoomCheckpointStore
@@ -68,7 +69,9 @@ object AppGraph {
     suspend fun composeFilmIfReady(episodeId: String, ctx: Context): java.io.File? {
         val composer = movieAssembler
         if (composer is EmptyMovieAssembler) return null
-        return runCatching {
+        // v1.6.9 修：assemble 内部 executor 用 CountDownLatch.await 阻塞等 ffmpeg，
+        // 必须在 IO 线程跑，否则在 Dispatchers.Main 上调用会 ANR/闪退。
+        val res = runCatching {
             val tasks = dao.renderTasksOf(episodeId)
                 .filter { it.state == "COMPLETED" && !it.local_file_uri.isNullOrBlank() }
                 .sortedBy { it.shot_id }
@@ -78,17 +81,20 @@ object AppGraph {
             val outDir = java.io.File(ctx.cacheDir, "movies")
             if (!outDir.exists()) outDir.mkdirs()
             val out = java.io.File(outDir, "$episodeId.mp4")
-            val res = composer.assemble(clips, out)
-            when (res) {
+            withContext(kotlinx.coroutines.Dispatchers.IO) { composer.assemble(clips, out) } to out
+        }.getOrNull() ?: return null
+        val out = res.second
+        return runCatching {
+            when (val r = res.first) {
                 is com.dramafactory.core.assemble.MovieAssembler.AssembleResult.Success -> {
-                    if (res.output.exists()) {
+                    if (r.output.exists()) {
                         runCatching {
                             movieLibraryDao.upsertFilmOf(
                                 com.dramafactory.app.data.FinishedFilmEntity(
                                     film_id = episodeId, episode_id = episodeId,
                                     project_id = episodeId.substringBefore("_ep"),
                                     filePath = out.absolutePath, fileSize = out.length(),
-                                    durationMs = (res.durationSeconds * 1000).toLong(),
+                                    durationMs = (r.durationSeconds * 1000).toLong(),
                                     createdAt = System.currentTimeMillis(),
                                 ))
                         }

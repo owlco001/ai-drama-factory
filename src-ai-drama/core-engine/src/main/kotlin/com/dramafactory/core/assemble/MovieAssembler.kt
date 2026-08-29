@@ -258,10 +258,9 @@ fun androidFfmpegKitExecutor(): MovieAssemblerExecutor {
             val sc = runCatching { Class.forName("com.arthenica.ffmpegkit.FFmpegSession") }.getOrNull()
                 ?: Class.forName("com.arthenica.ffmpegkit.FFmpegSession")
             val rc = Class.forName("com.arthenica.ffmpegkit.ReturnCode")
-            val lv = Class.forName("com.arthenica.ffmpegkit.Level")
-            @Suppress("UNCHECKED_CAST")
-            val lvlQuiet = lv.getField("QUIET").get(null)
-            // v1.6.5 修：8.1.7 的 FFmpegKit.executeWithArguments(String[]) 是异步立即返回，
+            // v1.6.9 修：删掉死代码 lv.getField("QUIET")（8.1.7 的 Level 字段是 AV_LOG_QUIET，
+            // getField("QUIET") 抛 NoSuchFieldException，不在 catch 列表 -> 逃逸成「合成失败: QUIET」）。
+            // 异步执行路径。
             // 不等执行完成（老版 executeFFmpeg 是同步等）。直接 getReturnCode 拿到的是创建时
             // 初始值（SUCCESS），永远成功 → 合成看似成功实际没跑。
             // 解决：放弃同步 API，统一走异步 + CountDownLatch 等 FFmpegSessionCompleteCallback。
@@ -292,6 +291,10 @@ fun androidFfmpegKitExecutor(): MovieAssemblerExecutor {
             throw MovieAssembler.NotAvailableException("ffmpeg-kit 类缺失: ${e.message}. 需要升级到 v1.5 远程合成方案")
         } catch (e: ClassNotFoundException) {
             throw MovieAssembler.NotAvailableException("ffmpeg-kit 未找到: ${e.message}. 需要升级到 v1.5 远程合成方案")
+        } catch (e: NoSuchFieldException) {
+            throw MovieAssembler.NotAvailableException("ffmpeg-kit 字段缺失: ${e.message}")
+        } catch (e: NoSuchMethodException) {
+            throw MovieAssembler.NotAvailableException("ffmpeg-kit 方法缺失: ${e.message}")
         }
     }
 }
