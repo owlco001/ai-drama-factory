@@ -14,14 +14,25 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 49
-        versionName = "1.7.11"  // v1.7.11: 视频端接入negative_prompt(官网确认支持, 实测200; 锁脸负向模板抑制漂移/崩坏)
+        versionCode = 50
+        versionName = "1.7.12"  // v1.7.12: 修复干净环境编译失败——material3:1.3.1 的 Surface 为实验性API, 补 ExperimentalMaterial3Api opt-in
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // 构建修复：Compose BOM 2024.10.01 实际解析出 material3:**1.3.1**
+        // （下方依赖注释写的是 1.3.0，已漂移，建议一并订正）。
+        // material3 1.3.1 中 Surface 等 API 带 @ExperimentalMaterial3Api，
+        // 其 @RequiresOptIn level 为 ERROR —— 未显式 opt-in 时，**任何干净环境**
+        // （CI / 新机器 / 清空 Gradle 缓存）都会在 MainActivity.kt:24 编译失败：
+        //   e: This material API is experimental and is likely to change
+        //      or to be removed in the future.
+        // 本地能编过通常只是因为缓存或 IDE 代为处理，并非真的没问题。
+        freeCompilerArgs += listOf("-opt-in=androidx.compose.material3.ExperimentalMaterial3Api")
+    }
     packaging { resources.excludes += "META-INF/*" }
 
     testOptions {
