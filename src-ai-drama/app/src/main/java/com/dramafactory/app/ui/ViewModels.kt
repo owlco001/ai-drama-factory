@@ -269,8 +269,13 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     }
     val assets: StateFlow<List<AssetsLogic.AssetCard>> get() = logic.assets
 
-    /** v1.7.1 实时联动：进入资产页/切项目时从 Room 重读，让 AI 写入的资产立刻可见 */
-    suspend fun refreshFromDb(projectId: String) { logic.refreshFromDb(projectId) }
+    /** v1.7.1 实时联动：进入资产页/切项目时从 Room 重读，让 AI 写入的资产立刻可见。
+     * v1.7.5 修重启后空白：AssetsPage 传进来的 projectId 实际是 episodeId（nav.currentEpisodeId），
+     * 直接当 project_id 查 assetsAllOf 会查不到（资产按真 project_id 落库）。这里统一用 VM 内部
+     * 已正确推导的 projectId（episodeId.substringBeforeLast("_ep")），忽略外部传入值。 */
+    suspend fun refreshFromDb(@Suppress("UNUSED_PARAMETER") projectId: String = this.projectId) {
+        logic.refreshFromDb(this.projectId)
+    }
 
     // 第九轮：G2 多模态审计 describer（agnes-2.5-flash 带图，enable_thinking=false）
     private val describer = AssetAuditor.agnesDescriber(AppGraph.text)

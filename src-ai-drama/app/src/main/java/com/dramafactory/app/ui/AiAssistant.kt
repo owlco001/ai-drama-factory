@@ -167,7 +167,7 @@ class AiAssistantViewModel : ViewModel() {
                 withContext(Dispatchers.IO) {
                     assets.forEach { a ->
                         dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
-                            asset_id = a.assetId, project_id = e, kind = a.kind,
+                            asset_id = a.assetId, project_id = pid, kind = a.kind,
                             prompt = a.name + "：" + a.prompt, updated_at = System.currentTimeMillis()))
                     }
                 }
