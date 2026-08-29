@@ -77,7 +77,7 @@ class AiAgentTest {
         var handled: String? = null
         val agent = AiAgent(
             textProvider = provider, modelId = "fake",
-            actionHandler = { act ->
+            actionHandler = { act, _ ->
                 if (act.verb == "set_cross_era") "已放开：${act.paramList("allowed").joinToString("、")}" else null
             },
         )

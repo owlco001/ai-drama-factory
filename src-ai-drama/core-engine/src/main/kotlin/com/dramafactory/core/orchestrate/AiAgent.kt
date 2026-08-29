@@ -22,8 +22,8 @@ import com.dramafactory.core.provider.TextProvider
 class AiAgent(
     private val textProvider: TextProvider,
     private val modelId: String,
-    /** 本地动作执行器（挂起）：收到 ActionIntent 返回一句话执行结果（用于回显）；返回 null 表示无法执行 */
-    private val actionHandler: suspend (ActionIntent) -> String? = { null },
+    /** 本地动作执行器（挂起）：收到 ActionIntent 与进度回调，返回一句话执行结果（用于回显）；返回 null 表示无法执行 */
+    private val actionHandler: suspend (ActionIntent, (String) -> Unit) -> String? = { _, _ -> null },
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     /** 当前项目 id 提示（进入不同项目自动切换上下文时由 VM 注入），让 AI 知道自己作用于哪个项目 */
     private val currentProjectHint: String? = null,
@@ -72,7 +72,7 @@ class AiAgent(
     val history: List<DialogueTurn> get() = _history.toList()
 
     /** 发送一句话，返回 AI 回复文本（同步加入上下文） */
-    suspend fun say(userText: String): String {
+    suspend fun say(userText: String, onNotice: (String) -> Unit = {}): String {
         val trimmed = userText.trim()
         if (trimmed.isBlank()) return ""
         // 累积剧本草稿：超过100字且当前草稿为空则记为剧本
@@ -102,7 +102,7 @@ class AiAgent(
         val displayText = stripActions(raw)
         val execNotes = mutableListOf<String>()
         for (act in actions) {
-            runCatching { actionHandler(act) }
+            runCatching { actionHandler(act, onNotice) }
                 .getOrNull()
                 ?.takeIf { it.isNotBlank() }
                 ?.let { execNotes.add(it) }

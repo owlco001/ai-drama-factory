@@ -159,7 +159,7 @@ class AiPipelineViewModel : ViewModel() {
         agent = AiAgent(
             textProvider = provider,
             modelId = modelId,
-            actionHandler = { act -> handleAction(act) },
+            actionHandler = { act, onNotice -> handleAction(act, onNotice) },
         )
         val welcome = DialogueTurn(DialogueTurn.Side.AI,
             "嗨，我是你的短剧编剧导演搭档 🎬 把小说/剧本粘给我，或者聊聊你的想法，咱们边聊边理清风格，聊好了你说「开工」我就动手。")
@@ -167,7 +167,7 @@ class AiPipelineViewModel : ViewModel() {
     }
 
     /** AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行） */
-    private suspend fun handleAction(act: ActionIntent): String? {
+    private suspend fun handleAction(act: ActionIntent, onNotice: (String) -> Unit = {}): String? {
         val dao = com.dramafactory.app.AppGraph.dao
         val projectId = _currentProjectId
         val epId = _currentEpisodeId
@@ -254,7 +254,10 @@ class AiPipelineViewModel : ViewModel() {
         if (text.isBlank() || isThinking) return
         viewModelScope.launch {
             isThinking = true
-            runCatching { a.say(text) }
+            runCatching { a.say(text) { notice ->
+                // v1.7.3：AI 执行长任务时实时汇报进度（非流式，阶段提示逐条追加）
+                historyFlow.value = historyFlow.value + DialogueTurn(DialogueTurn.Side.AI, "🔄 $notice")
+            } }
                 .onSuccess {
                     historyFlow.value = a.history
                     canGenerateFlow.value = a.canGenerate()

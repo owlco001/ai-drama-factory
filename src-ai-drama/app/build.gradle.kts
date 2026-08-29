@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 41
-        versionName = "1.7.2"  // v1.7.2: 成片预览+渲染锁脸(资产参考图注入)+渲染前补生成+Agnes生图主题美化
+        versionCode = 42
+        versionName = "1.7.3"  // v1.7.3: AI对话阶段进度主动汇报(非流式)+项目内剧本原文查看
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

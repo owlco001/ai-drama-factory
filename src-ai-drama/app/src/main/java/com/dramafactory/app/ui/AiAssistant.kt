@@ -93,7 +93,7 @@ class AiAssistantViewModel : ViewModel() {
             agent = AiAgent(
                 textProvider = provider,
                 modelId = modelId,
-                actionHandler = { act -> handleAction(act) },
+                actionHandler = { act, onNotice -> handleAction(act, onNotice) },
                 currentProjectHint = currentProjectId,
             )
         }
@@ -104,7 +104,7 @@ class AiAssistantViewModel : ViewModel() {
      * AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行）。
      * verb 覆盖全部功能，由 AiAgent 的 LLM 按自然语言意图自行选择。
      */
-    private suspend fun handleAction(act: ActionIntent): String? {
+    private suspend fun handleAction(act: ActionIntent, onNotice: (String) -> Unit = {}): String? {
         val dao = AppGraph.dao
         val ctx = AppGraph.appContext()
         val projectId = currentProjectId
@@ -148,6 +148,7 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本/小说文本，先『上传剧本』或跟我说『剧本是：…』）"
+                onNotice("🔍 正在从剧本提取角色/场景/道具资产…")
                 val assets = runCatching { AppGraph.extractAssetsFor(script) }.getOrElse { emptyList() }
                 withContext(Dispatchers.IO) {
                     assets.forEach { a ->
@@ -221,6 +222,7 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本）"
+                onNotice("🎬 正在生成分镜…")
                 val shots = runCatching { AppGraph.genShotsFor(script) }.getOrElse { emptyList() }
                 withContext(Dispatchers.IO) {
                     shots.forEach { s ->
@@ -236,12 +238,14 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val shots = withContext(Dispatchers.IO) { dao.shotsOf(e) }
                 if (shots.isEmpty()) return "（还没有分镜，先让我「生成分镜」）"
+                onNotice("🎞️ 正在入队渲染（含锁脸资产注入/补生成）…")
                 val aiShots = shots.map { com.dramafactory.core.orchestrate.DefaultAiOrchestrator.AiShot(it.shot_no, it.action ?: "", it.dialogue) }
                 val n = AppGraph.enqueueRenderFor(e, aiShots)
                 "已入渲染队 $n 条（去「渲染」标签看进度）"
             }
             "compose_film" -> {
                 val e = epId ?: return "（请先打开项目并跑渲染）"
+                onNotice("🎞️ 正在合成成片…")
                 val f = if (ctx != null) AppGraph.composeFilmFor(e, ctx) else null
                 if (f != null) "已成片：${f.absolutePath}（去「成片」标签播放）" else "（渲染还没完成，暂时无法合成成片）"
             }
@@ -250,7 +254,8 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本或跟我说『剧本是：…』）"
-                val res = AppGraph.runFullPipeline(script)
+                onNotice("🚀 启动完整流水线：提取→生图→审计→分镜→渲染…")
+                val res = AppGraph.runFullPipeline(script) { onNotice("· $it") }
                 if (res.isSuccess) {
                     currentEpisodeId = AppGraph.aiOrchestrator.currentEpisodeId.value ?: e
                     "已启动完整流水线（提取→图→分镜→渲染），跑完去「成片」标签看成片"
@@ -288,7 +293,10 @@ class AiAssistantViewModel : ViewModel() {
                 }
                 agent!!
             }
-            runCatching { a.say(text) }
+            runCatching { a.say(text) { notice ->
+                // v1.7.3：AI 执行长任务时实时汇报进度（非流式，阶段提示逐条追加）
+                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "🔄 $notice")
+            } }
                 .onSuccess { _history.value = a.history }
                 .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.javaClass.simpleName}：${e.message?.take(300) ?: ""}") }
             isThinking = false

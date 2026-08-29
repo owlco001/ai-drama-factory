@@ -21,6 +21,7 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -223,11 +224,26 @@ object AppGraph {
     internal suspend fun composeFilmFor(episodeId: String, ctx: Context): java.io.File? =
         composeFilmIfReady(episodeId, ctx)
 
-    /** 完整流水线：用户说"开工/生成整部短剧"时调用（自动建项目+集、跑提取→图→分镜→渲染） */
-    internal suspend fun runFullPipeline(scriptText: String): Result<com.dramafactory.core.orchestrate.AiOrchestrator.PipelineRun> {
-        return aiOrchestrator.run(scriptText, "", { pid, epId ->
-            // 同步到导航上下文（让 AI 知道当前项目）
-        })
+    /** 完整流水线：用户说"开工/生成整部短剧"时调用（自动建项目+集、跑提取→图→分镜→渲染）
+     * @param onEvent 五阶段实时进度回调（每条 ProgressEvent.message 推给 UI，实现"主动汇报进度"） */
+    internal suspend fun runFullPipeline(
+        scriptText: String,
+        onEvent: (String) -> Unit = {},
+    ): Result<com.dramafactory.core.orchestrate.AiOrchestrator.PipelineRun> {
+        val orc = aiOrchestrator
+        // v1.7.3：边跑边把进度事件推给 UI（非阻塞收集，run 是 suspend 阻塞，并发 drain events）
+        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            var lastN = 0
+            orc.events.collect { list ->
+                for (i in lastN until list.size) onEvent(list[i].message)
+                lastN = list.size
+            }
+        }
+        try {
+            return orc.run(scriptText, "", { pid, epId -> })
+        } finally {
+            job.cancel()
+        }
     }
 
     private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())

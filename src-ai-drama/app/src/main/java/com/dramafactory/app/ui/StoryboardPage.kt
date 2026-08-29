@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -24,6 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 /**
  * 分镜编辑页（第十二轮：可操作化）：
@@ -48,6 +53,14 @@ fun StoryboardPage(
     // v1.7.1 实时联动：进入分镜页/切项目(episodeId 变化)时强制重拉，
     // 让 AI 生成的分镜立刻可见（否则只在 VM 首次构造时拉一次，切走再切回是陈旧数据）。
     androidx.compose.runtime.LaunchedEffect(episodeId) { vm.refresh() }
+    // v1.7.3：项目内查看剧本——进入分镜页即加载本集剧本原文，折叠卡展示
+    var scriptText by remember { mutableStateOf<String?>(null) }
+    var showScript by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(episodeId) {
+        scriptText = runCatching {
+            withContext(Dispatchers.IO) { com.dramafactory.app.AppGraph.dao.episode(episodeId)?.script_json }
+        }.getOrNull()
+    }
     var editingShotId by remember { mutableStateOf<String?>(null) }
     var confirmDeleteShotId by remember { mutableStateOf<String?>(null) }
     var queuedCount by remember { mutableStateOf<Int?>(null) }
@@ -59,6 +72,40 @@ fun StoryboardPage(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text("分镜 · $episodeId", style = MaterialTheme.typography.headlineSmall) }
+
+        // v1.7.3：项目内查看剧本——折叠卡，点开看本集剧本原文（AI 提取资产/分镜的依据）
+        scriptText?.let { script ->
+            if (script.isNotBlank()) {
+                item {
+                    Card(
+                        onClick = { showScript = !showScript },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(Modifier.fillMaxWidth(),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("📜 剧本原文（${script.length}字）",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (showScript) "收起 ▲" else "展开 ▼",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                            }
+                            if (showScript) {
+                                Text(script, Modifier.padding(top = 8.dp)
+                                    .heightIn(max = 360.dp)
+                                    .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         item {
             Button(onClick = { vm.generateWithAi() }, enabled = !st.generating,
