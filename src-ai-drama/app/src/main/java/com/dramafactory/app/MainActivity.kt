@@ -4,9 +4,9 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import com.dramafactory.app.ui.DramaApp
+import com.dramafactory.app.ui.DramaFactoryTheme
 
 /**
  * 主Activity：承载七阶段Compose导航（v0.2完整UI）。
@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         try {
             setContent {
-                MaterialTheme {
+                DramaFactoryTheme {
                     Surface {
                         DramaApp()
                     }

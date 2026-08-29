@@ -24,7 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import android.widget.VideoView
+import android.net.Uri
 import com.dramafactory.app.data.RenderTaskEntity
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.ui.unit.dp
 
 /**
@@ -36,6 +41,8 @@ fun LibraryPage() {
     val context = LocalContext.current
     var shareMsg by remember { mutableStateOf<String?>(null) }
     var composingEp by remember { mutableStateOf<String?>(null) }
+    // v1.7.2：成片直接预览——点预览后弹出本地播放器播放已合成成片
+    var previewUri by remember { mutableStateOf<Uri?>(null) }
     val composer = remember { com.dramafactory.app.AppGraph.movieAssembler }
 
     // MVP：从Room读全部episode及其完成度（简单同步读取在VM更佳，此处直接组合DAO）
@@ -73,6 +80,14 @@ fun LibraryPage() {
                                 color = if (doneAll) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.outline)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // v1.7.2：直接预览——播放已合成成片(cacheDir/$epId.mp4)，无则提示先合成
+                                OutlinedButton(onClick = {
+                                    val f = java.io.File(context.cacheDir, "$epId.mp4")
+                                    if (f.exists() && f.length() > 0L) {
+                                        previewUri = androidx.core.content.FileProvider.getUriForFile(
+                                            context, context.packageName + ".fileprovider", f)
+                                    } else shareMsg = "成片尚未合成，请先点「合成」"
+                                }, modifier = Modifier.weight(1f)) { Text("预览") }
                                 Button(onClick = {
                                     // 第十三轮 P0-3：点合成，触发后台合成
                                     composingEp = epId
@@ -104,6 +119,27 @@ fun LibraryPage() {
         androidx.compose.material3.AlertDialog(onDismissRequest = { shareMsg = null },
             title = { Text("提示") }, text = { Text(it) },
             confirmButton = { Button(onClick = { shareMsg = null }) { Text("知道了") } })
+    }
+
+    // v1.7.2：成片库直接预览——本地 VideoView 弹窗播放已合成成片
+    previewUri?.let { uri ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { previewUri = null },
+            confirmButton = { Button(onClick = { previewUri = null }) { Text("关闭") } },
+            text = {
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    factory = { ctx ->
+                        VideoView(ctx).apply {
+                            setVideoURI(uri)
+                            setOnPreparedListener { it.isLooping = false; it.start() }
+                            setOnErrorListener { _, _, _ -> true }
+                        }
+                    },
+                    update = { vv -> vv.setVideoURI(uri); vv.start() }
+                )
+            }
+        )
     }
 
     // 第十三轮 P0-3：合成后台协程（LaunchedEffect 触发，UI 显示进度对话框）

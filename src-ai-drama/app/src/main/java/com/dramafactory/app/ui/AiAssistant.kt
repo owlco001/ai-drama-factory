@@ -305,18 +305,25 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
             onClick = { expanded = !expanded },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
         ) { Text("💬", style = MaterialTheme.typography.titleLarge) }
 
         if (expanded) {
             Surface(
-                tonalElevation = 4.dp,
-                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 12.dp,
+                shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(0.95f).fillMaxHeight(0.8f).padding(8.dp),
             ) {
-                Column(Modifier.padding(12.dp)) {
+                Column(Modifier.padding(16.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("🤖 AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.padding(end = 8.dp),
+                        ) { Text("🤖", Modifier.padding(6.dp), style = MaterialTheme.typography.titleMedium) }
+                        Text("AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                         Spacer(Modifier.weight(1f))
                         val proj = vm.currentProjectId
                         Text(if (proj != null) "项目:$proj" else "未选项目",

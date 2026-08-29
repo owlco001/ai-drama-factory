@@ -48,6 +48,9 @@ class DefaultRenderQueue(
         { _ -> Triple("", "", "") },
     /** 首尾帧解析：shotId → (firstUri,lastUri) */
     var shotKeyframeResolver: suspend (shotId: String) -> Pair<String?, String?> = { _ -> null to null },
+    // v1.7.2：角色/场景资产参考图解析器（套用 pavo 锁脸逻辑）。给定 shotId 返回该镜
+    // 应注入视频生成的资产参考图 URI 列表（角色主锚图为主），使角色长相跨镜一致。
+    var shotAssetImageResolver: suspend (shotId: String) -> List<String> = { _ -> emptyList() },
     /** 第六轮：视频参考解析：shotId → referenceVideoUri（仅当模型标记支持时由上游填充） */
     var shotReferenceVideoResolver: suspend (shotId: String) -> String? = { _ -> null },
     private val projectIdOf: (episodeId: String) -> String = { "" },
@@ -142,11 +145,14 @@ class DefaultRenderQueue(
             val prompt = com.dramafactory.core.provider.ChineseAudioInjector.buildShotPrompt(dialogue, narration, action)
             val (first, last) = shotKeyframeResolver(shotId)
             val referenceVideo = shotReferenceVideoResolver(shotId)
+            // v1.7.2：套用 pavo 锁脸——每镜注入角色/场景资产参考图（i2i），保证跨镜长相一致
+            val assetImages = shotAssetImageResolver(shotId)
             val taskId = videoProvider.submitVideo(
                 com.dramafactory.core.model.VideoSubmitRequest(
                     shotId = shotId, prompt = prompt,
                     firstImageUri = first, lastImageUri = last,
                     referenceVideoUri = referenceVideo,
+                    inputImages = assetImages,
                 )
             )
             // ★P0-1生死线第二步：HTTP 2xx/video_id一返回就【同步落库】，且这是拿到id后的第一个动作

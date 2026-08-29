@@ -103,6 +103,14 @@ class QueueLogic(
         (queue as? com.dramafactory.core.pipeline.DefaultRenderQueue)?.shotReferenceVideoResolver = resolver
     }
 
+    /**
+     * v1.7.2：注入「角色/场景资产参考图」解析器（套用 pavo 锁脸逻辑）。
+     * shotId → 该镜应注入视频生成的资产参考图 URI 列表；空列表=不注入。
+     */
+    fun setAssetImageResolver(resolver: suspend (shotId: String) -> List<String>) {
+        (queue as? com.dramafactory.core.pipeline.DefaultRenderQueue)?.shotAssetImageResolver = resolver
+    }
+
     /** 预算确认弹窗：「继续渲染」（确认放行，越过预算门提交一镜） */
     suspend fun confirmBudget() {
         _state.value = _state.value.copy(showBudgetConfirm = false)

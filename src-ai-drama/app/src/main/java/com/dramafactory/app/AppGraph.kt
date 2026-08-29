@@ -195,6 +195,22 @@ object AppGraph {
 
     /** 入渲染队（按分镜生成视频任务） */
     internal suspend fun enqueueRenderFor(episodeId: String, shots: List<DefaultAiOrchestrator.AiShot>): Int {
+        val projectId = episodeId.substringBeforeLast("_ep").ifBlank { episodeId }
+        // v1.7.2：问题1b——渲染前确保角色/场景资产已生图，否则各镜失去参考图→长相漂移。
+        // 缺失 remote_url 的资产在此补齐生成（走 Agnes 生图），保证一致性锁脸有图可注入。
+        runCatching {
+            val missings = dao.assetsAllOf(projectId)
+                .filter { (it.kind == "character" || it.kind == "scene") && it.remote_url.isNullOrBlank() }
+            for (a in missings) {
+                val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
+                val prompt = if (a.kind == "character") preset.withCharacterStudioConstraints(a.prompt)
+                             else preset.withEraConstraints(a.prompt)
+                val neg = if (a.kind == "character") preset.studioNegativePromptFor() else preset.negativePromptFor()
+                val url = runCatching { agnes.generateImage(
+                    com.dramafactory.core.model.ImageGenRequest(prompt = prompt, negativePrompt = neg)) }.getOrNull() ?: continue
+                runCatching { dao.setAssetRemoteUrl(a.asset_id, url, System.currentTimeMillis()) }
+            }
+        }
         val metas = shots.map {
             com.dramafactory.core.model.ShotMeta(shotId = "${episodeId}_shot${it.shotNo}", episodeId = episodeId, prompt = it.action)
         }

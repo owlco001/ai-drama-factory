@@ -88,6 +88,22 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
                     ?: (null to null)
             }
         }
+        // v1.7.2：套用 pavo 锁脸逻辑——每镜注入本项目角色/场景资产参考图(i2i)，
+        // 保证角色长相跨镜一致。取本集所属项目的 character 资产主图(remote_url优先, 回退image_uri)。
+        setAssetImageResolver { shotId ->
+            withContext(Dispatchers.IO) {
+                val epId = shotId.substringBeforeLast("_shot").takeIf { it.contains("_ep") } ?: shotId
+                val projectId = epId.substringBeforeLast("_ep").ifBlank { epId }
+                runCatching {
+                    AppGraph.dao.assetsAllOf(projectId)
+                        .filter { it.kind == "character" || it.kind == "scene" }
+                        .mapNotNull { it.remote_url ?: it.image_uri }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .take(4) // 限制注入数量，避免请求体过大
+                }.getOrDefault(emptyList())
+            }
+        }
         setReferenceVideoResolver { shotId ->
             // 仅当当前视频模型支持视频参考时返回；否则空（Agnes标记支持）
             withContext(Dispatchers.IO) {

@@ -267,19 +267,19 @@ class AgnesProvider(
             put("prompt", prompt)
             put("width", w); put("height", h)
             put("num_frames", nf); put("frame_rate", req.frameRate.toDouble())
+            // v1.7.2：套用 pavo 锁脸——组装 image 列表（keyframes/首帧 + 角色/场景资产参考图）
+            val images = mutableListOf<String>()
             if (req.firstImageUri != null && req.lastImageUri != null) {
-                // keyframes模式：双帧必须同时传 image=[first,last] + mode=keyframes（缺mode会400）
-                put("image", buildJsonArray {
-                    add(json.parseToJsonElement("\"${req.firstImageUri}\""))
-                    add(json.parseToJsonElement("\"${req.lastImageUri}\""))
-                })
-                put("mode", "keyframes")
+                images.add(req.firstImageUri); images.add(req.lastImageUri)
             } else if (req.firstImageUri != null) {
-                // 图生视频单首帧（非keyframes）： Agnes 接受单图作为起始帧
-                put("image", req.firstImageUri)
+                images.add(req.firstImageUri)
             } else if (req.referenceImageUri != null) {
-                // 图生视频：单参考图作为起始帧（对齐 pavo image 参数语义）
-                put("image", req.referenceImageUri)
+                images.add(req.referenceImageUri)
+            }
+            images.addAll(req.inputImages)
+            if (images.isNotEmpty()) {
+                put("image", buildJsonArray { images.forEach { add(json.parseToJsonElement("\"$it\"")) } })
+                if (req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
             }
             // 视频参考输入：部分供应商支持，仅当模型标记支持且提供了URI时填入
             req.referenceVideoUri?.let { put("reference_video", it) }

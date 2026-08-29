@@ -41,6 +41,9 @@ data class VideoSubmitRequest(
     val referenceImageUri: String? = null,
     /** 视频参考URI（部分供应商支持的视频参考输入；仅当模型标记 supportsVideoReference 时填充） */
     val referenceVideoUri: String? = null,
+    // ---- v1.7.2：角色/场景资产参考图注入（套用 pavo 锁脸逻辑：每镜 i2i 绑定角色参考图，保证跨镜长相一致）----
+    /** 多图 i2i 参考图（角色主锚图/场景图），非空即注入视频生成的 image 数组，使角色长相跨镜一致 */
+    val inputImages: List<String> = emptyList(),
 )
 
 /** 轮询结果三态 */
