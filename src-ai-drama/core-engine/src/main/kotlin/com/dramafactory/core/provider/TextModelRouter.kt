@@ -125,7 +125,7 @@ object DefaultTextModelRouter : TextModelRouter {
 
 /** 内存实现：JVM 单测默认走这个；生产 AppGraph 会换成 AndroidKeyVault 包装版本 */
 class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModelStore {
-    @Volatile private var activeModelId = "agnes"
+    @Volatile private var activeModelId = "deepseek"
     private val keys = mutableMapOf<String, String>()
     private val verified = mutableSetOf<String>()
 

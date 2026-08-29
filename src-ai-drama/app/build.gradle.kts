@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 36
-        versionName = "1.6.7"  // v1.6.7: 改进模型调用失败诊断(类名+message不截断+每次重试logcat)
+        versionCode = 37
+        versionName = "1.6.8"  // v1.6.8: 默认文本模型改为DeepSeek(符合用户要求)+textProviderFor按有key的provider选
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

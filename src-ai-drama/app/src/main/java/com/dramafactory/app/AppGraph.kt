@@ -131,12 +131,9 @@ object AppGraph {
 
     /** 是否任一文本模型候选 configId 有非空 key（用于 AI 助手前置提示） */
     internal suspend fun hasAnyTextKey(): Boolean {
-        val active = textModelRouter.activeTextModelId()
-        val candidates = if (active.startsWith("deepseek"))
-            listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes")
-        else listOf("text-agnes", "agnes", "agnes-text", "agnes-video", "agnes-image")
-        // v1.6.6 修：AndroidKeyVault.load 找不到时抛 NoSuchElementException，不能用 .any{} 直接调，
-        // 必须 runCatching 兜，否则第一个不存在的 configId 就抛 → 闪退。
+        // DeepSeek 优先（用户明确：APP 文字模型用 DeepSeek），其次 Agnes。
+        val candidates = listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes", "agnes-text")
+        // v1.6.6 修：AndroidKeyVault.load 找不到时抛 NoSuchElementException，必须 runCatching 兜。
         return candidates.any { c -> runCatching { keyVault.load(c) }.getOrNull()?.isNotBlank() == true }
     }
 
@@ -148,18 +145,28 @@ object AppGraph {
      */
     internal suspend fun textProviderFor(): com.dramafactory.core.provider.TextProvider {
         val active = textModelRouter.activeTextModelId()
-        val candidates = when (active) {
-            "agnes", "agnes-2.5-flash", " text-agnes" -> listOf("text-agnes", "agnes", "agnes-text", "agnes-video", "agnes-image")
-            else -> listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes")
+        // DeepSeek 优先（用户明确：APP 文字模型用 DeepSeek），其次 Agnes。
+        // 候选 configId 同时覆盖 keyVault 可能的 text- 前缀与裸 id。
+        val candidates = listOf(
+            "text-deepseek" to "deepseek",
+            "deepseek" to "deepseek",
+            "deepseek-chat" to "deepseek",
+            "text-agnes" to "agnes",
+            "agnes" to "agnes",
+            "agnes-text" to "agnes",
+        )
+        // 按候选顺序取第一个非空 key，并记住命中的 providerId，避免受 active 默认值误导。
+        var hitProvider: String? = null
+        val key = candidates.firstNotNullOfOrNull { (cfgId, prov) ->
+            val k = runCatching { keyVault.load(cfgId) }.getOrNull()?.takeIf { it.isNotBlank() }
+            if (k != null) { hitProvider = prov; k } else null
+        }.orEmpty()
+        if (key.isBlank()) {
+            // 都没 key：用激活模型（或默认 deepseek）的 provider 空跑，让上层显示"调用失败"引导去设置。
+            hitProvider = if (active.startsWith("deepseek")) "deepseek" else "agnes"
         }
-        // v1.6.6 修：每个 keyVault.load 都包 runCatching(NoSuchElementException 不接住会逃出 firstNotNullOfOrNull)，
-        // 拿第一个非空 key。
-        val key = candidates
-            .mapNotNull { c -> runCatching { keyVault.load(c) }.getOrNull()?.takeIf { it.isNotBlank() } }
-            .firstOrNull().orEmpty()
-        return when {
-            active.startsWith("deepseek") || candidates.any { it.contains("deepseek") } && key.isNotBlank() ->
-                com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
+        return when (hitProvider) {
+            "deepseek" -> com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
             else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key })
         }
     }
