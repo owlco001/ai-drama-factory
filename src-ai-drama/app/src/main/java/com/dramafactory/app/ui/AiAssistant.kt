@@ -264,7 +264,7 @@ class AiAssistantViewModel : ViewModel() {
             }
             runCatching { a.say(text) }
                 .onSuccess { _history.value = a.history }
-                .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.message?.take(120)}") }
+                .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.javaClass.simpleName}：${e.message?.take(300) ?: ""}") }
             isThinking = false
         }
     }

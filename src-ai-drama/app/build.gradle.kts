@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 35
-        versionName = "1.6.6"  // v1.6.6: 修真崩点-AndroidKeyVault.load抛NoSuchElementException逃出runCatching
+        versionCode = 36
+        versionName = "1.6.7"  // v1.6.7: 改进模型调用失败诊断(类名+message不截断+每次重试logcat)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

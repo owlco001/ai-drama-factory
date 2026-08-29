@@ -91,11 +91,16 @@ class DeepSeekProvider(
                 }
             } catch (e: java.io.IOException) {
                 lastErr = e
+                val reason = "${e.javaClass.simpleName}: ${e.message?.take(120) ?: ""}"
+                println("DeepSeekProvider postJson attempt=${attempt + 1}/$HTTP_MAX_RETRIES $reason")
                 if (attempt == HTTP_MAX_RETRIES - 1) break
                 kotlinx.coroutines.delay(backoff); backoff *= 2
             }
         }
-        throw ProviderError.TransientError("giving up after $HTTP_MAX_RETRIES attempts: $lastErr")
+        val errInfo = if (lastErr != null) {
+            "${lastErr!!.javaClass.simpleName}: ${lastErr!!.message?.take(120) ?: ""}"
+        } else "no error captured"
+        throw ProviderError.TransientError("giving up after $HTTP_MAX_RETRIES attempts: $errInfo")
     }
 
     private fun HttpResponse.isRetryable(): Boolean =

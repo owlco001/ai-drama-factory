@@ -160,7 +160,7 @@ class AgnesProvider(
                     resp.status.value == 400 || resp.status.value == 422 ->
                         throw ProviderError.ValidationError("${resp.status.value}: ${resp.snip()}")
                     resp.isRetryable() -> {
-                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} retryable", retryable = true)
+                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} retryable: ${resp.snip()}", retryable = true)
                         sleeper(backoff); backoff *= 2
                         continue
                     }
@@ -168,12 +168,20 @@ class AgnesProvider(
                 }
             } catch (e: java.io.IOException) {
                 // 网络瞬断：指数退避重试（ProviderError不在此列，直接上抛）
+                // v1.6.7 改进：把 lastErr 的可读信息（类名+message）累加到 reasons
                 lastErr = e
+                val reason = "${e.javaClass.simpleName}: ${e.message?.take(120) ?: ""}"
+                // core-engine 不能依赖 app 模块的 CrashLog，只 println（Android logcat 可见）
+                println("AgnesProvider postJson[$path] attempt=${attempt + 1}/$HTTP_MAX_RETRIES $reason")
                 if (attempt == HTTP_MAX_RETRIES - 1) break
                 sleeper(backoff); backoff *= 2
             }
         }
-        throw ProviderError.TransientError("giving up on $path after $HTTP_MAX_RETRIES attempts: $lastErr")
+        // v1.6.7 改进：toString() 太长被 FQN 截断，改用类名+message
+        val errInfo = if (lastErr != null) {
+            "${lastErr!!.javaClass.simpleName}: ${lastErr!!.message?.take(120) ?: ""}"
+        } else "no error captured"
+        throw ProviderError.TransientError("giving up on $path after $HTTP_MAX_RETRIES attempts: $errInfo")
     }
 
     private suspend fun getJson(url: String): JsonObject {
