@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 38
-        versionName = "1.6.9"  // v1.6.9: 修合成失败(QUIET死代码+withContext IO防ANR)+NoSuchField/NoSuchMethod兜底
+        versionCode = 39
+        versionName = "1.7.0"  // v1.7.0: AI助手进入不同项目自动切换上下文(重置agent+history+注入项目id)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

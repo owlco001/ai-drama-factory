@@ -45,6 +45,31 @@ class AiAssistantViewModel : ViewModel() {
     var currentProjectId: String? = null
     var currentEpisodeId: String? = null
 
+    /** 上次注入的项目 id，用于检测"切换项目"事件（避免每次重组重复重置） */
+    private var _lastProjectId: String? = null
+
+    /**
+     * DramaApp 在导航项目变化时调用。若项目 id 真的变化（且非空），
+     * 重置 AI 上下文（丢弃旧 agent 的剧本草稿/对话历史 + 清空气泡），
+     * 让 AI 在新项目里从零开始——实现"进入不同项目自动切换上下文"。
+     */
+    fun setProject(pid: String?) {
+        if (pid == null) return
+        if (pid == _lastProjectId) return
+        _lastProjectId = pid
+        currentProjectId = pid
+        // 丢弃旧 agent（其 scriptDraft/_history/_messages 都是 mutable 内部状态，无 reset 接口，
+        // 直接置空，下次 say 时 ensureAgent 重建干净实例）
+        agent = null
+        _history.value = listOf(
+            DialogueTurn(
+                DialogueTurn.Side.AI,
+                "📁 已切换到项目：$pid。上下文已重置，我们在这个新项目里继续。",
+                System.currentTimeMillis()
+            )
+        )
+    }
+
     /** AI 请求前端跳转标签（如"打开资产页看看"） */
     var onGoto: ((String) -> Unit)? = null
 
@@ -69,6 +94,7 @@ class AiAssistantViewModel : ViewModel() {
                 textProvider = provider,
                 modelId = modelId,
                 actionHandler = { act -> handleAction(act) },
+                currentProjectHint = currentProjectId,
             )
         }
         _building = false

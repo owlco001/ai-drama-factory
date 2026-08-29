@@ -202,7 +202,8 @@ fun DramaApp() {
             // 放在上述 Column 内——非 weight 子项按 maxHeight 优先测量，悬浮球会抢走全部高度，
             // 把内容区 weight(1f) 挤成 0，导致「看不到任何页面、标签切换看似无效」。
             // 现改为放在外层 Box 中：与内容区重叠，真正"悬浮"覆盖，不参与 Column 测量。
-            aiVm.currentProjectId = nav.currentProjectId
+            // 进入不同项目自动切换 AI 上下文：用 setProject（内部检测项目 id 变化才重置）
+            aiVm.setProject(nav.currentProjectId)
             aiVm.currentEpisodeId = nav.currentEpisodeId
             aiVm.onGoto = { target ->
                 val p = when (target.lowercase()) {
