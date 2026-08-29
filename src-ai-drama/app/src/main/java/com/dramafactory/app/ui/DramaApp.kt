@@ -18,16 +18,21 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,7 +55,19 @@ import java.io.File
 enum class Page(val label: String) {
     PROJECTS("项目"), EPISODES("剧集"), ASSETS("资产"), STORYBOARD("分镜"),
     QUEUE("渲染"), LIBRARY("成片"), SETTINGS("设置");
+
+    /** 是否在底栏常驻（v1.7.6：收敛为5项；剧集/设置降级为子页） */
+    val onBar: Boolean get() = this in listOf(PROJECTS, ASSETS, STORYBOARD, QUEUE, LIBRARY)
+    /** 子页归属的主标签（底栏高亮映射） */
+    val ownerMain: Page get() = when (this) {
+        EPISODES -> PROJECTS
+        SETTINGS -> lastMainCache
+        else -> this
+    }
 }
+
+/** 记录进入设置前的上一个主页面（设置子页返回用） */
+private var lastMainCache: Page = Page.PROJECTS
 
 /** 全局UI状态：当前选中项目/集（简化跨页上下文） */
 class AppNavState {
@@ -116,6 +133,7 @@ private fun SplashScreen(onDone: () -> Unit) {
 }
 
 @Composable
+@androidx.compose.material3.ExperimentalMaterial3Api
 fun DramaApp() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("mode_prefs", 0) }
@@ -132,6 +150,9 @@ fun DramaApp() {
         }
     }
     var page by remember { mutableStateOf(Page.PROJECTS) }
+    // 记录当前主标签（用于设置子页返回映射）
+    val lastMain = remember { mutableStateOf(Page.PROJECTS) }
+    if (page.onBar) lastMain.value = page
     // 全局 AI 助手（悬浮球）：贯穿整个 App，所有标签页共享同一对话与 agent
     val aiVm: AiAssistantViewModel = viewModel()
 
@@ -149,14 +170,34 @@ fun DramaApp() {
     }
 
     Scaffold(
+        topBar = {
+            // 子页（剧集/设置）显示返回箭头；主页面显示设置齿轮
+            TopAppBar(
+                title = { Text(page.label, style = MaterialTheme.typography.titleMedium) },
+                navigationIcon = {
+                    if (!page.onBar) IconButton(onClick = {
+                        page = if (page == Page.SETTINGS) lastMain.value else page.ownerMain
+                    }) { Icon(Icons.Filled.ArrowBack, contentDescription = "返回") }
+                },
+                actions = {
+                    if (page.onBar) IconButton(onClick = { lastMain.value = page; page = Page.SETTINGS }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        },
         bottomBar = {
             NavigationBar {
-                for (p in Page.entries) {
+                for (p in Page.entries.filter { it.onBar }) {
                     NavigationBarItem(
                         selected = page == p,
-                        onClick = {
-                            page = p
-                        },
+                        onClick = { page = p },
                         icon = { Icon(pageIcon(p), contentDescription = p.label) },
                         label = { Text(p.label) },
                     )

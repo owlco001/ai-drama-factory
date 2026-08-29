@@ -331,7 +331,8 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.padding(end = 8.dp),
                         ) { Text("🤖", Modifier.padding(6.dp), style = MaterialTheme.typography.titleMedium) }
-                        Text("AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        Text("AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.weight(1f))
                         val proj = vm.currentProjectId
                         Text(if (proj != null) "项目:$proj" else "未选项目",
