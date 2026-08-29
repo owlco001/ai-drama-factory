@@ -1,5 +1,6 @@
 package com.dramafactory.app.ui
 
+import com.dramafactory.app.AppGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -165,6 +166,35 @@ class AssetsLogic {
     var generateResultPersist: suspend (assetId: String, remoteUrl: String) -> Unit = { _, _ -> }
 
     fun setAssets(list: List<AssetCard>) { _assets.value = list }
+
+    /**
+     * v1.7.1 实时联动：从 Room 重读本项目全部已落库资产，替换内存里"已落库"的卡片，
+     * 保留仍在生成中的临时卡（generating=true 且无 remoteUrl）。
+     * 让 AI 通过 AppGraph.dao.upsertAsset 写入的资产，进入资产页时立刻可见。
+     */
+    suspend fun refreshFromDb(projectId: String) {
+        val dbRows = runCatching {
+            AppGraph.dao.assetsAllOf(projectId)
+        }.getOrNull() ?: return
+        val dbCards = dbRows.mapNotNull { e ->
+            if (e.image_uri.isNullOrBlank() && e.video_uri.isNullOrBlank() && e.remote_url.isNullOrBlank()) return@mapNotNull null
+            AssetCard(
+                assetId = e.asset_id,
+                kind = runCatching { Kind.valueOf(e.kind.uppercase()) }.getOrDefault(Kind.CHARACTER),
+                prompt = e.prompt ?: "",
+                remoteUrl = e.remote_url,
+                reviewState = e.review_state ?: "none",
+                source = e.source ?: "generated",
+                imageUri = e.image_uri,
+                videoUri = e.video_uri,
+                referenceImageUri = e.reference_image_uri,
+                parentId = e.parent_id,
+                poseRole = e.pose_role,
+            )
+        }
+        val generating = _assets.value.filter { it.generating && it.remoteUrl == null }
+        _assets.value = (dbCards + generating).distinctBy { it.assetId }
+    }
 
     /** 新增资产（输入prompt后点「添加」） */
     fun addAsset(assetId: String, kind: Kind, prompt: String) {

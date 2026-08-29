@@ -253,6 +253,9 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     }
     val assets: StateFlow<List<AssetsLogic.AssetCard>> get() = logic.assets
 
+    /** v1.7.1 实时联动：进入资产页/切项目时从 Room 重读，让 AI 写入的资产立刻可见 */
+    suspend fun refreshFromDb(projectId: String) { logic.refreshFromDb(projectId) }
+
     // 第九轮：G2 多模态审计 describer（agnes-2.5-flash 带图，enable_thinking=false）
     private val describer = AssetAuditor.agnesDescriber(AppGraph.text)
 

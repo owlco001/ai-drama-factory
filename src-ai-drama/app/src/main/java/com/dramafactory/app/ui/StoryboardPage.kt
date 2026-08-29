@@ -45,6 +45,9 @@ fun StoryboardPage(
     ),
 ) {
     val st by vm.state.collectAsState()
+    // v1.7.1 实时联动：进入分镜页/切项目(episodeId 变化)时强制重拉，
+    // 让 AI 生成的分镜立刻可见（否则只在 VM 首次构造时拉一次，切走再切回是陈旧数据）。
+    androidx.compose.runtime.LaunchedEffect(episodeId) { vm.refresh() }
     var editingShotId by remember { mutableStateOf<String?>(null) }
     var confirmDeleteShotId by remember { mutableStateOf<String?>(null) }
     var queuedCount by remember { mutableStateOf<Int?>(null) }

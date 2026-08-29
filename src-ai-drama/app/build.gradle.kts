@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 39
-        versionName = "1.7.0"  // v1.7.0: AI助手进入不同项目自动切换上下文(重置agent+history+注入项目id)
+        versionCode = 40
+        versionName = "1.7.1"  // v1.7.1: 标签实时联动(进/切项目强制重拉分镜+资产,AI写入资产可见)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
