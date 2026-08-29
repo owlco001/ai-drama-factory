@@ -84,8 +84,10 @@ fun AssetsPage(
 ) {
     var kind by remember { mutableStateOf(AssetsLogic.Kind.CHARACTER) }
     var prompt by remember { mutableStateOf("") }
-    // v1.7.1 实时联动：进入资产页/切项目时从 Room 重读，让 AI 写入的资产立刻可见
-    androidx.compose.runtime.LaunchedEffect(projectId) { vm?.refreshFromDb(projectId ?: return@LaunchedEffect) }
+    // v1.7.1 实时联动：进入资产页时从 Room 重读，让 AI 写入的资产立刻可见。
+    // v1.7.4 修复：改用 LaunchedEffect(Unit)，因为 when(page) 切换会销毁重建本页 Composable，
+    // 每次进入资产页都应重读——仅按 projectId 变化触发会漏掉「AI在其它标签提取资产后切回」的场景。
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm?.refreshFromDb(projectId ?: return@LaunchedEffect) }
     // 第十一轮：资产编辑器（点击卡片弹出）：非空=正在编辑该资产id
     var editingAssetId by remember { mutableStateOf<String?>(null) }
     // 参考图上传选择器（编辑器内触发）

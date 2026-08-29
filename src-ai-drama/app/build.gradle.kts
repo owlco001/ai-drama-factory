@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 42
-        versionName = "1.7.3"  // v1.7.3: AI对话阶段进度主动汇报(非流式)+项目内剧本原文查看
+        versionCode = 43
+        versionName = "1.7.4"  // v1.7.4: 修资产偶尔空白(refreshFromDb不丢prompt-only卡+每次进资产页重读)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

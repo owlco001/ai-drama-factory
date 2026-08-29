@@ -168,16 +168,19 @@ class AssetsLogic {
     fun setAssets(list: List<AssetCard>) { _assets.value = list }
 
     /**
-     * v1.7.1 实时联动：从 Room 重读本项目全部已落库资产，替换内存里"已落库"的卡片，
-     * 保留仍在生成中的临时卡（generating=true 且无 remoteUrl）。
-     * 让 AI 通过 AppGraph.dao.upsertAsset 写入的资产，进入资产页时立刻可见。
+     * v1.7.4 修资产偶尔空白：从 Room 重读本项目全部资产卡（含仅prompt、尚未生图的），
+     * 与内存里 generating 的卡按 assetId 合并。
+     * 关键修复：旧实现要求 image_uri/video_uri/remote_url 任一非空才显示，
+     * 导致「AI已提取但还没生图」的资产(无media uri)被整行丢弃→资产页空白。
+     * 现在只要 asset_id 非空即纳入；内存中正在生成(generating)的卡优先于DB空图卡，
+     * 避免生图过程中被DB快照冲掉。
      */
     suspend fun refreshFromDb(projectId: String) {
         val dbRows = runCatching {
             AppGraph.dao.assetsAllOf(projectId)
         }.getOrNull() ?: return
         val dbCards = dbRows.mapNotNull { e ->
-            if (e.image_uri.isNullOrBlank() && e.video_uri.isNullOrBlank() && e.remote_url.isNullOrBlank()) return@mapNotNull null
+            if (e.asset_id.isNullOrBlank()) return@mapNotNull null
             AssetCard(
                 assetId = e.asset_id,
                 kind = runCatching { Kind.valueOf(e.kind.uppercase()) }.getOrDefault(Kind.CHARACTER),
@@ -190,10 +193,15 @@ class AssetsLogic {
                 referenceImageUri = e.reference_image_uri,
                 parentId = e.parent_id,
                 poseRole = e.pose_role,
+                // DB 有 media 但内存标记 generating 时，下方合并会纠正；此处先按DB是否有图决定生成态
+                generating = e.remote_url.isNullOrBlank() && e.image_uri.isNullOrBlank() && e.video_uri.isNullOrBlank()
+                        && _assets.value.any { it.assetId == e.asset_id && it.generating },
             )
         }
-        val generating = _assets.value.filter { it.generating && it.remoteUrl == null }
-        _assets.value = (dbCards + generating).distinctBy { it.assetId }
+        val memGenerating = _assets.value.filter { it.generating }
+        // 合并：DB卡为主，但内存里正在生成的同id卡(gen)覆盖DB空图卡，保留转圈态
+        val merged = (dbCards + memGenerating).distinctBy { it.assetId }
+        _assets.value = merged
     }
 
     /** 新增资产（输入prompt后点「添加」） */
