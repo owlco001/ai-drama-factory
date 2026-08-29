@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -41,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.dramafactory.app.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dramafactory.app.ui.AiAssistantFloating
 import com.dramafactory.app.ui.AiAssistantViewModel
@@ -193,13 +195,25 @@ fun DramaApp() {
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
                 for (p in Page.entries.filter { it.onBar }) {
                     NavigationBarItem(
                         selected = page == p,
                         onClick = { page = p },
-                        icon = { Icon(pageIcon(p), contentDescription = p.label) },
+                        icon = {
+                            val vec = pageIcon(p)
+                            if (vec != null) Icon(vec, contentDescription = p.label)
+                            else Icon(pagePainter(p), contentDescription = p.label)
+                        },
                         label = { Text(p.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        ),
                     )
                 }
             }
@@ -264,11 +278,24 @@ fun DramaApp() {
     }
 }
 
-private fun pageIcon(p: Page) = when (p) {
-    Page.PROJECTS, Page.EPISODES -> Icons.Filled.Home
-    Page.ASSETS -> Icons.Filled.PlayArrow
+private fun pageIcon(p: Page): androidx.compose.ui.graphics.vector.ImageVector? = when (p) {
+    Page.PROJECTS -> null
+    Page.EPISODES -> null
+    Page.ASSETS -> null
     Page.STORYBOARD -> Icons.Filled.List
-    Page.QUEUE -> Icons.Filled.Star
-    Page.LIBRARY -> Icons.Filled.Info
+    Page.QUEUE -> null
+    Page.LIBRARY -> null
     Page.SETTINGS -> Icons.Filled.Settings
 }
+
+/** 走查P0-2：底栏语义图标（folder/image/cpu/film）走 XML vector drawable，避免依赖 material-icons-extended */
+@androidx.compose.runtime.Composable
+private fun pagePainter(p: Page): androidx.compose.ui.graphics.painter.Painter = androidx.compose.ui.res.painterResource(
+    when (p) {
+        Page.PROJECTS, Page.EPISODES -> R.drawable.ic_folder
+        Page.ASSETS -> R.drawable.ic_image
+        Page.QUEUE -> R.drawable.ic_cpu
+        Page.LIBRARY -> R.drawable.ic_movie
+        else -> R.drawable.ic_folder
+    }
+)

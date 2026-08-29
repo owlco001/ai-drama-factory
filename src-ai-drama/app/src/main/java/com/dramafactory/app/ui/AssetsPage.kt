@@ -29,6 +29,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -231,7 +233,16 @@ fun AssetsPage(
                 for (k in AssetsLogic.Kind.entries) {
                     FilterChip(selected = kind == k && !selectionMode,
                         onClick = { if (!selectionMode) kind = k }, label = { Text(k.label) },
-                        enabled = !selectionMode)
+                        enabled = !selectionMode,
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = !selectionMode, selected = kind == k && !selectionMode,
+                            borderColor = if (kind == k && !selectionMode) MaterialTheme.colorScheme.primary
+                                         else MaterialTheme.colorScheme.outlineVariant))
                 }
                 Spacer(Modifier.weight(1f))
                 // 第十二轮：批量管理开关
@@ -239,7 +250,16 @@ fun AssetsPage(
                     onClick = {
                         selectionMode = !selectionMode
                         selectedIds.value = emptySet()
-                    }, label = { Text(if (selectionMode) "退出选择" else "☑ 批量") })
+                    }, label = { Text(if (selectionMode) "退出选择" else "☑ 批量") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true, selected = selectionMode,
+                        borderColor = if (selectionMode) MaterialTheme.colorScheme.primary
+                                     else MaterialTheme.colorScheme.outlineVariant))
             }
         }
         // 多选操作栏
@@ -317,7 +337,16 @@ fun AssetsPage(
                                     selected.value = if (selected.value.contains(c)) selected.value - c else selected.value + c
                                     vm.setEpisodeAllowedCrossEra(selected.value.toList())
                                 },
-                                label = { Text(c) })
+                                label = { Text(c) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true, selected = selected.value.contains(c),
+                                    borderColor = if (selected.value.contains(c)) MaterialTheme.colorScheme.primary
+                                                 else MaterialTheme.colorScheme.outlineVariant))
                         }
                     }
                 }
@@ -331,8 +360,12 @@ fun AssetsPage(
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("本地上传（图生图/图生视频素材）", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { startCapture(CaptureKind.IMAGE) }) { Text("拍摄图片") }
-                    OutlinedButton(onClick = { startCapture(CaptureKind.VIDEO) }) { Text("拍摄视频") }
+                    OutlinedButton(
+                        onClick = { startCapture(CaptureKind.IMAGE) },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("拍摄图片") }
+                    OutlinedButton(
+                        onClick = { startCapture(CaptureKind.VIDEO) },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("拍摄视频") }
                 }
                 // 第八轮：拍摄/上传失败提示（权限被拒/无相机/文件无效），替代闪退
                 captureError?.let {
@@ -340,7 +373,9 @@ fun AssetsPage(
                         color = MaterialTheme.colorScheme.error)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { albumImageLauncher.launch("image/*") }) {
+                    OutlinedButton(
+                        onClick = { albumImageLauncher.launch("image/*") },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
                         Text("相册图片")
                     }
                     OutlinedButton(onClick = { albumVideoLauncher.launch("video/*") }) {

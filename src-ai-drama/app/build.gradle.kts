@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 44
-        versionName = "1.7.6"  // v1.7.6: 落地UI设计系统(霓虹紫/青主题token + 底栏7→5项收敛+子页返回+顶栏设置齿轮)
+        versionCode = 45
+        versionName = "1.7.7"  // v1.7.7: 按真机走查修视觉(选中态紫系+底栏语义图标folder/image/cpu/film+AI球渐变脉冲环+chip紫选+muted上传钮)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

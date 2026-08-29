@@ -10,7 +10,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import com.dramafactory.app.ui.theme.DramaGradient
+import com.dramafactory.app.ui.theme.DramaColor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
@@ -309,12 +323,36 @@ class AiAssistantViewModel : ViewModel() {
 fun AiAssistantFloating(vm: AiAssistantViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
-        FloatingActionButton(
-            onClick = { expanded = !expanded },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ) { Text("💬", style = MaterialTheme.typography.titleLarge) }
+        // 走查P0-3：AI 悬浮球 = 56dp 正圆 + 紫→品红渐变 + 外发光 + 脉冲环 + sparkle
+        val pulse = rememberInfiniteTransition()
+        val ringScale by pulse.animateFloat(
+            initialValue = 1f, targetValue = 1.6f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes { durationMillis = 1500; 1.6f at 1500 },
+                repeatMode = androidx.compose.animation.core.RepeatMode.Restart))
+        val ringAlpha by pulse.animateFloat(
+            initialValue = 0.35f, targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes { durationMillis = 1500; 0f at 1500 },
+                repeatMode = androidx.compose.animation.core.RepeatMode.Restart))
+        // 脉冲外环
+        Box(Modifier
+            .align(Alignment.BottomEnd).padding(16.dp)
+            .size(56.dp)
+            .graphicsLayer { scaleX = ringScale; scaleY = ringScale; alpha = ringAlpha }
+            .clip(CircleShape)
+            .background(DramaColor.Tertiary.copy(alpha = 1f)))
+        // 主球
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd).padding(16.dp)
+                .size(56.dp)
+                .shadow(elevation = 8.dp, spotColor = DramaColor.GlowShadow, shape = CircleShape)
+                .clip(CircleShape)
+                .background(DramaGradient.ai())
+                .clickable { expanded = !expanded },
+            contentAlignment = Alignment.Center,
+        ) { Text("✨", style = MaterialTheme.typography.titleLarge) }
 
         if (expanded) {
             Surface(
