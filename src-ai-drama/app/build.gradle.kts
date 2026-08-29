@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 47
-        versionName = "1.7.9"  // v1.7.9: 修图片生成失败(Agnes图像队列不支持negative_prompt→400, 移除并并入正向prompt保红线)
+        versionCode = 48
+        versionName = "1.7.10"  // v1.7.10: 红线禁词按Agnes实测改英文并入正向prompt(negative_prompt字段网关400, 英文抑制强于中文)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

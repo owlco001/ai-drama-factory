@@ -242,16 +242,21 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 } else {
                     preset.withEraConstraints(basePrompt)
                 }
-                // 时代红线禁词：Agnes 图像队列不支持 negative_prompt（400 拒绝），
-                // 故把负向禁词并入正向 prompt（"画面中不得出现：X、Y"），保住红线又不让生图失败。
+                // 时代红线禁词：Agnes 图像队列实测不支持 negative_prompt 字段(400 invalid_request)，
+                // 故把禁词并入正向 prompt。文档指出英文抑制强于中文，negPrompt 已含英文等价词，
+                // 提取 ASCII 部分作为英文约束；并固定追加英文质量负向模板(模糊/畸形/水印等)。
                 val negPrompt = if (isCharacter) {
                     preset.studioNegativePromptFor()
                 } else {
                     preset.negativePromptFor()
                 }
-                val finalPrompt = if (negPrompt.isNotBlank()) {
-                    "$erPrompt。画面中严禁出现以下元素：$negPrompt"
-                } else erPrompt
+                val enForbidden = negPrompt.split(",").map { it.trim() }
+                    .filter { it.isNotEmpty() && it.all { c -> c.code < 128 } }  // 仅取英文/ASCII 禁词
+                    .distinct()
+                val qualityNeg = "blurry, lowres, bad anatomy, deformed hands, extra fingers, " +
+                    "mutated, disfigured, ugly, watermark, signature, text, logo, oversaturated, distorted face"
+                val redlineClause = if (enForbidden.isNotEmpty()) " Do NOT include: ${enForbidden.joinToString(", ")}." else ""
+                val finalPrompt = "$erPrompt.$redlineClause Negative prompt (soft): $qualityNeg"
                 val url = AppGraph.image.generateImage(
                     com.dramafactory.core.model.ImageGenRequest(
                         prompt = finalPrompt,
