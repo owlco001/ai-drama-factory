@@ -147,12 +147,17 @@ class DefaultRenderQueue(
             val referenceVideo = shotReferenceVideoResolver(shotId)
             // v1.7.2：套用 pavo 锁脸——每镜注入角色/场景资产参考图（i2i），保证跨镜长相一致
             val assetImages = shotAssetImageResolver(shotId)
+            // v1.7.10：视频端官方支持 negative_prompt（agnes-video-v20 文档确认），用于抑制
+            // 人物漂移/脸部崩坏/剧烈抖动；英文抑制强于中文。锁脸专用负向模板（用户文档提供）。
+            val videoNegative = "face drift, identity change, inconsistent character, deformed face, " +
+                "deformed hands, extra fingers, severe shaking, motion blur overshoot, blurry, watermark, text"
             val taskId = videoProvider.submitVideo(
                 com.dramafactory.core.model.VideoSubmitRequest(
                     shotId = shotId, prompt = prompt,
                     firstImageUri = first, lastImageUri = last,
                     referenceVideoUri = referenceVideo,
                     inputImages = assetImages,
+                    negativePrompt = videoNegative,
                 )
             )
             // ★P0-1生死线第二步：HTTP 2xx/video_id一返回就【同步落库】，且这是拿到id后的第一个动作
