@@ -242,15 +242,20 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 } else {
                     preset.withEraConstraints(basePrompt)
                 }
+                // 时代红线禁词：Agnes 图像队列不支持 negative_prompt（400 拒绝），
+                // 故把负向禁词并入正向 prompt（"画面中不得出现：X、Y"），保住红线又不让生图失败。
                 val negPrompt = if (isCharacter) {
                     preset.studioNegativePromptFor()
                 } else {
                     preset.negativePromptFor()
                 }
+                val finalPrompt = if (negPrompt.isNotBlank()) {
+                    "$erPrompt。画面中严禁出现以下元素：$negPrompt"
+                } else erPrompt
                 val url = AppGraph.image.generateImage(
                     com.dramafactory.core.model.ImageGenRequest(
-                        prompt = erPrompt,
-                        negativePrompt = negPrompt,
+                        prompt = finalPrompt,
+                        negativePrompt = null,
                         inputImages = if (card.referenceImageUri != null) listOf(card.referenceImageUri) else emptyList()))
                 // A. 资产质量闸门：G1 文件级硬校验 + G2 多模态打分（defects 直接拒，重试≤3）
                 runCatching { auditGeneratedAsset(card.assetId, url, erPrompt, card) }

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 46
-        versionName = "1.7.8"  // v1.7.8: 修重启后资产库空白(project_id错配: 读/写资产统一用真project_id, 非episodeId)
+        versionCode = 47
+        versionName = "1.7.9"  // v1.7.9: 修图片生成失败(Agnes图像队列不支持negative_prompt→400, 移除并并入正向prompt保红线)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

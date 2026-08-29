@@ -392,11 +392,9 @@ class AgnesProvider(
                 if (req.inputImages.isNotEmpty()) {
                     put("image", buildJsonArray { req.inputImages.forEach { add(json.parseToJsonElement("\"$it\"")) } })
                 }
-                // 第十一轮：negative 双写（顶层+extra_body），兼容不同网关约定——
-                // 时代红线禁词必须生效，不能因字段位置被吞
-                req.negativePrompt?.let { put("negative_prompt", it) }
+                // ★v1.7.8 修复：Agnes 图像队列不支持 negative_prompt（400 invalid_request），
+                // 双写负向导致整张图生成失败。移除之；时代红线禁词改为在 AssetsViewModel 并入正向 prompt。
             })
-            req.negativePrompt?.let { put("negative_prompt", it) }
         }
         val out = postJson("/images/generations", body)
         val item = out["data"]?.jsonArray?.firstOrNull()?.jsonObject
