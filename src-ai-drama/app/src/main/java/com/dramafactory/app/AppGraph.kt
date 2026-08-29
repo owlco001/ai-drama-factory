@@ -135,7 +135,9 @@ object AppGraph {
         val candidates = if (active.startsWith("deepseek"))
             listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes")
         else listOf("text-agnes", "agnes", "agnes-text", "agnes-video", "agnes-image")
-        return candidates.any { keyVault.load(it).isNotBlank() }
+        // v1.6.6 修：AndroidKeyVault.load 找不到时抛 NoSuchElementException，不能用 .any{} 直接调，
+        // 必须 runCatching 兜，否则第一个不存在的 configId 就抛 → 闪退。
+        return candidates.any { c -> runCatching { keyVault.load(c) }.getOrNull()?.isNotBlank() == true }
     }
 
     /**
@@ -150,7 +152,11 @@ object AppGraph {
             "agnes", "agnes-2.5-flash", " text-agnes" -> listOf("text-agnes", "agnes", "agnes-text", "agnes-video", "agnes-image")
             else -> listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes")
         }
-        val key = candidates.firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }.orEmpty()
+        // v1.6.6 修：每个 keyVault.load 都包 runCatching(NoSuchElementException 不接住会逃出 firstNotNullOfOrNull)，
+        // 拿第一个非空 key。
+        val key = candidates
+            .mapNotNull { c -> runCatching { keyVault.load(c) }.getOrNull()?.takeIf { it.isNotBlank() } }
+            .firstOrNull().orEmpty()
         return when {
             active.startsWith("deepseek") || candidates.any { it.contains("deepseek") } && key.isNotBlank() ->
                 com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })

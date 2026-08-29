@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 34
-        versionName = "1.6.5"  // v1.6.5: 修合成假成功(8.1.7 executeWithArguments是异步返回,getReturnCode拿初始值)
+        versionCode = 35
+        versionName = "1.6.6"  // v1.6.6: 修真崩点-AndroidKeyVault.load抛NoSuchElementException逃出runCatching
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
