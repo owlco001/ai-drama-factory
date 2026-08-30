@@ -89,19 +89,39 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
                     ?: (null to null)
             }
         }
-        // v1.7.2：套用 pavo 锁脸逻辑——每镜注入本项目角色/场景资产参考图(i2i)，
-        // 保证角色长相跨镜一致。取本集所属项目的 character 资产主图(remote_url优先, 回退image_uri)。
+        // v1.7.2：套用 pavo 锁脸逻辑——每镜注入角色/场景资产参考图(i2i)，保证角色长相跨镜一致。
+        // v1.7.15：优先读本镜 first_asset_ids（分镜生成时 LLM 已按 asset_id 引用），只注入该镜引用的资产图；
+        //         空引用时回退项目级 character/scene 前4张（旧行为兜底）。
         setAssetImageResolver { shotId ->
             withContext(Dispatchers.IO) {
                 val epId = shotId.substringBeforeLast("_shot").takeIf { it.contains("_ep") } ?: shotId
                 val projectId = epId.substringBeforeLast("_ep").ifBlank { epId }
                 runCatching {
-                    AppGraph.dao.assetsAllOf(projectId)
-                        .filter { it.kind == "character" || it.kind == "scene" }
-                        .mapNotNull { it.remote_url ?: it.image_uri }
-                        .filter { it.isNotBlank() }
-                        .distinct()
-                        .take(4) // 限制注入数量，避免请求体过大
+                    val shot = AppGraph.dao.shotKeyframes(shotId) ?: AppGraph.dao.shotsOf(epId).firstOrNull { it.shot_id == shotId }
+                    val refIds: List<String> = runCatching {
+                        val raw = shot?.first_asset_ids ?: "[]"
+                        // 容错解析 JSON 数组字符串
+                        val trimmed = raw.trim()
+                        if (trimmed.startsWith("[")) {
+                            trimmed.removePrefix("[").removeSuffix("]").split(",")
+                                .map { it.trim().trim('"').trim('\'') }.filter { it.isNotBlank() }
+                        } else emptyList()
+                    }.getOrDefault(emptyList())
+                    val all = AppGraph.dao.assetsAllOf(projectId)
+                    if (refIds.isNotEmpty()) {
+                        all.filter { it.asset_id in refIds }
+                            .mapNotNull { it.remote_url ?: it.image_uri }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .take(4)
+                    } else {
+                        // 回退：无引用时取项目级 character/scene 前4张
+                        all.filter { it.kind == "character" || it.kind == "scene" }
+                            .mapNotNull { it.remote_url ?: it.image_uri }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .take(4)
+                    }
                 }.getOrDefault(emptyList())
             }
         }

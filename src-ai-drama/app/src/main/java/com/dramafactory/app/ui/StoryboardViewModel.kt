@@ -64,10 +64,19 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
 
+        // 第十五轮：拉项目已审批资产注入 LLM 提示词，让分镜用 asset_id 引用真资产
+        val projectId = episodeId.substringBeforeLast("_ep")
+        val assets = runCatching {
+            withContext(Dispatchers.IO) { AppGraph.dao.assetsAllOf(projectId) }
+        }.getOrDefault(emptyList())
+        val catalog = assets.map { a ->
+            com.dramafactory.core.quality.AiStoryboardDirector.AssetSnapshot(
+                id = a.asset_id, kind = a.kind, name = a.prompt.substringBefore("：").substringBefore(":"),
+                description = a.prompt)
+        }
         val result = runCatching {
-            com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req ->
-                AppGraph.text.chat(req)
-            }
+            com.dramafactory.core.quality.AiStoryboardDirector.generate(
+                script, chat = { req -> AppGraph.text.chat(req) }, assets = catalog)
         }.getOrElse {
             _state.value = _state.value.copy(generating = false,
                 message = "AI 生成分镜失败：${it.message ?: it.javaClass.simpleName}")
@@ -78,9 +87,8 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
 
-        // 落库：清旧镜 → 写新镜（角色名暂以名字存 first_asset_ids 的名字区，绑定真实资产ID在渲染前解析）
+        // 落库：清旧镜 → 写新镜（assetIds 落 first_asset_ids JSON 数组，渲染时据此拉图入锁脸）
         withContext(Dispatchers.IO) { runCatching { AppGraph.dao.deleteShotsOf(episodeId) } }
-        val projectId = episodeId.substringBeforeLast("_ep")
         for (s in result.shots) {
             withContext(Dispatchers.IO) {
                 runCatching { AppGraph.dao.upsertShot(com.dramafactory.app.data.ShotEntity(
@@ -89,6 +97,8 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
                     dialogue = s.dialogue, narration = s.narration,
                     action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
                     beat_ref = s.beatRef, carry_over = s.carryOver,
+                    first_asset_ids = s.assetIds.joinToString(",", "[", "]"),
+                    last_asset_ids = "[]",
                     visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
                     sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
                                else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}",

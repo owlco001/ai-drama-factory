@@ -91,8 +91,9 @@ class DefaultAiOrchestrator(
     private val generateImage: suspend (asset: AiAsset) -> Result<String> = { Result.failure(Exception("no image provider")) },
     private val auditAsset: suspend (asset: AiAsset) -> Result<AuditResult> =
         { Result.success(AuditResult(passed = true)) },
-    private val generateShots: suspend (scriptText: String, modelId: String) -> Result<List<AiShot>> =
-        { _, _ -> Result.success(emptyList()) },
+    // 第十五轮：加 projectId 参数，AppGraph 侧可据此从 DB 拉已抽取的资产注入 LLM
+    private val generateShots: suspend (projectId: String, scriptText: String, modelId: String) -> Result<List<AiShot>> =
+        { _, _, _ -> Result.success(emptyList()) },
     private val enqueueRender: suspend (episodeId: String, shots: List<AiShot>) -> Result<Int> =
         { _, _ -> Result.success(0) },
     private val persistAssets: suspend (episodeId: String, assets: List<AiAsset>) -> Unit = { _, _ -> },
@@ -246,10 +247,10 @@ class DefaultAiOrchestrator(
                 val stS = t0
                 emit(PipelineStage5.GENERATE_STORYBOARD, 0, "开始生成分镜…", stS)
                 val shots = when {
-                    !generateShots(scriptText, modelId).isSuccess -> {
+                    !generateShots(projectId, scriptText, modelId).isSuccess -> {
                         throwAi("分镜生成失败", PipelineStage5.GENERATE_STORYBOARD, stS, "generate failed")
                     }
-                    else -> generateShots(scriptText, modelId).getOrThrow()
+                    else -> generateShots(projectId, scriptText, modelId).getOrThrow()
                 }
                 shotCount = shots.size
                 emit(PipelineStage5.GENERATE_STORYBOARD, shotCount, "已生成 ${shotCount} 镜", stS)
@@ -306,6 +307,7 @@ class DefaultAiOrchestrator(
 
     // ---------- 依赖类型 ----------
     data class AiAsset(val assetId: String, val kind: String, val name: String, val prompt: String)
-    data class AiShot(val shotNo: Int, val action: String, val dialogue: String? = null)
+    /** 第十五轮：assetIds 为分镜引用的真实资产ID，persistShots 写入 first_asset_ids */
+    data class AiShot(val shotNo: Int, val action: String, val dialogue: String? = null, val assetIds: List<String> = emptyList())
     data class AuditResult(val passed: Boolean, val score: Double? = null, val reason: String? = null)
 }

@@ -131,7 +131,7 @@ class P0FixRegressionTest {
                 )
                 Result.success(DefaultAiOrchestrator.AuditResult(passed = r.passed, score = r.qualityScore, reason = r.reason))
             },
-            generateShots = { _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "张三走进大殿"))) },
+            generateShots = { _, _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "张三走进大殿"))) },
             enqueueRender = { _, s -> Result.success(s.size) },
             writeCheckpoint = { _, _, _, _, _, _ -> },
             readCheckpoint = { null },
@@ -179,7 +179,7 @@ class P0FixRegressionTest {
             generateImage = { Result.success("x") },
             // ★F4 修复后的真实接线形状：按 episodeId 读回 script_json（AppGraph.readScript λ 同形）
             readScript = { epId -> scripts[epId] ?: "" },
-            generateShots = { scriptText, _ -> capturedInGenerateShots += scriptText; Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "某动作"))) },
+            generateShots = { _, scriptText, _ -> capturedInGenerateShots += scriptText; Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "某动作"))) },
             enqueueRender = { _, s -> Result.success(s.size) },
             writeCheckpoint = { _, _, _, _, _, _ -> },
             readCheckpoint = { null },

@@ -190,8 +190,9 @@ object AppGraph {
     /** 生成分镜（文字模型） */
     internal suspend fun genShotsFor(script: String): List<DefaultAiOrchestrator.AiShot> {
         val tp = textProviderFor()
-        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req -> tp.chat(req) }
-        return r.shots.map { s -> DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue) }
+        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(
+            script, chat = { req -> tp.chat(req) })
+        return r.shots.map { s -> DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue, s.assetIds) }
     }
 
     /** 入渲染队（按分镜生成视频任务） */
@@ -411,15 +412,22 @@ object AppGraph {
                         )
                     }
                 },
-                generateShots = { script, _ ->
+                generateShots = { pid, script, _ ->
                     runCatching {
                         // 文字模型走用户自选(DeepSeek等)，key 多候选兜底
                         val tp = textProviderFor()
-                        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(script) { req ->
-                            tp.chat(req)
+                        // 第十五轮：从 DB 拉本项目已抽取/已生成的资产注入 LLM，让分镜用 asset_id 引用
+                        val assets = runCatching { dao.assetsAllOf(pid) }.getOrDefault(emptyList())
+                        val catalog = assets.map { a ->
+                            com.dramafactory.core.quality.AiStoryboardDirector.AssetSnapshot(
+                                id = a.asset_id, kind = a.kind,
+                                name = a.prompt.substringBefore("：").substringBefore(":"),
+                                description = a.prompt)
                         }
+                        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(
+                            script, chat = { req -> tp.chat(req) }, assets = catalog)
                         r.shots.map { s ->
-                            DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue)
+                            DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue, s.assetIds)
                         }
                     }
                 },
@@ -459,6 +467,8 @@ object AppGraph {
                                 shot_no = s.shotNo,
                                 action = s.action,
                                 dialogue = s.dialogue,
+                                first_asset_ids = s.assetIds.joinToString(",", "[", "]"),
+                                last_asset_ids = "[]",
                             ))
                         }
                     }

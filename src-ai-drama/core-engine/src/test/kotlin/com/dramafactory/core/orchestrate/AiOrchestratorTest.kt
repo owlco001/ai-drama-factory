@@ -39,7 +39,7 @@ class AiOrchestratorTest {
             },
             generateImage = { Result.success("http://img/ok.png") },
             auditAsset = { Result.success(DefaultAiOrchestrator.AuditResult(passed = true)) },
-            generateShots = { _, _ ->
+            generateShots = { _, _, _ ->
                 Result.success(listOf(
                     DefaultAiOrchestrator.AiShot(1, "张三走进大殿"),
                     DefaultAiOrchestrator.AiShot(2, "两人对视"),
@@ -105,7 +105,7 @@ class AiOrchestratorTest {
             createEpisode = { pid, _ -> "${pid}_ep1" },
             checkModel = { Result.success(Unit) },
             extractAssets = { _, _ -> Result.success(emptyList()) },
-            generateShots = { _, _ ->
+            generateShots = { _, _, _ ->
                 Result.failure(Exception("llm 网络超时"))
             },
             writeCheckpoint = { _, _, _, _, _, _ -> },
@@ -130,7 +130,7 @@ class AiOrchestratorTest {
             createEpisode = { pid, _ -> "${pid}_ep1" },
             checkModel = { Result.success(Unit) },
             extractAssets = { _, _ -> Result.success(emptyList()) },
-            generateShots = { _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "x"))) },
+            generateShots = { _, _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "x"))) },
             enqueueRender = { _, _ -> Result.success(1) },
             writeCheckpoint = { _, stage, _, _, _, _ ->
                 synchronized(this) { checkpoints = checkpoints + stage }
@@ -170,7 +170,7 @@ class AiOrchestratorTest {
             createEpisode = { pid, _ -> "${pid}_ep1" },
             checkModel = { Result.success(Unit) },
             extractAssets = { _, _ -> Result.success(emptyList()) },
-            generateShots = { _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "a"))) },
+            generateShots = { _, _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiShot(1, "a"))) },
             enqueueRender = { _, _ -> Result.success(1) },
             writeCheckpoint = { _, _, _, _, _, _ -> },
             readCheckpoint = { null },

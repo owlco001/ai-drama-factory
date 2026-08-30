@@ -60,4 +60,27 @@ class AiStoryboardDirectorTest {
         assertTrue(AiStoryboardDirector.verbatimIn("留下吧", script))
         assertTrue(!AiStoryboardDirector.verbatimIn("留下来", script), "改写台词应判不逐字")
     }
+
+    // 第十五轮：catalog 注入 + asset_ids 校验
+    @Test
+    fun parseShots_assetIds仅保留catalog内的() {
+        val catalog = listOf(
+            AiStoryboardDirector.AssetSnapshot("a_1", "character", "张角", "灰袍道长左脸有疤"),
+            AiStoryboardDirector.AssetSnapshot("a_2", "scene", "破庙", "残破木结构"),
+        )
+        val json = """{"shots":[
+            {"shot_no":1,"action":"张角走入破庙","asset_ids":["a_1","a_2","a_999"]}
+        ]}"""
+        val shots = AiStoryboardDirector.parseShots(json, catalog)
+        assertEquals(1, shots.size)
+        assertEquals(listOf("a_1","a_2"), shots[0].assetIds, "非catalog的a_999应被过滤")
+    }
+
+    @Test
+    fun parseShots_无catalog时assetIds一律空() {
+        val json = """{"shots":[{"shot_no":1,"action":"x","asset_ids":["a_1"]}]}"""
+        val shots = AiStoryboardDirector.parseShots(json, emptyList())
+        assertEquals(1, shots.size)
+        assertTrue(shots[0].assetIds.isEmpty(), "无catalog注入时不接收任何asset_id")
+    }
 }
