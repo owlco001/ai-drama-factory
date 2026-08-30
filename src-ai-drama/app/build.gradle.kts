@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 53
-        versionName = "1.7.15"  // v1.7.15: 分镜引用真实资产(LLM注入catalog+asset_id引用+渲染按first_asset_ids取图)
+        versionCode = 54
+        versionName = "1.7.16"  // v1.7.16: 资产页完全按设计稿还原(剧本模式卡片/两列网格/粘性CTA/图标按钮组)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
