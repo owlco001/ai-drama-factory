@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
@@ -102,23 +104,21 @@ private fun SplashScreen(onDone: () -> Unit) {
         contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
         Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                val delays = listOf(150, 350, 550, 750, 950)
-                for ((i, d) in delays.withIndex()) {
-                    val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
-                    val scale = remember { androidx.compose.animation.core.Animatable(0.3f) }
-                    LaunchedEffect(Unit) {
-                        kotlinx.coroutines.delay(d.toLong())
-                        alpha.animateTo(1f, androidx.compose.animation.core.tween(500))
-                        scale.animateTo(1f, androidx.compose.animation.core.tween(500))
-                    }
-                    Text("🌸",
-                        fontSize = androidx.compose.ui.unit.TextUnit(26f + i * 4f, androidx.compose.ui.unit.TextUnitType.Sp),
-                        modifier = Modifier.padding(horizontal = 3.dp)
-                            .alpha(alpha.value)
-                            .scale(scale.value))
-                }
+            // v1.7.14：用 Agnes 生成的霓虹五瓣花作为开屏主视觉（替代emoji🌸），紫→青渐变发光
+            val flowerA = remember { androidx.compose.animation.core.Animatable(0f) }
+            val flowerS = remember { androidx.compose.animation.core.Animatable(0.5f) }
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(150L)
+                flowerA.animateTo(1f, androidx.compose.animation.core.tween(700))
+                flowerS.animateTo(1f, androidx.compose.animation.core.tween(700))
             }
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.ui_splash_flower),
+                contentDescription = "AI短剧工厂",
+                modifier = Modifier.size(96.dp)
+                    .alpha(flowerA.value)
+                    .scale(flowerS.value)
+            )
             Spacer(Modifier.size(18.dp))
             val lines = listOf("一枝独秀不是春，", "百花齐放更添香。", "开源你的梦境 · AI短剧工厂")
             for ((i, line) in lines.withIndex()) {

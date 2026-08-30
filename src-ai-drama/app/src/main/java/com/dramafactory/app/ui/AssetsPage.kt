@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,6 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.ColorPainter
@@ -406,6 +410,27 @@ fun AssetsPage(
             }
         } else {
         val assets = assetsState?.value ?: emptyList()
+        if (assets.isEmpty()) {
+            // v1.7.14：资产为空时显示 Agnes 生成的霓虹空状态插画（场记板线稿），引导上传/提取
+            item(key = "empty_assets") {
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ui_empty_assets),
+                        contentDescription = "资产为空",
+                        modifier = Modifier.size(180.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("还没有资产", style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("上传图片或让 AI 从剧本提取角色/场景/道具",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else {
         // 分组卡片流：同kind相邻，组头为独立item（单层LazyColumn，全页可滚动）
         val grouped: kotlin.collections.Map<AssetsLogic.Kind, kotlin.collections.List<AssetsLogic.AssetCard>> =
             assets.groupBy { it.kind }
@@ -437,7 +462,8 @@ fun AssetsPage(
                     )
                 }
             }
-        }
+            }   // 关闭 assets.isEmpty() 的 else 分支
+            }   // 关闭 vm != null 的 else 分支
 
         // ---- 评审闸门：全keep才亮按钮（GateReport.reviewPassed语义）----
         item {

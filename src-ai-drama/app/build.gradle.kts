@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 51
-        versionName = "1.7.13"  // v1.7.13: 全仓健康检查 + UI 设计严格归位（圆角令牌化 / HttpClient 共享 / 断点续跑修 / 崩溃日志路径）
+        versionCode = 52
+        versionName = "1.7.14"  // v1.7.14: 接入Agnes生成UI插画(开屏五瓣花+资产空状态场记板)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
