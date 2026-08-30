@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,7 +39,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  * 项目列表页（S1+S2）：新建项目（名称+导入小说TXT/MD）、进入项目、删除。
  */
 @Composable
-fun ProjectsPage(vm: ProjectsViewModel = viewModel(), onEnterProject: (String) -> Unit) {
+fun ProjectsPage(
+    vm: ProjectsViewModel = viewModel(),
+    onEnterProject: (String) -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     val st by vm.state.collectAsState()
     val context = LocalContext.current
     var deleteTarget by remember { mutableStateOf<ProjectsLogic.ProjectItem?>(null) }
@@ -74,6 +80,9 @@ fun ProjectsPage(vm: ProjectsViewModel = viewModel(), onEnterProject: (String) -
                     }
                 }
             }
+        }
+        item {
+            HomeModelConfigCard(onOpenSettings)
         }
         item {
             Card(Modifier.fillMaxWidth()) {
@@ -167,6 +176,63 @@ fun ProjectsPage(vm: ProjectsViewModel = viewModel(), onEnterProject: (String) -
 private fun SettingsStatic(state: SettingsLogic.UiState) {
     // 见SettingsPage.kt——此处仅为跨文件预览占位说明；实际预览在SettingsPage内
     Box {}
+}
+
+/**
+ * v1.7.18：首页「模型配置」入口卡。
+ * 三通道（文本/视频/图像）Key 状态一目了然，未配置的通道高亮提示，一键跳设置页补配。
+ */
+@Composable
+private fun HomeModelConfigCard(onOpenSettings: () -> Unit) {
+    var hasText by remember { mutableStateOf(false) }
+    var hasVideo by remember { mutableStateOf(false) }
+    var hasImage by remember { mutableStateOf(false) }
+    var checked by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        hasText = runCatching { com.dramafactory.app.AppGraph.hasAnyTextKey() }.getOrDefault(false)
+        hasVideo = runCatching { !com.dramafactory.app.AppGraph.keyVault.load(com.dramafactory.app.AppGraph.CONFIG_VIDEO).isNullOrBlank() }.getOrDefault(false)
+        hasImage = runCatching { !com.dramafactory.app.AppGraph.keyVault.load(com.dramafactory.app.AppGraph.CONFIG_IMAGE).isNullOrBlank() }.getOrDefault(false)
+        checked = true
+    }
+    if (!checked) return
+
+    val missing = listOf(!hasText to "文本", !hasVideo to "视频", !hasImage to "图像").filter { it.first }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("模型配置", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                if (missing.isEmpty()) {
+                    Text("全部就绪 ✓", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Text("待配置：${missing.joinToString("、") { it.second }}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                StatusDot("文本", hasText)
+                StatusDot("视频", hasVideo)
+                StatusDot("图像", hasImage)
+            }
+            Text("模型 Key 决定 AI 对话 / 出图 / 渲染能否跑通。首次使用先到这里补 Key。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                Text(if (missing.isEmpty()) "管理模型 Key" else "去配置模型 Key")
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusDot(label: String, ok: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (ok) "●" else "○", color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        Spacer(Modifier.padding(end = 2.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 // ---------- Compose预览 ----------

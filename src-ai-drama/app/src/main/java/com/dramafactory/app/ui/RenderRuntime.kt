@@ -38,6 +38,8 @@ object RenderRuntime {
                     val shot = runCatching { AppGraph.dao.shotKeyframes(shotId) }.getOrNull()
                     Triple(shot?.dialogue ?: "", shot?.narration ?: "", shot?.action ?: "")
                 },
+                // v1.7.18：视频参数透传（设置页可调；每镜提交前读取，改参数即时生效）
+                videoParamsProvider = { _ -> AppGraph.videoParams },
             )
         }
     }

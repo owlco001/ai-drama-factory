@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 54
-        versionName = "1.7.16"  // v1.7.16: 资产页完全按设计稿还原(剧本模式卡片/两列网格/粘性CTA/图标按钮组)
+        versionCode = 56
+        versionName = "1.7.18"  // v1.7.18: AI助手自然语言操控全模块 + 首页模型API Key入口 + 自定义模型持久化接线 + 视频多参(分辨率/帧数/帧率)充分利用
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -56,6 +56,10 @@ dependencies {
     implementation("io.ktor:ktor-client-okhttp:$ktorVer")
 
     implementation("androidx.core:core-ktx:1.13.1")
+
+    // v1.7.18：自定义模型/视频参数配置以 JSON 持久化（provider_configs.extra_params），
+    // 解析与组装需要 kotlinx-serialization-json（与 core-engine 同版本，避免传递依赖版本漂移）
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // 第八轮：资产缩略图预览（本地 file:// / content:// 与生成图 http/https 异步加载）
     implementation("io.coil-kt:coil-compose:2.6.0")

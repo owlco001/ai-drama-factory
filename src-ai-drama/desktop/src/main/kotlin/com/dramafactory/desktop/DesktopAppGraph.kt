@@ -12,6 +12,7 @@ import com.dramafactory.core.assemble.MovieAssembler
 import com.dramafactory.core.assemble.MovieAssemblerImpl
 import com.dramafactory.core.assemble.MovieAssemblerExecutor
 import com.dramafactory.core.quality.AiStoryboardDirector
+import com.dramafactory.core.quality.AssetPromptBuilder
 import com.dramafactory.core.quality.LlmAssetExtractor
 import com.dramafactory.core.quality.EraDetector
 import kotlinx.coroutines.Dispatchers
@@ -80,14 +81,13 @@ object DesktopAppGraph {
                 runCatching {
                     runBlocking {
                         val preset = EraDetector.presetFor("han")
-                        val prompt = if (asset.kind == "character") {
-                            preset.withCharacterStudioConstraints(asset.prompt)
-                        } else preset.withEraConstraints(asset.prompt)
-                        val neg = if (asset.kind == "character") {
-                            preset.studioNegativePromptFor()
-                        } else preset.negativePromptFor()
+                        // v1.7.17：与 app 共用 core 的组装规则。
+                        // 原实现给图像接口传 negativePrompt，Agnes 图像端不支持（400）。
                         agnes.generateImage(
-                            com.dramafactory.core.model.ImageGenRequest(prompt = prompt, negativePrompt = neg)
+                            com.dramafactory.core.model.ImageGenRequest(
+                                prompt = AssetPromptBuilder.finalPrompt(preset, asset.kind, asset.prompt),
+                                size = AssetPromptBuilder.sizeFor(preset, asset.kind),
+                                negativePrompt = null)
                         )
                     }
                 }

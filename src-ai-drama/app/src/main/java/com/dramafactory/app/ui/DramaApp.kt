@@ -236,6 +236,10 @@ fun DramaApp() {
                                 nav.currentProjectId = id
                                 nav.currentProjectName = null
                                 page = Page.EPISODES
+                            },
+                            onOpenSettings = {
+                                lastMain.value = Page.PROJECTS
+                                page = Page.SETTINGS
                             })
                         Page.EPISODES -> nav.currentProjectId?.let { pid ->
                             EpisodePage(

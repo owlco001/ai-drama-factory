@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -137,6 +138,12 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
+
+        // ---- 视频参数（v1.7.18：多参充分利用）----
+        VideoParamsBlock(vm)
+
+        // ---- 图像模型（v1.7.18：图像通道独立配置，此前 CONFIG_IMAGE 无 UI 入口）----
+        ImageModelBlock(vm)
 
         // ---- 文本模型选择（T014 v1.4.0 · Q4：文本/视频 Key 各自独立保存）----
         TextModelSettingsBlock()
@@ -322,6 +329,150 @@ fun TextModelSettingsBlock() {
                 color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             Text("提示：DeepSeek Chat 支持中文原生、上下文充足；Agnes 文本按输入规模自动选模（2.5/2.0/1.5 Flash）。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+/**
+ * v1.7.18：视频参数面板（多参充分利用）。
+ * 分辨率 / 时长(帧数) / 帧率 持久化到 provider_configs.video.extra_params，
+ * 渲染队列提交前按镜读取透传（DefaultRenderQueue.videoParamsProvider）。
+ */
+@Composable
+fun VideoParamsBlock(vm: SettingsViewModel) {
+    val p by vm.videoParams.collectAsState()
+    var presetIdx by remember(p.width, p.height) {
+        mutableStateOf(
+            com.dramafactory.core.model.VideoParams.PRESETS
+                .indexOfFirst { it.second == (p.width ?: 448) && it.third == (p.height ?: 832) }
+                .takeIf { it >= 0 } ?: 0)
+    }
+    var frames by remember(p.numFrames) { mutableStateOf((p.numFrames ?: 121).toString()) }
+    var fps by remember(p.frameRate) { mutableStateOf((p.frameRate ?: 24f).toString()) }
+    var savedTip by remember { mutableStateOf(false) }
+
+    fun save() {
+        val (_, w, h) = com.dramafactory.core.model.VideoParams.PRESETS[presetIdx]
+        val nf = frames.trim().toIntOrNull()
+        val fr = fps.trim().toFloatOrNull()
+        vm.setVideoParams(com.dramafactory.core.model.VideoParams(
+            width = w, height = h,
+            numFrames = nf?.coerceIn(17, 441),
+            frameRate = fr?.coerceIn(1f, 60f)))
+        vm.saveVideoParams()
+        savedTip = true
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("视频参数（渲染时按镜生效）", style = MaterialTheme.typography.titleMedium)
+            Text("分辨率 / 时长(帧数) / 帧率会透传给视频模型。改完点保存，下一次渲染立即生效，已排队的任务不受影响。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+            Text("分辨率", style = MaterialTheme.typography.titleSmall)
+            for ((i, preset) in com.dramafactory.core.model.VideoParams.PRESETS.withIndex()) {
+                Row(Modifier.fillMaxWidth().clickable { presetIdx = i }.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = presetIdx == i, onClick = { presetIdx = i })
+                    Text(preset.first, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = frames, onValueChange = { frames = it; savedTip = false },
+                    label = { Text("时长帧数 (8n+1)") }, singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = fps, onValueChange = { fps = it; savedTip = false },
+                    label = { Text("帧率 fps") }, singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text("参考：121帧@24fps≈5秒 · 161帧≈6.7秒 · 241帧≈10秒。帧数需满足 8n+1，模型会自动归一。",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = ::save) { Text("保存视频参数") }
+                if (savedTip) Text(" 已保存 ✓", color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/**
+ * v1.7.18：图像模型配置区块。
+ * 此前 CONFIG_IMAGE 通道只有常量没有 UI：视频 key 配好后图像生成其实也走它，
+ * 但用户无法单独确认/更换图像通道。现在提供 Agnes 图像 key + 自定义图像模型两个入口。
+ */
+@Composable
+fun ImageModelBlock(vm: SettingsViewModel) {
+    val masked by vm.imageMasked.collectAsState()
+    var agnesKey by remember { mutableStateOf("") }
+    var baseUrl by remember { mutableStateOf("") }
+    var modelId by remember { mutableStateOf("") }
+    var customKey by remember { mutableStateOf("") }
+    var savedTip by remember { mutableStateOf(false) }
+    var customTip by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { vm.refreshImageKey() }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("图像模型（资产图 / 封面图）", style = MaterialTheme.typography.titleMedium)
+            Text("图像与视频是独立 Key 通道。没配过时图像生成会回退用视频通道的 Key。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+            Text("Agnes 图像 Key", style = MaterialTheme.typography.titleSmall)
+            masked?.let {
+                Text("已保存：$it", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            OutlinedTextField(
+                value = agnesKey, onValueChange = { agnesKey = it; savedTip = false },
+                label = { Text("输入 sk- 开头的图像 API Key") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = {
+                    if (agnesKey.trim().isNotEmpty()) {
+                        vm.saveImageKey(agnesKey); agnesKey = ""; savedTip = true
+                    }
+                }, enabled = agnesKey.trim().isNotEmpty()) { Text("保存图像 Key") }
+                if (savedTip) Text(" 已保存 ✓", color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+
+            Text("自定义图像模型（OpenAI 兼容）", style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = baseUrl, onValueChange = { baseUrl = it; customTip = false },
+                label = { Text("Base URL（如 https://api.example.com/v1）") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = modelId, onValueChange = { modelId = it; customTip = false },
+                    label = { Text("图像 Model ID") }, singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = customKey, onValueChange = { customKey = it; customTip = false },
+                    label = { Text("API Key") }, singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = {
+                    if (baseUrl.startsWith("http") && modelId.isNotBlank() && customKey.isNotBlank()) {
+                        vm.saveCustomImageModel(baseUrl, modelId, customKey)
+                        baseUrl = ""; modelId = ""; customKey = ""; customTip = true
+                    }
+                }) { Text("保存自定义图像模型") }
+                if (customTip) Text(" 已保存 ✓（图像通道切换到自定义模型）",
+                    color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }

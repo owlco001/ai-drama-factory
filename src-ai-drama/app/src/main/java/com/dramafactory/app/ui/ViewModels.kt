@@ -24,7 +24,37 @@ class SettingsViewModel : ViewModel() {
     )
     val state: StateFlow<SettingsLogic.UiState> get() = logic.state
 
-    init { refresh() }
+    init {
+        refresh()
+        // v1.7.18：接线自定义模型持久化（此前从未接线 → 保存只写 KeyVault，provider_configs 表
+        // 从不落库、运行时从不读取，「自定义模型添加后不能用」的根因）。
+        logic.persistCustomConfig = { cfg ->
+            val extra = runCatching {
+                kotlinx.serialization.json.Json.encodeToString(
+                    kotlinx.serialization.json.JsonObject.serializer(),
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("base_url", kotlinx.serialization.json.JsonPrimitive(cfg.baseUrl))
+                        put("submit_note", kotlinx.serialization.json.JsonPrimitive(cfg.submitNote))
+                    })
+            }.getOrDefault("{}")
+            AppGraph.dao.upsertProviderConfig(com.dramafactory.app.data.ProviderConfigEntity(
+                config_id = "custom-video",
+                channel = AppGraph.CONFIG_VIDEO,
+                provider_id = "custom",
+                model = cfg.modelId,
+                key_cipher = ByteArray(0),   // 明文 Key 在 KeyVault("custom-video")，表内不留密文
+                key_masked = maskKey(cfg.apiKey),
+                extra_params = extra,
+                is_verified = true,
+                updated_at = System.currentTimeMillis(),
+            ))
+            AppGraph.refreshConfiguredProviders()
+        }
+        loadVideoParams()
+    }
+
+    private fun maskKey(key: String): String =
+        if (key.length <= 6) "***" else key.take(3) + "***" + key.takeLast(3)
 
     fun refresh() = viewModelScope.launch { withContext(Dispatchers.IO) { logic.refresh() } }
     fun onKeyChanged(text: String) = logic.onKeyChanged(text)
@@ -48,6 +78,94 @@ class SettingsViewModel : ViewModel() {
     fun onCustomFieldChanged(field: String, value: String) = logic.onCustomFieldChanged(field, value)
     fun saveCustomModel() = viewModelScope.launch {
         withContext(Dispatchers.IO) { logic.saveCustomModel() }
+    }
+
+    // ---- v1.7.18：视频参数（多参充分利用）----
+    private val _videoParams = MutableStateFlow(com.dramafactory.core.model.VideoParams())
+    val videoParams: StateFlow<com.dramafactory.core.model.VideoParams> get() = _videoParams
+
+    fun loadVideoParams() = viewModelScope.launch {
+        val p = withContext(Dispatchers.IO) {
+            runCatching {
+                com.dramafactory.core.model.VideoParams.fromExtra(
+                    AppGraph.dao.verifiedConfig(AppGraph.CONFIG_VIDEO)?.extra_params)
+            }.getOrDefault(com.dramafactory.core.model.VideoParams())
+        }
+        _videoParams.value = p
+    }
+
+    fun setVideoParams(p: com.dramafactory.core.model.VideoParams) { _videoParams.value = p }
+
+    /** 保存视频参数到 provider_configs.video.extra_params 并立即生效 */
+    fun saveVideoParams() = viewModelScope.launch {
+        val p = _videoParams.value
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val cur = AppGraph.dao.verifiedConfig(AppGraph.CONFIG_VIDEO)
+                val extra = com.dramafactory.core.model.VideoParams.mergeIntoExtra(cur?.extra_params, p)
+                if (cur != null) {
+                    AppGraph.dao.upsertProviderConfig(
+                        cur.copy(extra_params = extra, updated_at = System.currentTimeMillis()))
+                } else {
+                    AppGraph.dao.upsertProviderConfig(com.dramafactory.app.data.ProviderConfigEntity(
+                        config_id = "custom-video", channel = AppGraph.CONFIG_VIDEO,
+                        provider_id = "agnes", model = "agnes-video-v2.0",
+                        key_cipher = ByteArray(0), key_masked = "",
+                        extra_params = extra, is_verified = false,
+                        updated_at = System.currentTimeMillis()))
+                }
+            }
+            AppGraph.videoParams = p
+        }
+        logic.onKeyChanged("")   // 仅触发 UI 状态刷新，不语义依赖
+    }
+
+    // ---- v1.7.18：图像模型配置（Agnes 图像 key + 自定义图像模型）----
+    private val _imageMasked = MutableStateFlow<String?>(null)
+    val imageMasked: StateFlow<String?> get() = _imageMasked
+
+    fun refreshImageKey() = viewModelScope.launch {
+        val m = withContext(Dispatchers.IO) {
+            runCatching { AppGraph.keyVault.masked(AppGraph.CONFIG_IMAGE) }
+                .getOrNull()?.takeIf { it != "<empty>" }
+        }
+        _imageMasked.value = m
+    }
+
+    /** 保存 Agnes 图像专用 Key（独立于视频通道；此前 CONFIG_IMAGE 无任何 UI 入口） */
+    fun saveImageKey(key: String) = viewModelScope.launch {
+        if (key.trim().isEmpty()) return@launch
+        withContext(Dispatchers.IO) {
+            runCatching { AppGraph.keyVault.save(AppGraph.CONFIG_IMAGE, "agnes", key.trim()) }
+        }
+        refreshImageKey()
+    }
+
+    /** 保存自定义图像模型（base_url/model/key → channel=image 的 custom 记录） */
+    fun saveCustomImageModel(baseUrl: String, modelId: String, key: String) {
+        val b = baseUrl.trim(); val m = modelId.trim(); val k = key.trim()
+        if (!b.startsWith("http") || m.isEmpty() || k.isEmpty()) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { AppGraph.keyVault.save("custom-${AppGraph.CONFIG_IMAGE}", "custom", k) }
+                val extra = runCatching {
+                    kotlinx.serialization.json.Json.encodeToString(
+                        kotlinx.serialization.json.JsonObject.serializer(),
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("base_url", kotlinx.serialization.json.JsonPrimitive(b))
+                        })
+                }.getOrDefault("{}")
+                runCatching {
+                    AppGraph.dao.upsertProviderConfig(com.dramafactory.app.data.ProviderConfigEntity(
+                        config_id = "custom-image", channel = AppGraph.CONFIG_IMAGE,
+                        provider_id = "custom", model = m,
+                        key_cipher = ByteArray(0), key_masked = maskKey(k),
+                        extra_params = extra, is_verified = true,
+                        updated_at = System.currentTimeMillis()))
+                }
+                AppGraph.refreshConfiguredProviders()
+            }
+        }
     }
 }
 
@@ -98,24 +216,19 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
                 val projectId = epId.substringBeforeLast("_ep").ifBlank { epId }
                 runCatching {
                     val shot = AppGraph.dao.shotKeyframes(shotId) ?: AppGraph.dao.shotsOf(epId).firstOrNull { it.shot_id == shotId }
-                    val refIds: List<String> = runCatching {
-                        val raw = shot?.first_asset_ids ?: "[]"
-                        // 容错解析 JSON 数组字符串
-                        val trimmed = raw.trim()
-                        if (trimmed.startsWith("[")) {
-                            trimmed.removePrefix("[").removeSuffix("]").split(",")
-                                .map { it.trim().trim('"').trim('\'') }.filter { it.isNotBlank() }
-                        } else emptyList()
-                    }.getOrDefault(emptyList())
+                    val refIds = AssetCatalog.parseRefIds(shot?.first_asset_ids)
                     val all = AppGraph.dao.assetsAllOf(projectId)
-                    if (refIds.isNotEmpty()) {
+                    // v1.7.17：引用了资产、但这些资产全都还没生图（或无 id 匹配）时，
+                    // 旧实现会返回空列表 → 该镜彻底没有参考图、不锁脸，且用户毫不知情。
+                    // 改为回退到项目级兜底，保证「有图可用」优先于「严格按引用」。
+                    val byRef = if (refIds.isNotEmpty()) {
                         all.filter { it.asset_id in refIds }
                             .mapNotNull { it.remote_url ?: it.image_uri }
                             .filter { it.isNotBlank() }
                             .distinct()
                             .take(4)
-                    } else {
-                        // 回退：无引用时取项目级 character/scene 前4张
+                    } else emptyList()
+                    if (byRef.isNotEmpty()) byRef else {
                         all.filter { it.kind == "character" || it.kind == "scene" }
                             .mapNotNull { it.remote_url ?: it.image_uri }
                             .filter { it.isNotBlank() }
@@ -269,32 +382,23 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 // C. era 红线：正负分离——prompt只带正向，禁词走 negative_prompt API字段
                 // （第十一轮修复：旧实现把禁词表拼进正面prompt，图像模型把"手机/塑料"全画出来了）
                 // T014 任务1：角色类资产额外追加棚拍无干扰背景约束，与场景/环境解耦
-                val isCharacter = card.kind == AssetsLogic.Kind.CHARACTER
-                val erPrompt = if (isCharacter) {
-                    preset.withCharacterStudioConstraints(basePrompt)
-                } else {
-                    preset.withEraConstraints(basePrompt)
+                // v1.7.17：prompt 组装 / 画幅 / 调用统一走 AssetImageGenerator。
+                // 图像端不接受 negative_prompt 字段，禁词在生成器内并入正向；
+                // 角色卡丢弃 cinematic、9:16 framing 等场景化语义（与纯色棚拍底对冲，
+                // 是「角色卡背景清不干净」的根因），纯色背景指令放在 prompt 最末。
+                val kindKey = when (card.kind) {
+                    AssetsLogic.Kind.CHARACTER -> AssetImageGenerator.KIND_CHARACTER
+                    AssetsLogic.Kind.SCENE -> AssetImageGenerator.KIND_SCENE
+                    AssetsLogic.Kind.PROP -> AssetImageGenerator.KIND_PROP
+                    else -> "local"
                 }
-                // 时代红线禁词：Agnes 图像队列实测不支持 negative_prompt 字段(400 invalid_request)，
-                // 故把禁词并入正向 prompt。文档指出英文抑制强于中文，negPrompt 已含英文等价词，
-                // 提取 ASCII 部分作为英文约束；并固定追加英文质量负向模板(模糊/畸形/水印等)。
-                val negPrompt = if (isCharacter) {
-                    preset.studioNegativePromptFor()
-                } else {
-                    preset.negativePromptFor()
-                }
-                val enForbidden = negPrompt.split(",").map { it.trim() }
-                    .filter { it.isNotEmpty() && it.all { c -> c.code < 128 } }  // 仅取英文/ASCII 禁词
-                    .distinct()
-                val qualityNeg = "blurry, lowres, bad anatomy, deformed hands, extra fingers, " +
-                    "mutated, disfigured, ugly, watermark, signature, text, logo, oversaturated, distorted face"
-                val redlineClause = if (enForbidden.isNotEmpty()) " Do NOT include: ${enForbidden.joinToString(", ")}." else ""
-                val finalPrompt = "$erPrompt.$redlineClause Negative prompt (soft): $qualityNeg"
-                val url = AppGraph.image.generateImage(
-                    com.dramafactory.core.model.ImageGenRequest(
-                        prompt = finalPrompt,
-                        negativePrompt = null,
-                        inputImages = if (card.referenceImageUri != null) listOf(card.referenceImageUri) else emptyList()))
+                val erPrompt = AssetImageGenerator.buildConstrained(kindKey, basePrompt, preset)
+                val url = AssetImageGenerator.generate(
+                    provider = AppGraph.image,
+                    kind = kindKey,
+                    basePrompt = basePrompt,
+                    preset = preset,
+                    inputImages = if (card.referenceImageUri != null) listOf(card.referenceImageUri) else emptyList())
                 // A. 资产质量闸门：G1 文件级硬校验 + G2 多模态打分（defects 直接拒，重试≤3）
                 runCatching { auditGeneratedAsset(card.assetId, url, erPrompt, card) }
                 Result.success(url)

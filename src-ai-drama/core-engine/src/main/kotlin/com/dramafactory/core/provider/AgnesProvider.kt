@@ -56,7 +56,18 @@ class AgnesProvider(
     private val client: HttpClient = SharedHttp.client,
     /** 可注入时钟/睡眠以便JVM测试时序断言 */
     private val sleeper: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+    // ---- v1.7.18：自定义模型覆盖（OpenAI 兼容供应商）。null=走 Agnes 官方地址/模型 ----
+    /** 自定义 base_url（如 https://api.example.com/v1），覆盖默认 Agnes 网关 */
+    private val baseUrlOverride: String? = null,
+    /** 自定义视频模型 id，覆盖默认 agnes-video-v2.0 */
+    private val videoModelOverride: String? = null,
+    /** 自定义图像模型 id，覆盖默认 agnes-image-2.1-flash */
+    private val imageModelOverride: String? = null,
 ) : VideoProvider, TextProvider, ImageProvider {
+
+    private val effectiveBaseUrl: String get() = baseUrlOverride?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: BASE_URL
+    private val effectiveVideoModel: String get() = videoModelOverride?.trim()?.takeIf { it.isNotBlank() } ?: MODEL_VIDEO
+    private val effectiveImageModel: String get() = imageModelOverride?.trim()?.takeIf { it.isNotBlank() } ?: MODEL_IMAGE
 
     /** P1-1：验证期间的候选Key通道（null=用常规apiKeyProvider） */
     class ValidatingKeyContext(val candidateKey: String) : AbstractCoroutineContextElement(ValidatingKeyContext) {
@@ -147,7 +158,7 @@ class AgnesProvider(
         var lastErr: Exception? = null
         for (attempt in 0 until HTTP_MAX_RETRIES) {
             try {
-                val resp = client.post("$BASE_URL$path") {
+                val resp = client.post("$effectiveBaseUrl$path") {
                     contentType(ContentType.Application.Json)
                     header(HttpHeaders.Authorization, "Bearer ${currentApiKey()}")
                     setBody(body.toString())
@@ -243,11 +254,11 @@ class AgnesProvider(
     }
 
     override fun listModels(): List<ModelSpec> = listOf(
-        ModelSpec(MODEL_VIDEO, "Agnes 视频 v2.0").apply { supportsVideoReference = true },
+        ModelSpec(effectiveVideoModel, if (videoModelOverride != null) "自定义视频 ${effectiveVideoModel}" else "Agnes 视频 v2.0").apply { supportsVideoReference = true },
         ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
         ModelSpec(MODEL_TEXT_MID, "Agnes 文本 2.0 Flash"),
         ModelSpec(MODEL_TEXT_LIGHT, "Agnes 文本 1.5 Flash"),
-        ModelSpec(MODEL_IMAGE, "Agnes 图像 2.1 Flash"),
+        ModelSpec(effectiveImageModel, if (imageModelOverride != null) "自定义图像 ${effectiveImageModel}" else "Agnes 图像 2.1 Flash"),
     )
 
     override suspend fun submitVideo(req: VideoSubmitRequest): String {
@@ -265,7 +276,7 @@ class AgnesProvider(
         val prompt = ChineseAudioInjector.inject(req.prompt)
 
         val body = buildJsonObject {
-            put("model", MODEL_VIDEO)
+            put("model", effectiveVideoModel)
             put("prompt", prompt)
             put("width", w); put("height", h)
             put("num_frames", nf); put("frame_rate", req.frameRate.toDouble())
@@ -321,8 +332,12 @@ class AgnesProvider(
     }
 
     override suspend fun pollResult(providerTaskId: String): PollResult {
-        // GET /agnesapi?video_id= —— 推荐轮询端点（真实Agnes）
-        val out = getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId")
+        // 自定义供应商走 OpenAI 兼容惯例 GET {base}/videos/{id}；Agnes 走官方推荐端点
+        val out = if (baseUrlOverride != null) {
+            getJson("$effectiveBaseUrl/videos/$providerTaskId")
+        } else {
+            getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId")
+        }
         val status = out["status"]?.jsonPrimitive?.content ?: "unknown"
         return when (status) {
             "completed" -> {
@@ -387,7 +402,7 @@ class AgnesProvider(
     // ------------------------------------------------------------------
     override suspend fun generateImage(req: ImageGenRequest): String {
         val body = buildJsonObject {
-            put("model", MODEL_IMAGE)
+            put("model", effectiveImageModel)
             put("prompt", req.prompt)
             put("size", req.size)
             // response_format 放 extra_body 而非顶层（对齐pavo实战注释）

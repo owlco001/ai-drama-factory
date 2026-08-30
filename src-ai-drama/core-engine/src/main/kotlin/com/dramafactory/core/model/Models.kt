@@ -1,6 +1,7 @@
 package com.dramafactory.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.*
 
 /**
  * 核心数据模型 —— 严格按架构文档§3签名。
@@ -33,8 +34,8 @@ data class VideoSubmitRequest(
     val negativePrompt: String? = null,
     val firstImageUri: String? = null,   // keyframes 模式首帧(data URI)
     val lastImageUri: String? = null,    // 尾帧；两者齐备才发 mode=keyframes
-    val width: Int = 448, val height: Int = 832,
-    val numFrames: Int = 121, val frameRate: Float = 24f,
+    val width: Int = DEFAULT_WIDTH, val height: Int = DEFAULT_HEIGHT,
+    val numFrames: Int = DEFAULT_NUM_FRAMES, val frameRate: Float = DEFAULT_FRAME_RATE,
     val generateAudio: Boolean = true,
     // ---- 第六轮：图生视频 / 视频参考 扩展 ----
     /** 图生视频单参考图（非keyframes模式时作为起始帧，对齐 pavo image 参数） */
@@ -44,7 +45,71 @@ data class VideoSubmitRequest(
     // ---- v1.7.2：角色/场景资产参考图注入（套用 pavo 锁脸逻辑：每镜 i2i 绑定角色参考图，保证跨镜长相一致）----
     /** 多图 i2i 参考图（角色主锚图/场景图），非空即注入视频生成的 image 数组，使角色长相跨镜一致 */
     val inputImages: List<String> = emptyList(),
-)
+) {
+    companion object {
+        /** 9:16 竖屏默认（对齐短片竖屏目标） */
+        const val DEFAULT_WIDTH = 448
+        const val DEFAULT_HEIGHT = 832
+        const val DEFAULT_NUM_FRAMES = 121
+        const val DEFAULT_FRAME_RATE = 24f
+    }
+}
+
+/**
+ * v1.7.18：设置页可调的视频参数（多参充分利用）。
+ * 持久化在 provider_configs.video 的 extra_params JSON 里，渲染提交前按镜读取覆盖默认值。
+ * null 字段 = 用默认（前端只回传用户显式改过的项）。
+ */
+data class VideoParams(
+    val width: Int? = null,
+    val height: Int? = null,
+    val numFrames: Int? = null,
+    val frameRate: Float? = null,
+) {
+    companion object {
+        const val KEY = "video_params"
+        /** 常用竖屏分辨率预设：<label, width, height> */
+        val PRESETS = listOf(
+            Triple("9:16 标清 448×832", 448, 832),
+            Triple("9:16 高清 720×1280", 720, 1280),
+            Triple("9:16 超清 1080×1920", 1080, 1920),
+        )
+
+        /** extra_params JSON 字符串 → VideoParams（宽松容错，任何异常回退空对象） */
+        fun fromExtra(json: String?): VideoParams {
+            if (json.isNullOrBlank()) return VideoParams()
+            return runCatching {
+                val obj = kotlinx.serialization.json.Json
+                    .parseToJsonElement(json).jsonObject
+                val self = obj[KEY]?.jsonObject ?: return VideoParams()
+                fun int(k: String): Int? = self[k]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                VideoParams(
+                    width = int("width"), height = int("height"),
+                    numFrames = int("num_frames"),
+                    frameRate = self["frame_rate"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull(),
+                )
+            }.getOrDefault(VideoParams())
+        }
+
+        /** 合并进 extra_params JSON（保留其它 key） */
+        fun mergeIntoExtra(base: String?, p: VideoParams): String {
+            val merged = runCatching {
+                val obj = kotlinx.serialization.json.Json
+                    .parseToJsonElement(base ?: "{}").jsonObject.toMutableMap()
+                val cur = (obj[KEY] as? kotlinx.serialization.json.JsonObject)?.toMutableMap()
+                    ?: mutableMapOf()
+                p.width?.let { cur["width"] = kotlinx.serialization.json.JsonPrimitive(it) }
+                p.height?.let { cur["height"] = kotlinx.serialization.json.JsonPrimitive(it) }
+                p.numFrames?.let { cur["num_frames"] = kotlinx.serialization.json.JsonPrimitive(it) }
+                p.frameRate?.let { cur["frame_rate"] = kotlinx.serialization.json.JsonPrimitive(it) }
+                obj[KEY] = kotlinx.serialization.json.JsonObject(cur)
+                kotlinx.serialization.json.Json.encodeToString(
+                    kotlinx.serialization.json.JsonObject.serializer(), kotlinx.serialization.json.JsonObject(obj))
+            }.getOrDefault("{}")
+            return merged
+        }
+    }
+}
 
 /** 轮询结果三态 */
 sealed interface PollResult {

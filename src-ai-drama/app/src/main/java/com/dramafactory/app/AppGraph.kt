@@ -3,6 +3,7 @@ package com.dramafactory.app
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.*
 import com.dramafactory.app.data.DramaDatabase
 import com.dramafactory.app.data.MovieLibraryDao
 import com.dramafactory.app.data.RoomCheckpointStore
@@ -55,12 +56,64 @@ object AppGraph {
     @Volatile private var appContextRef: Context? = null
     fun appContext(): Context? = appContextRef
 
+    // ---- v1.7.18：视频参数（设置页可调，渲染按镜透传）----
+    @Volatile
+    var videoParams: com.dramafactory.core.model.VideoParams = com.dramafactory.core.model.VideoParams()
+        internal set
+
+    /**
+     * v1.7.18：按 provider_configs 的 verified 记录重建 provider + 刷新视频参数。
+     *
+     * 「自定义模型添加后能用」的最后一环：设置页保存自定义视频/图像模型后只写了
+     * provider_configs 表与 KeyVault，运行时从未读取 —— 用户加了自定义模型，提交还是
+     * 打到 Agnes 官方地址。这里统一读取：
+     * - channel=video 的 verified 记录若 provider_id=custom → 用其 base_url/model 重建 agnes；
+     * - channel=image 的 custom 记录覆盖图像模型；
+     * - video 的 extra_params.video_params → AppGraph.videoParams。
+     */
+    suspend fun refreshConfiguredProviders() {
+        // 注意：此函数在 init 中、initialized 置位前就会调用，不能依赖 initialized 标志；
+        // dao 在调用点之前已就绪（或 fallback BrokenDramaDao），且内部全部 runCatching 兜底。
+        val vcfg = runCatching { dao.verifiedConfig(CONFIG_VIDEO) }.getOrNull()
+        val icfg = runCatching { dao.verifiedConfig(CONFIG_IMAGE) }.getOrNull()
+        val videoParams = com.dramafactory.core.model.VideoParams.fromExtra(vcfg?.extra_params)
+        if (videoParams.width != null || videoParams.height != null ||
+            videoParams.numFrames != null || videoParams.frameRate != null) {
+            this.videoParams = videoParams
+        }
+        val custom = listOfNotNull(vcfg, icfg).firstOrNull { it.provider_id == "custom" } ?: return
+        val baseUrl = parseExtraString(custom.extra_params, "base_url")
+        val vModel = vcfg?.takeIf { it.provider_id == "custom" }?.model
+        val iModel = icfg?.takeIf { it.provider_id == "custom" }?.model
+        if (baseUrl.isNullOrBlank() && vModel == null && iModel == null) return
+        agnes = AgnesProvider(
+            apiKeyProvider = {
+                listOf("custom-video", "custom-image", CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT)
+                    .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
+                    .orEmpty()
+            },
+            baseUrlOverride = baseUrl,
+            videoModelOverride = vModel,
+            imageModelOverride = iModel,
+        )
+        Log.i("AppGraph", "已按自定义模型重建 provider: base=${baseUrl ?: "默认"} video=${vModel ?: "默认"} image=${iModel ?: "默认"}")
+    }
+
+    private fun parseExtraString(extra: String?, key: String): String? = runCatching {
+        kotlinx.serialization.json.Json.parseToJsonElement(extra ?: "{}").jsonObject[key]
+            ?.jsonPrimitive?.contentOrNull
+    }.getOrNull()
+
     /**
      * ★F3 修复：当前 AI 管线的时代红线 key（由 createEpisode 按剧本自动推断，
      * 不再写死西汉）。generateImage 生成链路一律用 presetFor(currentEraKey) 组装约束。
      * 单活跃 run 假设下用 @Volatile 保证可见性；并发多 run 由上层串行保证。
      */
     @Volatile private var currentEraKey: String = "han"
+
+    /** 当前时代红线预设（AI 助手/资产生成共用；由 createEpisode 按剧本推断更新） */
+    fun currentPreset(): com.dramafactory.core.quality.StylePreset =
+        com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
 
     /**
      * 自动合成成片：查询该集 COMPLETED 且已落盘的视频镜，ffmpeg 拼装为 mp4。
@@ -205,11 +258,13 @@ object AppGraph {
                 .filter { (it.kind == "character" || it.kind == "scene") && it.remote_url.isNullOrBlank() }
             for (a in missings) {
                 val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
-                val prompt = if (a.kind == "character") preset.withCharacterStudioConstraints(a.prompt)
-                             else preset.withEraConstraints(a.prompt)
-                val neg = if (a.kind == "character") preset.studioNegativePromptFor() else preset.negativePromptFor()
-                val url = runCatching { agnes.generateImage(
-                    com.dramafactory.core.model.ImageGenRequest(prompt = prompt, negativePrompt = neg)) }.getOrNull() ?: continue
+                // v1.7.17：走统一生成器。原实现给图像接口传了 negativePrompt，
+                // Agnes 图像端不支持该字段（400），被 runCatching 吞掉后 continue，
+                // 导致「渲染前补齐缺失资产图」这条链路从来没成功过。
+                val url = runCatching {
+                    com.dramafactory.app.ui.AssetImageGenerator.generate(
+                        provider = agnes, kind = a.kind, basePrompt = a.prompt, preset = preset)
+                }.getOrNull() ?: continue
                 runCatching { dao.setAssetRemoteUrl(a.asset_id, url, System.currentTimeMillis()) }
             }
         }
@@ -283,6 +338,11 @@ object AppGraph {
                     .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
                     .orEmpty()
             })
+            // v1.7.18：按 provider_configs 里已保存的自定义模型重建 provider（"添加后能用"）。
+            // 设置页保存自定义模型只落库 + KeyVault，此前运行时从不读表 → 自定义配置形同虚设。
+            // 必须在 initialized=true 之后跑（refreshConfiguredProviders 内部早退保护），
+            // 故挂 ioScope 异步执行；init 同步跑到 548 行置位后才轮到它调度。
+            ioScope.launch { refreshConfiguredProviders() }
             budgetGuard = DefaultBudgetGuard()
 
             textModelStore = runCatching { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault) }
@@ -361,19 +421,10 @@ object AppGraph {
                         runBlocking {
                             // ★F3 修复：用按剧本自动推断的 currentEraKey 取预设，不再写死 "han"
                             val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
-                            val prompt = if (asset.kind == "character") {
-                                preset.withCharacterStudioConstraints(asset.prompt)
-                            } else {
-                                preset.withEraConstraints(asset.prompt)
-                            }
-                            val neg = if (asset.kind == "character") {
-                                preset.studioNegativePromptFor()
-                            } else {
-                                preset.negativePromptFor()
-                            }
-                            val url = agnes.generateImage(
-                                com.dramafactory.core.model.ImageGenRequest(
-                                    prompt = prompt, negativePrompt = neg))
+                            // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
+                            val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
+                                provider = agnes, kind = asset.kind,
+                                basePrompt = asset.prompt, preset = preset)
                             // 落盘：生成成功回填资产图的 remote_url
                             runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }
                             url
@@ -418,12 +469,8 @@ object AppGraph {
                         val tp = textProviderFor()
                         // 第十五轮：从 DB 拉本项目已抽取/已生成的资产注入 LLM，让分镜用 asset_id 引用
                         val assets = runCatching { dao.assetsAllOf(pid) }.getOrDefault(emptyList())
-                        val catalog = assets.map { a ->
-                            com.dramafactory.core.quality.AiStoryboardDirector.AssetSnapshot(
-                                id = a.asset_id, kind = a.kind,
-                                name = a.prompt.substringBefore("：").substringBefore(":"),
-                                description = a.prompt)
-                        }
+                        // v1.7.17：与 StoryboardViewModel 共用同一套目录构造规则
+                        val catalog = com.dramafactory.app.ui.AssetCatalog.build(assets)
                         val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(
                             script, chat = { req -> tp.chat(req) }, assets = catalog)
                         r.shots.map { s ->
@@ -467,7 +514,7 @@ object AppGraph {
                                 shot_no = s.shotNo,
                                 action = s.action,
                                 dialogue = s.dialogue,
-                                first_asset_ids = s.assetIds.joinToString(",", "[", "]"),
+                                first_asset_ids = com.dramafactory.app.ui.AssetCatalog.encodeRefIds(s.assetIds),
                                 last_asset_ids = "[]",
                             ))
                         }

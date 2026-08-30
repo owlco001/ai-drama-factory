@@ -3,6 +3,7 @@ package com.dramafactory.core.pipeline
 import com.dramafactory.core.model.CheckpointEntry
 import com.dramafactory.core.model.PollResult
 import com.dramafactory.core.model.ProviderError
+import com.dramafactory.core.model.VideoParams
 import com.dramafactory.core.model.QueueSnapshot
 import com.dramafactory.core.model.ShotMeta
 import com.dramafactory.core.model.ShotState
@@ -53,6 +54,9 @@ class DefaultRenderQueue(
     var shotAssetImageResolver: suspend (shotId: String) -> List<String> = { _ -> emptyList() },
     /** 第六轮：视频参考解析：shotId → referenceVideoUri（仅当模型标记支持时由上游填充） */
     var shotReferenceVideoResolver: suspend (shotId: String) -> String? = { _ -> null },
+    // v1.7.18：视频参数提供器（分辨率/帧数/帧率）。App 层从设置持久化读取，
+    // null 表示用 VideoSubmitRequest 默认值。每镜提交前查询，改参数即时生效。
+    var videoParamsProvider: suspend (shotId: String) -> VideoParams? = { _ -> null },
     private val projectIdOf: (episodeId: String) -> String = { "" },
 ) : RenderQueue {
 
@@ -61,6 +65,9 @@ class DefaultRenderQueue(
 
     @Volatile private var paused = false
     @Volatile private var pausedReason: String? = null
+    /** v1.7.18：暂停状态只读访问（AI 助手/UI 状态展示用） */
+    val isPaused: Boolean get() = paused
+    val pauseReason: String? get() = pausedReason
     /** P1-5：用户对budget_exceeded确认放行后，允许越过预算门提交（一次性，提交后即复位） */
     @Volatile private var budgetConfirmed = false
     private val cancelledShots = mutableSetOf<String>()
@@ -147,6 +154,8 @@ class DefaultRenderQueue(
             val referenceVideo = shotReferenceVideoResolver(shotId)
             // v1.7.2：套用 pavo 锁脸——每镜注入角色/场景资产参考图（i2i），保证跨镜长相一致
             val assetImages = shotAssetImageResolver(shotId)
+            // v1.7.18：设置页可调的视频参数（分辨率/帧数/帧率）透传；未配置时用模型默认
+            val vp = runCatching { videoParamsProvider(shotId) }.getOrNull()
             // v1.7.10：视频端官方支持 negative_prompt（agnes-video-v20 文档确认），用于抑制
             // 人物漂移/脸部崩坏/剧烈抖动；英文抑制强于中文。锁脸专用负向模板（用户文档提供）。
             val videoNegative = "face drift, identity change, inconsistent character, deformed face, " +
@@ -158,6 +167,10 @@ class DefaultRenderQueue(
                     referenceVideoUri = referenceVideo,
                     inputImages = assetImages,
                     negativePrompt = videoNegative,
+                    width = vp?.width ?: com.dramafactory.core.model.VideoSubmitRequest.DEFAULT_WIDTH,
+                    height = vp?.height ?: com.dramafactory.core.model.VideoSubmitRequest.DEFAULT_HEIGHT,
+                    numFrames = vp?.numFrames ?: com.dramafactory.core.model.VideoSubmitRequest.DEFAULT_NUM_FRAMES,
+                    frameRate = vp?.frameRate ?: com.dramafactory.core.model.VideoSubmitRequest.DEFAULT_FRAME_RATE,
                 )
             )
             // ★P0-1生死线第二步：HTTP 2xx/video_id一返回就【同步落库】，且这是拿到id后的第一个动作

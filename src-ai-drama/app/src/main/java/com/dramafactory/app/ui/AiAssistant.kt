@@ -174,45 +174,92 @@ class AiAssistantViewModel : ViewModel() {
                 }
                 "已提取 ${assets.size} 张资产卡（去「资产」标签可看/手改）"
             }
+            // v1.7.18 修复：以下动作此前 new AssetsLogic() 后直接调 generate/review 等——
+            // 但那个新实例的 generateHandler/reviewPersist 从未接线（默认抛异常/空实现），
+            // 且内存资产列表为空，导致「AI 说已生成/已删除」实际什么都没发生（假成功）。
+            // 全部改为直接操作 dao（与手动操作同一落库通道，可对账可撤回）。
             "generate" -> {
                 val id = act.param("assetId") ?: return null
-                AssetsLogic().generate(id)
-                "已触发重新生成：$id"
+                val pid = projectId ?: return "（请先打开项目）"
+                onNotice("🎨 正在重新生成资产图：$id …")
+                val row = withContext(Dispatchers.IO) {
+                    dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
+                } ?: return "（找不到资产 $id，先让我 list_assets 看看有哪些）"
+                val url = runCatching {
+                    com.dramafactory.app.ui.AssetImageGenerator.generate(
+                        provider = AppGraph.image, kind = row.kind,
+                        basePrompt = row.prompt, preset = AppGraph.currentPreset())
+                }.getOrNull() ?: return "（图像生成失败：请确认图像/视频模型 Key 与网络）"
+                withContext(Dispatchers.IO) { runCatching { dao.setAssetRemoteUrl(id, url, System.currentTimeMillis()) } }
+                "已重新生成资产 $id 的图像"
             }
             "stop_generate" -> {
                 val id = act.param("assetId") ?: return null
-                AssetsLogic().stopGenerate(id)
-                "已停止生成：$id"
+                "（已取消：$id 当前没有进行中的生成任务）"
             }
             "remove_asset" -> {
                 val id = act.param("assetId") ?: return null
-                val ids = AssetsLogic().removeAssetsCascade(listOf(id))
-                withContext(Dispatchers.IO) { for (i in ids) runCatching { dao.deleteAsset(i) } }
-                "已删除资产：$id${if (ids.size > 1) "（含 ${ids.size - 1} 张子卡）" else ""}"
+                val pid = projectId ?: return "（请先打开项目）"
+                val removed = withContext(Dispatchers.IO) {
+                    val all = dao.assetsAllOf(pid)
+                    val cascade = all.filter { it.asset_id == id || it.parent_id == id }.map { it.asset_id }
+                    cascade.forEach { runCatching { dao.deleteAsset(it) } }
+                    cascade.size
+                }
+                if (removed == 0) "（找不到资产 $id）"
+                else "已删除资产 $id${if (removed > 1) "（含 ${removed - 1} 张姿态子卡）" else ""}"
             }
             "edit_asset" -> {
                 val id = act.param("assetId") ?: return null
                 val newPrompt = act.param("prompt") ?: return "（请告诉我新的描述，例如 prompt=穿红衣的少女）"
                 val pid = projectId ?: return "（请先打开项目）"
-                withContext(Dispatchers.IO) {
+                val ok = withContext(Dispatchers.IO) {
                     val cur = dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
-                    if (cur != null) dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
-                        cur.reference_image_uri, newPrompt, System.currentTimeMillis())
+                    if (cur != null) {
+                        dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
+                            cur.reference_image_uri, newPrompt, System.currentTimeMillis())
+                        true
+                    } else false
                 }
-                "已更新资产描述：$id → $newPrompt"
+                if (ok) "已更新资产描述：$id → $newPrompt" else "（找不到资产 $id）"
             }
             "review_pass" -> {
                 val id = act.param("assetId") ?: return null
-                AssetsLogic().review(id, true)
-                "已通过评审：$id"
+                withContext(Dispatchers.IO) { runCatching { dao.setReviewState(id, "keep") } }
+                "已标记通过评审：$id"
             }
             "review_all_pass" -> {
-                AssetsLogic().reviewAllPassed()
-                "已全部通过评审"
+                val pid = projectId ?: return "（请先打开项目）"
+                val n = withContext(Dispatchers.IO) {
+                    val all = dao.assetsAllOf(pid)
+                    all.forEach { runCatching { dao.setReviewState(it.asset_id, "keep") } }
+                    all.size
+                }
+                "已全部通过评审（$n 个资产）"
             }
             "build_pose_pack" -> {
                 val cid = act.param("characterId") ?: act.param("assetId") ?: return null
-                val n = AssetsLogic().buildPosePack(cid) { "pose_${System.currentTimeMillis()}_${System.nanoTime()}" }
+                val pid = projectId ?: return "（请先打开项目）"
+                val parent = withContext(Dispatchers.IO) {
+                    dao.assetsAllOf(pid).firstOrNull { it.asset_id == cid }
+                } ?: return "（找不到角色 $cid）"
+                if (parent.kind != "character") return "（$cid 不是角色资产，姿态包只给角色建）"
+                val poses = com.dramafactory.core.quality.StylePreset.HAN_DEFAULT.characterPoses
+                val n = withContext(Dispatchers.IO) {
+                    var added = 0
+                    for (pose in poses) {
+                        val subId = "pose_${System.currentTimeMillis()}_${System.nanoTime()}"
+                        val subPrompt = AssetsLogic().buildPosePrompt(parent.prompt, pose)
+                        runCatching {
+                            dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                                asset_id = subId, project_id = pid, kind = "character",
+                                parent_id = cid, pose_role = pose.key, prompt = subPrompt,
+                                updated_at = System.currentTimeMillis()))
+                            added++
+                        }
+                    }
+                    added
+                }
                 "已为角色 $cid 生成 $n 张姿态子卡"
             }
             "set_cross_era" -> {
@@ -237,16 +284,35 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本）"
-                onNotice("🎬 正在生成分镜…")
-                val shots = runCatching { AppGraph.genShotsFor(script) }.getOrElse { emptyList() }
+                onNotice("🎬 正在生成分镜（编剧+导演）…")
+                // v1.7.18：对齐 StoryboardViewModel 的 v1.7.17 链路——目录只给已生图的母卡，
+                // first_asset_ids 落标准 JSON，渲染据此注入参考图锁脸。
+                val catalog = withContext(Dispatchers.IO) { AssetCatalog.build(dao.assetsAllOf(pid)) }
+                val result = runCatching {
+                    com.dramafactory.core.quality.AiStoryboardDirector.generate(
+                        script, chat = { req -> AppGraph.text.chat(req) }, assets = catalog)
+                }.getOrElse { return "（分镜生成失败：${it.message?.take(80)}）" }
+                if (result.shots.isEmpty()) return "（AI 未能从剧本拆出镜头，请检查剧本内容后重试）"
                 withContext(Dispatchers.IO) {
-                    shots.forEach { s ->
-                        dao.upsertShot(com.dramafactory.app.data.ShotEntity(
-                            shot_id = "${e}_shot${s.shotNo}", episode_id = e, project_id = pid,
-                            shot_no = s.shotNo, action = s.action, dialogue = s.dialogue))
+                    runCatching { dao.deleteShotsOf(e) }
+                    for (s in result.shots) {
+                        runCatching {
+                            dao.upsertShot(com.dramafactory.app.data.ShotEntity(
+                                shot_id = "${e}_shot${s.shotNo}", episode_id = e, project_id = pid,
+                                shot_no = s.shotNo, dialogue = s.dialogue, narration = s.narration,
+                                action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
+                                beat_ref = s.beatRef, carry_over = s.carryOver,
+                                first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
+                                last_asset_ids = "[]",
+                                visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
+                                sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
+                                           else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}"))
+                        }
                     }
                 }
-                "已生成 ${shots.size} 条分镜（去「分镜」标签查看）"
+                val noAssetNote = if (catalog.isEmpty())
+                    "；⚠ 本项目还没有已生成图像的角色/场景资产，分镜未引用任何资产（渲染将回退项目级前4张），请先到资产页把资产图生成出来再重生成" else ""
+                "已生成 ${result.shots.size} 条分镜$noAssetNote（去「分镜」标签查看）"
             }
             "render" -> {
                 val pid = projectId ?: return "（请先打开项目）"
@@ -275,6 +341,46 @@ class AiAssistantViewModel : ViewModel() {
                     currentEpisodeId = AppGraph.aiOrchestrator.currentEpisodeId.value ?: e
                     "已启动完整流水线（提取→图→分镜→渲染），跑完去「成片」标签看成片"
                 } else "（流水线启动失败：${res.exceptionOrNull()?.message?.take(80)}）"
+            }
+            // ===== v1.7.18：渲染控制 / 状态查询 / 模型配置 =====
+            "render_status" -> {
+                val e = epId ?: return "（请先打开项目）"
+                val rows = withContext(Dispatchers.IO) {
+                    runCatching { dao.renderTasksOfEpOrdered(e) }.getOrDefault(emptyList())
+                }
+                if (rows.isEmpty()) "（本集还没有渲染任务，先生成分镜再渲染）"
+                else {
+                    val byState = rows.groupingBy { it.state }.eachCount()
+                    val order = listOf("PENDING", "SUBMITTING", "SUBMITTED", "COMPLETED", "FAILED", "BLOCKED")
+                    "本集渲染进度：共 ${rows.size} 镜 → " +
+                        order.filter { byState.containsKey(it) }
+                            .joinToString(" · ") { "$it ${byState[it]}" } +
+                        "（渲染队列当前${if (com.dramafactory.app.ui.RenderRuntime.queueFor(e).isPaused) "已暂停" else "运行中"}）"
+                }
+            }
+            "render_pause" -> {
+                val e = epId ?: return "（请先打开项目）"
+                com.dramafactory.app.ui.RenderRuntime.queueFor(e).pause()
+                "已暂停渲染队列（已提交的镜头会继续轮询取回）"
+            }
+            "render_resume" -> {
+                val e = epId ?: return "（请先打开项目）"
+                com.dramafactory.app.ui.RenderRuntime.queueFor(e).resume(confirmedByUser = false)
+                "已恢复渲染队列"
+            }
+            "model_status" -> {
+                val hasVideo = runCatching { !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank() }.getOrDefault(false)
+                val hasText = runCatching { AppGraph.hasAnyTextKey() }.getOrDefault(false)
+                val hasImage = runCatching { !AppGraph.keyVault.load(AppGraph.CONFIG_IMAGE).isNullOrBlank() }.getOrDefault(false)
+                val videoCfg = runCatching { AppGraph.dao.verifiedConfig(AppGraph.CONFIG_VIDEO) }.getOrNull()
+                buildString {
+                    append("模型配置状态：\n")
+                    append("· 文本：${if (hasText) "✓ 已配置" else "✗ 未配置"}（AI 对话/编剧用）\n")
+                    append("· 视频：${if (hasVideo) "✓ 已配置" else "✗ 未配置"}" +
+                        if (videoCfg?.provider_id == "custom") "（自定义：${videoCfg.model}）" else "" + "\n")
+                    append("· 图像：${if (hasImage) "✓ 已配置" else "✗ 未配置（默认共用视频 Key）"}\n")
+                    append("缺配置的话，跟我说『打开设置』就能去补 Key。")
+                }
             }
             // ===== 导航 =====
             "goto" -> {
