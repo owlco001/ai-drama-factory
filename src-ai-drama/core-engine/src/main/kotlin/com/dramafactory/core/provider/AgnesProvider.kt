@@ -30,6 +30,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
@@ -51,7 +52,8 @@ class AgnesProvider(
     private val rateGate: DefaultRateGate = DefaultRateGate(),
     /** 明文Key来源：生产为KeyVault.load()，测试注入假实现。仅进Authorization header */
     var apiKeyProvider: suspend () -> String = { "" },
-    private val client: HttpClient = HttpClient { /* 底层OkHttp engine默认即可 */ },
+    // 默认走进程级共享客户端：Provider 是按次创建的，逐次 new HttpClient 会泄漏连接池
+    private val client: HttpClient = SharedHttp.client,
     /** 可注入时钟/睡眠以便JVM测试时序断言 */
     private val sleeper: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
 ) : VideoProvider, TextProvider, ImageProvider {
@@ -278,7 +280,9 @@ class AgnesProvider(
             }
             images.addAll(req.inputImages)
             if (images.isNotEmpty()) {
-                put("image", buildJsonArray { images.forEach { add(json.parseToJsonElement("\"$it\"")) } })
+                // 用 JsonPrimitive 直接构造：原写法是手拼 "\"$it\"" 再反解析，
+                // URI 里一旦出现引号/反斜杠就会拼出非法 JSON 并抛异常
+                put("image", buildJsonArray { images.forEach { add(JsonPrimitive(it)) } })
                 if (req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
             }
             // 视频参考输入：部分供应商支持，仅当模型标记支持且提供了URI时填入
@@ -390,7 +394,7 @@ class AgnesProvider(
             put("extra_body", buildJsonObject {
                 put("response_format", "url")
                 if (req.inputImages.isNotEmpty()) {
-                    put("image", buildJsonArray { req.inputImages.forEach { add(json.parseToJsonElement("\"$it\"")) } })
+                    put("image", buildJsonArray { req.inputImages.forEach { add(JsonPrimitive(it)) } })
                 }
                 // ★v1.7.8 修复：Agnes 图像队列不支持 negative_prompt（400 invalid_request），
                 // 双写负向导致整张图生成失败。移除之；时代红线禁词改为在 AssetsViewModel 并入正向 prompt。

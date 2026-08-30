@@ -67,7 +67,9 @@ fun LibraryPage() {
             return@Column
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // weight(1f)：同 QueuePage —— 外层是 fillMaxSize 的 Column，不给高度约束会让
+        // LazyColumn 以无限高度测量，退化为全量排版且超出屏幕的部分滚不到
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for ((epId, done, total) in episodes.value) {
                 item(key = epId) {
                     Card(Modifier.fillMaxWidth()) {

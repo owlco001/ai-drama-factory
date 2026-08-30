@@ -575,11 +575,13 @@ object AppGraph {
                         appendLine(header)
                         appendLine(stack)
                     })
-                // 同时写外部可读路径（/sdcard/Download/ai-drama-crash.log），便于无 root 取日志
+                // 同时写一份到应用专属外部目录，便于用文件管理器/adb 取出（无需 root）。
+                // 原实现用 Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)：
+                // 该 API 自 API 29 废弃，且在分区存储（targetSdk≥30）下不可写，外面还套了 runCatching
+                // —— 于是在 Android 11+ 上「静默写不出去」，崩溃日志永远拿不到。改用应用专属目录。
                 runCatching {
-                    val ext = java.io.File(
-                        android.os.Environment.getExternalStoragePublicDirectory(
-                            android.os.Environment.DIRECTORY_DOWNLOADS), "ai-drama-crash.log")
+                    val dir = app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    val ext = java.io.File(dir, "ai-drama-crash.log")
                     ext.writeText("time=${System.currentTimeMillis()}\n$header\n$stack\n\n")
                 }
             } catch (_: Throwable) {}

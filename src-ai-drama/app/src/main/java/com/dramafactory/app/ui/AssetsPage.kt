@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -591,8 +590,8 @@ fun AssetCardView(
                     Box(Modifier.size(22.dp).align(Alignment.TopEnd)
                         .background(
                             if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                            RoundedCornerShape(6.dp))
-                        .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)),
+                            MaterialTheme.shapes.extraSmall)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraSmall),
                         contentAlignment = Alignment.Center) {
                         if (selected) Text("✓", style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimary)
@@ -685,7 +684,7 @@ fun AssetCardView(
 @Composable
 private fun AssetThumb(card: AssetsLogic.AssetCard) {
     val size = 72.dp
-    val shape = RoundedCornerShape(8.dp)
+    val shape = MaterialTheme.shapes.small
     val bg = MaterialTheme.colorScheme.surfaceVariant
     @Composable
     fun placeholder(emoji: String) {

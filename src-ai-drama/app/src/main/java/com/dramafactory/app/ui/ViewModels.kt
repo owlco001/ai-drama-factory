@@ -7,6 +7,7 @@ import com.dramafactory.app.AppGraph
 import com.dramafactory.core.quality.AssetAuditor
 import com.dramafactory.core.quality.StylePreset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -116,8 +117,26 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
     }
     val state: StateFlow<QueueLogic.UiState> get() = logic.state
 
+    /**
+     * 当前视频模型是否支持视频参考（UI 门控「上传参考视频」入口）。
+     *
+     * 原实现是组合期调用的 `videoModelSupportsReference(): Boolean`，内部 runBlocking 同步查 Room，
+     * 而 LazyColumn 的**每一镜**都会调它一次 → 每次重组触发 N 次主线程 IO（列表越长卡得越明显）。
+     * 改为 ViewModel 构造时异步加载一次，缓存为 StateFlow 供 UI 订阅。
+     */
+    private val _videoRefSupported = MutableStateFlow(false)
+    val videoRefSupported: StateFlow<Boolean> = _videoRefSupported
+
     /** 队列运行时单例接线（见RenderRuntime） */
-    init { logic.startWatching(viewModelScope) }
+    init {
+        logic.startWatching(viewModelScope)
+        viewModelScope.launch {
+            val cfg = runCatching { withContext(Dispatchers.IO) { AppGraph.dao.verifiedConfig("video") } }.getOrNull()
+            val model = cfg?.model ?: "agnes"
+            _videoRefSupported.value =
+                AppGraph.video.listModels().firstOrNull { it.id == model }?.supportsVideoReference ?: false
+        }
+    }
     override fun onCleared() { logic.stopWatching(); super.onCleared() }
 
     fun enqueue(shots: List<com.dramafactory.core.model.ShotMeta>) =
@@ -140,12 +159,6 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
     /** 为某镜设置视频参考（仅模型支持时由UI调用） */
     fun setShotReferenceVideo(shotId: String, uri: String?) = viewModelScope.launch {
         withContext(Dispatchers.IO) { AppGraph.dao.setShotReferenceVideo(shotId, uri) }
-    }
-    /** 当前视频模型是否支持视频参考（UI门控「上传参考视频」入口） */
-    fun videoModelSupportsReference(): Boolean {
-        val cfg = runCatching { kotlinx.coroutines.runBlocking { AppGraph.dao.verifiedConfig("video") } }.getOrNull()
-        val model = cfg?.model ?: "agnes"
-        return AppGraph.video.listModels().firstOrNull { it.id == model }?.supportsVideoReference ?: false
     }
 }
 
@@ -523,12 +536,14 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     /**
      * B. 角色 DNA 6 姿态资产包：为某角色母卡生成 6 张姿态子图卡（front_anchor/side_45/
      * full_body_riding/expression_serious|angry|calm），每张带中英双语构图指令，并落库 + 触发生成。
-     * @return 新增子图卡数量（6）
+     *
+     * 异步执行，无返回值：原签名 `Int` 恒返回字面量 6（实际工作在 viewModelScope.launch 里，
+     * 返回时任务还没跑完），与真实新增数量无关；调用点也只当点击回调用。改为 Unit，签名不再说谎。
      */
-    fun buildCharacterPosePack(characterId: String): Int {
-        var added = 0
+    fun buildCharacterPosePack(characterId: String) {
         viewModelScope.launch {
-            added = logic.buildPosePack(characterId) { "pose_${System.currentTimeMillis()}_${added++}" }
+            var seq = 0
+            logic.buildPosePack(characterId) { "pose_${System.currentTimeMillis()}_${seq++}" }
             for (child in logic.poseChildrenOf(characterId)) {
                 withContext(Dispatchers.IO) {
                     AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
@@ -539,7 +554,6 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 logic.generate(child.assetId)
             }
         }
-        return 6
     }
 
     /** C. 时代红线：设置本集允许出现的跨时代器物清单（按剧集放行）。 */
@@ -551,14 +565,9 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         }
     }
 
-    /** C. 时代红线：读取本集已声明放行的跨时代器物清单。 */
-    fun episodeAllowedCrossEra(): List<String> {
-        val raw = runCatching { kotlinx.coroutines.runBlocking {
-            AppGraph.dao.episodeAllowedCrossEra("${projectId}_ep1")
-        } }.getOrNull() ?: "[]"
-        return runCatching { org.json.JSONArray(raw) }.getOrNull()
-            ?.let { (0 until it.length()).map { i -> it.getString(i) } } ?: emptyList()
-    }
+    // 注：原 `fun episodeAllowedCrossEra(): List<String>` 已删除——全仓无调用点（UI 走
+    // allowedCrossEra StateFlow），且内部用 runBlocking 同步查库，一旦被误用就是主线程 IO。
+    // 时代红线读取请统一走 allowedCrossEra。
 
     // ==================== 第六轮：本地上传 / 图生图 / 视频参考 ====================
 

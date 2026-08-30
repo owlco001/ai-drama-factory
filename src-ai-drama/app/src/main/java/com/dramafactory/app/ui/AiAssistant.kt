@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +24,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import com.dramafactory.app.ui.theme.DramaGradient
 import com.dramafactory.app.ui.theme.DramaColor
+import com.dramafactory.app.ui.theme.BubbleAiShape
+import com.dramafactory.app.ui.theme.BubbleUserShape
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
@@ -297,15 +298,15 @@ class AiAssistantViewModel : ViewModel() {
                 isThinking = false
                 return@launch
             }
-            val a = agent ?: run {
-                runCatching { ensureAgent() }.getOrNull().also { built ->
-                    if (built == null) {
-                        _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 智能体初始化失败，请检查文本模型 Key 配置")
-                        isThinking = false
-                        return@launch
-                    }
-                }
-                agent!!
+            // ensureAgent() 内部已用 runCatching 吞掉异常，其「正常返回」并不代表构建成功，
+            // 所以原写法 `runCatching { ensureAgent() }.getOrNull()` 恒为非 null，
+            // 构建失败时照样走到 agent!! —— 必抛 NPE 崩溃。改为构建后显式判空。
+            if (agent == null) ensureAgent()
+            val a = agent
+            if (a == null) {
+                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 智能体初始化失败，请检查文本模型 Key 配置")
+                isThinking = false
+                return@launch
             }
             runCatching { a.say(text) { notice ->
                 // v1.7.3：AI 执行长任务时实时汇报进度（非流式，阶段提示逐条追加）
@@ -358,7 +359,7 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
             Surface(
                 tonalElevation = 6.dp,
                 shadowElevation = 12.dp,
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth(0.95f).fillMaxHeight(0.8f).padding(8.dp),
             ) {
@@ -366,7 +367,7 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Surface(
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = MaterialTheme.shapes.small,
                             modifier = Modifier.padding(end = 8.dp),
                         ) { Text("🤖", Modifier.padding(6.dp), style = MaterialTheme.typography.titleMedium) }
                         Text("AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -394,7 +395,7 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                             onValueChange = { input = it },
                             placeholder = { Text("跟 AI 说：提取资产 / 改主角红衣 / 生成分镜 / 跑完整流程出成片…") },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = 120.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = MaterialTheme.shapes.medium,
                         )
                         Button(onClick = { if (input.isNotBlank()) { vm.sendUserMessage(input); input = "" } }) { Text("发送") }
                     }
@@ -408,10 +409,19 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
 private fun ChatBubbleLocal(turn: DialogueTurn) {
     val isAi = turn.side == DialogueTurn.Side.AI
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isAi) Arrangement.Start else Arrangement.End) {
-        Surface(color = if (isAi) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary,
-            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(0.85f)) {
+        // 设计规格 .bub-ai / .bub-me：AI 气泡 surface-highest + 左下尖角；
+        // 用户气泡 hero 渐变 + 右上尖角，文字取 onPrimary
+        val shape = if (isAi) BubbleAiShape else BubbleUserShape
+        Box(
+            Modifier
+                .fillMaxWidth(0.85f)
+                .clip(shape)
+                .background(
+                    if (isAi) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
+                .then(if (isAi) Modifier else Modifier.background(DramaGradient.hero())),
+        ) {
             Text(turn.content, Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium,
-                color = if (isAi) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary)
+                color = if (isAi) MaterialTheme.colorScheme.onSurface else DramaColor.OnPrimary)
         }
     }
 }
@@ -419,7 +429,7 @@ private fun ChatBubbleLocal(turn: DialogueTurn) {
 @Composable
 private fun ThinkingBubbleLocal() {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = BubbleAiShape) {
             Text("🤔 思考中…", Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
         }
     }

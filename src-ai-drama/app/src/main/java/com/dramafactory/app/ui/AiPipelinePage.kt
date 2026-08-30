@@ -17,7 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +46,9 @@ import android.widget.LinearLayout
 import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.dramafactory.app.ui.theme.DramaColor
+import com.dramafactory.app.ui.theme.BubbleAiShape
+import com.dramafactory.app.ui.theme.BubbleUserShape
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
@@ -183,8 +186,10 @@ class AiPipelineViewModel : ViewModel() {
                 "已放开跨时代器物：${allowed.joinToString("、")}"
             }
             "list_assets" -> {
-                val ep = epId ?: return "（还没有项目，先开工建项目）"
-                val assets = withContext(kotlinx.coroutines.Dispatchers.IO) { dao.assetsAllOf(projectId!!) }
+                // 原实现判空的是 epId、实际用的却是 projectId!! —— 两个变量可能不同源，
+                // projectId 为空时必抛 NPE。改为对真正要用的 projectId 判空。
+                val pid = projectId ?: return "（还没有项目，先开工建项目）"
+                val assets = withContext(kotlinx.coroutines.Dispatchers.IO) { dao.assetsAllOf(pid) }
                 if (assets.isEmpty()) "（当前项目还没有资产）"
                 else "当前项目共 ${assets.size} 个资产：\n" +
                     assets.joinToString("\n") { "· ${it.kind}（id=${it.asset_id}，描述：${it.prompt.take(20)}…）" } +
@@ -216,8 +221,9 @@ class AiPipelineViewModel : ViewModel() {
             "edit_asset" -> {
                 val id = act.param("assetId") ?: return null
                 val newPrompt = act.param("prompt") ?: return "（请告知新的描述，例如 prompt=穿红衣的少女）"
+                val pid = projectId ?: return "（还没有项目，先开工建项目）"
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val cur = dao.assetsAllOf(projectId!!).firstOrNull { it.asset_id == id }
+                    val cur = dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
                     if (cur != null) dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
                         cur.reference_image_uri, newPrompt, System.currentTimeMillis())
                 }
@@ -422,7 +428,7 @@ fun AiPipelinePage(
     // AI 模式内嵌子视图：直接在 AI 模式里看/管资产、分镜、成片，不跳出 AI
     if (vm.subView != AiPipelineViewModel.SubView.NONE) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Surface(tonalElevation = 2.dp, shape = RoundedCornerShape(14.dp)) {
+            Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.large) {
                 Row(Modifier.fillMaxWidth().padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -457,7 +463,7 @@ fun AiPipelinePage(
         // 顶栏
         Surface(
             tonalElevation = 2.dp,
-            shape = RoundedCornerShape(14.dp),
+            shape = MaterialTheme.shapes.large,
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(10.dp),
@@ -473,7 +479,7 @@ fun AiPipelinePage(
 
         // 状态提示（初始化中/错误等）
         vm.statusMsg?.let {
-            Surface(tonalElevation = 1.dp, shape = RoundedCornerShape(10.dp),
+            Surface(tonalElevation = 1.dp, shape = MaterialTheme.shapes.medium,
                 color = if (it.startsWith("✅")) MaterialTheme.colorScheme.primaryContainer
                         else if (it.startsWith("❌") || it.startsWith("⚠️")) Color(0x1AFF0000)
                         else MaterialTheme.colorScheme.surfaceVariant,
@@ -498,7 +504,7 @@ fun AiPipelinePage(
             // 输入卡片
             Surface(
                 tonalElevation = 1.dp,
-                shape = RoundedCornerShape(16.dp),
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -513,7 +519,7 @@ fun AiPipelinePage(
                             },
                         placeholder = { Text("跟 AI 聊聊剧本/想法，或直接粘贴文本…（回车发送；粘文本后也可直接点开工）") },
                         minLines = 2, maxLines = 5,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = MaterialTheme.shapes.medium,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -558,7 +564,7 @@ private fun ChatBubble(turn: DialogueTurn) {
         if (isAi) {
             Surface(
                 color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(10.dp),
+                shape = CircleShape,
                 modifier = Modifier.size(32.dp),
             ) {
                 Text("🤖", Modifier.wrapContentSize(), style = MaterialTheme.typography.titleSmall)
@@ -570,11 +576,7 @@ private fun ChatBubble(turn: DialogueTurn) {
                 containerColor = if (isAi) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.secondaryContainer,
             ),
-            shape = RoundedCornerShape(
-                topStart = if (isAi) 4.dp else 16.dp,
-                topEnd = if (isAi) 16.dp else 4.dp,
-                bottomStart = 16.dp, bottomEnd = 16.dp,
-            ),
+            shape = if (isAi) BubbleAiShape else BubbleUserShape,
             modifier = Modifier.fillMaxWidth(0.82f),
         ) {
             Text(
@@ -589,7 +591,7 @@ private fun ChatBubble(turn: DialogueTurn) {
             Spacer(Modifier.size(6.dp))
             Surface(
                 color = MaterialTheme.colorScheme.secondary,
-                shape = RoundedCornerShape(10.dp),
+                shape = CircleShape,
                 modifier = Modifier.size(32.dp),
             ) {
                 Text("👤", Modifier.wrapContentSize(), style = MaterialTheme.typography.titleSmall)
@@ -603,12 +605,12 @@ private fun ThinkingBubble() {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
         Surface(
             color = MaterialTheme.colorScheme.primary,
-            shape = RoundedCornerShape(10.dp),
+            shape = CircleShape,
             modifier = Modifier.size(32.dp),
         ) { Text("🤖", Modifier.wrapContentSize(), style = MaterialTheme.typography.titleSmall) }
         Spacer(Modifier.size(6.dp))
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-            shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp)) {
+            shape = BubbleAiShape) {
             Row(Modifier.padding(12.dp, 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(3) {
                     Text("●", style = MaterialTheme.typography.titleMedium,
@@ -629,7 +631,7 @@ private fun ModelChip(vm: AiPipelineViewModel) {
     Box {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(20.dp),
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier.clickable { expanded = true },
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -669,13 +671,9 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
                 // 阶段序号圆
                 val done = ev.level != ProgressEvent.Level.INFO || ev.elapsedMs > 0
                 Surface(
-                    color = when (ev.level) {
-                        ProgressEvent.Level.ERROR -> Color(0xFFEF5350)
-                        ProgressEvent.Level.WARN -> Color(0xFFFFB300)
-                        else -> MaterialTheme.colorScheme.primary
-                    },
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.size(26.dp),
+                    color = levelColor(ev.level),
+                    shape = CircleShape,
+                    modifier = Modifier.size(32.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(stageNumber(ev.stage), color = MaterialTheme.colorScheme.onPrimary,
@@ -697,7 +695,7 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
         }
     }
     vm.statusMsg?.let {
-        Surface(tonalElevation = 2.dp, shape = RoundedCornerShape(12.dp),
+        Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium,
             color = if (it.startsWith("✅")) MaterialTheme.colorScheme.primaryContainer else Color(0x1AFF0000),
             modifier = Modifier.fillMaxWidth()) {
             Text(it, Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
@@ -712,7 +710,7 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
     }
     // 成品展示：成片就绪直接内嵌播放器
     vm.finishedFilmPath?.let { path ->
-        Surface(tonalElevation = 2.dp, shape = RoundedCornerShape(14.dp),
+        Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.large,
             modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("🎬 成品成片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -726,7 +724,7 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
                                 (220 * ctx.resources.displayMetrics.density).toInt())
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)),
+                    modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
@@ -758,16 +756,14 @@ private fun stageNumber(stage: PipelineStage5): String = when (stage) {
     PipelineStage5.ENQUEUE_RENDER_DONE -> "✓"
 }
 
-private val levelIcon: ProgressEvent.Level.() -> String = {
-    when (this) {
-        ProgressEvent.Level.INFO -> "›"
-        ProgressEvent.Level.WARN -> "⚠"
-        ProgressEvent.Level.ERROR -> "✗"
-    }
-}
+/**
+ * 事件等级配色 —— 唯一来源，阶段序号圆与日志文本共用。
+ * 原实现把同一套映射在文件里写了两遍（一处内联硬编码、一处本函数但从未被调用），
+ * 现统一收口；色值一律取 DramaColor 语义色，不再硬编码。
+ */
 @Composable
 private fun levelColor(it: ProgressEvent.Level): Color = when (it) {
-    ProgressEvent.Level.INFO -> MaterialTheme.colorScheme.onSurface
-    ProgressEvent.Level.WARN -> Color(0xFFFFB300)
-    ProgressEvent.Level.ERROR -> Color(0xFFEF5350)
+    ProgressEvent.Level.INFO -> MaterialTheme.colorScheme.primary
+    ProgressEvent.Level.WARN -> DramaColor.Warning
+    ProgressEvent.Level.ERROR -> DramaColor.Error
 }

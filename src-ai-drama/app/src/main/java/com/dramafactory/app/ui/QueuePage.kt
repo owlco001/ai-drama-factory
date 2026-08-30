@@ -48,6 +48,8 @@ fun QueuePage(
     ),
 ) {
     val st by vm.state.collectAsState()
+    // 视频模型是否支持参考视频：原来是在列表 item 里同步查库，这里提升为一次性订阅
+    val videoRefSupported by vm.videoRefSupported.collectAsState()
 
     // 第六轮：图生视频/视频参考 入口状态
     var pendingShotId by remember { mutableStateOf<String?>(null) }
@@ -126,7 +128,10 @@ fun QueuePage(
         }
 
         // ---- 镜状态列表（状态机六态实时刷新）----
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // weight(1f)：外层是 fillMaxSize 的 Column，不给高度约束的话 LazyColumn 会以
+        // 「无限最大高度」测量 —— foundation 1.4+ 不再抛异常，但会退化为一次性全量排版
+        // （丢掉复用）且超出屏幕部分滚不到。给它剩余空间才能正常懒加载 + 滚动。
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((shotId, stateName) in st.shotStates) {
                 item(key = shotId) {
                     Card(Modifier.fillMaxWidth()) {
@@ -142,7 +147,7 @@ fun QueuePage(
                                     Text("设参考图")
                                 }
                                 // 第六轮：视频参考入口——仅当前视频模型标记支持时显示
-                                if (vm.videoModelSupportsReference()) {
+                                if (videoRefSupported) {
                                     OutlinedButton(onClick = { pendingShotId = shotId; showRefVideoPicker = true }) {
                                         Text("上传参考视频")
                                     }

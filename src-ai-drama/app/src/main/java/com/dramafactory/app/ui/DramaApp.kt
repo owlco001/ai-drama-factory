@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
+import com.dramafactory.app.ui.theme.DramaColor
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.Arrangement
@@ -96,7 +97,8 @@ private fun SplashScreen(onDone: () -> Unit) {
     Box(
         modifier = Modifier.fillMaxSize()
             .background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                listOf(androidx.compose.ui.graphics.Color(0xFF1A1030), androidx.compose.ui.graphics.Color(0xFF0D0A1A)))),
+                // 开屏底色：由表面高层级渐变到基底，走设计系统令牌（原为硬编码 0xFF1A1030/0xFF0D0A1A）
+                listOf(DramaColor.SurfaceContainerHigh, DramaColor.Background))),
         contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
         Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
@@ -127,7 +129,7 @@ private fun SplashScreen(onDone: () -> Unit) {
                 }
                 Text(line,
                     style = MaterialTheme.typography.titleMedium,
-                    color = androidx.compose.ui.graphics.Color(0xFFE8DDF5).copy(alpha = ta.value),
+                    color = DramaColor.OnPrimaryContainer.copy(alpha = ta.value),
                     modifier = Modifier.padding(vertical = 2.dp))
             }
         }

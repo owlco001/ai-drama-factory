@@ -38,7 +38,8 @@ import kotlinx.serialization.json.put
 class DeepSeekProvider(
     /** 明文Key来源：生产为KeyVault.load("text-deepseek")，测试可注入假实现。仅进 Authorization header */
     var apiKeyProvider: suspend () -> String = { "" },
-    private val client: HttpClient = HttpClient { /* 默认 OkHttp 引擎 */ },
+    // 默认走进程级共享客户端：Provider 是按次创建的，逐次 new HttpClient 会泄漏连接池
+    private val client: HttpClient = SharedHttp.client,
 ) : TextProvider {
 
     companion object {

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 50
-        versionName = "1.7.12"  // v1.7.12: 修复干净环境编译失败——material3:1.3.1 的 Surface 为实验性API, 补 ExperimentalMaterial3Api opt-in
+        versionCode = 51
+        versionName = "1.7.13"  // v1.7.13: 全仓健康检查 + UI 设计严格归位（圆角令牌化 / HttpClient 共享 / 断点续跑修 / 崩溃日志路径）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

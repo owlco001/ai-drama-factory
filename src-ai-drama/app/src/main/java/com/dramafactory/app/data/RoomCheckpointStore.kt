@@ -124,49 +124,33 @@ abstract class DramaDatabase : RoomDatabase() {
             const val PROJECT_ID = "project_id"
             const val SCRIPT = "script"
 
-            /** 简单 key 拼装：避免引入 JSON 库。仅用于 stage_flags 这一轻量字典场景。 */
-            fun put(base: String, key: String, value: String): String {
-                if (base.isBlank() || base == "{}") return "{\"$key\":\"$value\"}"
-                // 已有花括号：直接追加一个逗号分隔项
-                val inside = base.trim().trimStart('{').trimEnd('}').trim()
-                return "{${inside},\"$key\":\"$value\"}"
-            }
+            /**
+             * 原实现是手写字符串拼接，有两个真实缺陷：
+             *   1. **非幂等**：同 key 重复 put 会追加出 `{"k":"a","k":"b"}`，而 getString 取首个匹配
+             *      → writeCheckpoint 每阶段都写 last_success_stage，读回的永远是**第一阶段的旧值**，
+             *      断点续跑形同失效；
+             *   2. **不转义**：值里的引号 / 换行 / 反斜杠会拼出非法 JSON（project_id 等一旦含特殊字符即崩）。
+             * 改用 org.json.JSONObject（Android 框架自带，无新依赖）承载，转义与覆盖语义由库保证。
+             */
+            private fun objOf(base: String?): org.json.JSONObject =
+                runCatching { org.json.JSONObject(base?.takeIf { it.isNotBlank() } ?: "{}") }
+                    .getOrElse { org.json.JSONObject() }
 
-            fun putInt(base: String, key: String, value: Int): String {
-                if (base.isBlank() || base == "{}") return "{\"$key\":$value}"
-                val inside = base.trim().trimStart('{').trimEnd('}').trim()
-                return "{${inside},\"$key\":$value}"
-            }
+            fun put(base: String, key: String, value: String): String =
+                objOf(base).apply { put(key, value) }.toString()
 
-            fun putBool(base: String, key: String, value: Boolean): String {
-                if (base.isBlank() || base == "{}") return "{\"$key\":$value}"
-                val inside = base.trim().trimStart('{').trimEnd('}').trim()
-                return "{${inside},\"$key\":$value}"
-            }
+            fun putInt(base: String, key: String, value: Int): String =
+                objOf(base).apply { put(key, value) }.toString()
 
-            /** 宽松取字符串值：查找 "key":"value" 或 "key":value（无引号） */
+            fun putBool(base: String, key: String, value: Boolean): String =
+                objOf(base).apply { put(key, value) }.toString()
+
+            /** 取值：key 不存在返回 null；嵌套对象/数组按 JSON 文本返回（与旧宽松实现语义一致） */
             fun getString(flags: String?, key: String): String? {
-                val f = flags ?: return null
-                val qKey = "\"$key\""
-                val idx = f.indexOf(qKey)
-                if (idx < 0) return null
-                val rest = f.substring(idx + qKey.length).trimStart().trimStart(',', ':')
-                return when {
-                    rest.startsWith("\"") -> rest.substring(1).takeWhile { it != '"' }
-                    rest.startsWith("[") -> rest.takeWhile { it != ']' }.plus("]")
-                    rest.startsWith("{") -> {
-                        var depth = 0; var i = 0
-                        while (i < rest.length) {
-                            when (rest[i]) {
-                                '{' -> depth++
-                                '}' -> { depth--; if (depth == 0) return rest.substring(0, i + 1) }
-                            }
-                            i++
-                        }
-                        rest
-                    }
-                    else -> rest.takeWhile { it != ',' && it != '}' }
-                }
+                val o = objOf(flags)
+                if (!o.has(key)) return null
+                val v = runCatching { o.get(key) }.getOrNull()
+                return if (v == null || v === org.json.JSONObject.NULL) null else v.toString()
             }
 
             fun getInt(flags: String?, key: String): Int =
