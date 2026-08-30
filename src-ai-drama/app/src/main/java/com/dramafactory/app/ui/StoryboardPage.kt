@@ -173,6 +173,19 @@ fun StoryboardPage(
                         Text("🎬 $it", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary)
                     }
+                    // v1.7.17：把「本镜引用了哪些资产」显式摆出来。
+                    // 此前这层完全不可见——LLM 引错（或引了还没生图的卡）用户无从察觉，
+                    // 只会在成片里看到角色换脸。引用为空即代表渲染时回退项目级前4张，锁不住脸。
+                    val refs = AssetCatalog.parseRefIds(shot.first_asset_ids)
+                    if (refs.isNotEmpty()) {
+                        Text("🔗 引用：${refs.joinToString("、") { st.assetNames[it] ?: it }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary)
+                    } else {
+                        Text("⚠ 未引用资产：渲染将回退项目级前4张",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
                     shot.dialogue?.let { Text("台词：「$it」", style = MaterialTheme.typography.bodySmall) }
                     shot.narration?.let { Text("旁白：$it", style = MaterialTheme.typography.bodySmall) }
                     shot.carry_over?.let { Text("承接：$it", style = MaterialTheme.typography.bodySmall,

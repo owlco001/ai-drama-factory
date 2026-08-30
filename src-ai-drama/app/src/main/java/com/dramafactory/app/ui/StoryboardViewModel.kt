@@ -24,6 +24,8 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         val message: String? = null,
         /** 第十三轮：shotId → 已出产视频本地路径（COMPLETED且有文件） */
         val videoUris: Map<String, String> = emptyMap(),
+        /** v1.7.17：assetId → 显示名，供分镜卡片展示「本镜引用了哪些资产」 */
+        val assetNames: Map<String, String> = emptyMap(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -40,7 +42,14 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         }.getOrDefault(emptyList())
             .filter { it.state == "COMPLETED" && !it.localFileUri.isNullOrBlank() }
             .associate { it.shotId to it.localFileUri!! }
-        _state.value = _state.value.copy(shots = rows, videoUris = vids)
+        // v1.7.17：构建 assetId → 显示名，让分镜页能直接看出每镜引用了哪些资产
+        val names = runCatching {
+            withContext(Dispatchers.IO) {
+                val pid = episodeId.substringBeforeLast("_ep")
+                AppGraph.dao.assetsAllOf(pid).associate { it.asset_id to AssetCatalog.displayName(it.prompt) }
+            }
+        }.getOrDefault(emptyMap())
+        _state.value = _state.value.copy(shots = rows, videoUris = vids, assetNames = names)
     }
 
     /** AI 一键生成分镜（LLM 不可用时提示） */
@@ -64,16 +73,14 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
 
-        // 第十五轮：拉项目已审批资产注入 LLM 提示词，让分镜用 asset_id 引用真资产
+        // 第十五轮：拉项目资产注入 LLM 提示词，让分镜用 asset_id 引用真资产。
+        // v1.7.17：改走 AssetCatalog.build —— 只给母卡、只给已有图的卡，
+        // 否则 LLM 会引用 6 姿态子卡（侧脸/怒容）或未生图的空卡，渲染时静默失锁。
         val projectId = episodeId.substringBeforeLast("_ep")
         val assets = runCatching {
             withContext(Dispatchers.IO) { AppGraph.dao.assetsAllOf(projectId) }
         }.getOrDefault(emptyList())
-        val catalog = assets.map { a ->
-            com.dramafactory.core.quality.AiStoryboardDirector.AssetSnapshot(
-                id = a.asset_id, kind = a.kind, name = a.prompt.substringBefore("：").substringBefore(":"),
-                description = a.prompt)
-        }
+        val catalog = AssetCatalog.build(assets)
         val result = runCatching {
             com.dramafactory.core.quality.AiStoryboardDirector.generate(
                 script, chat = { req -> AppGraph.text.chat(req) }, assets = catalog)
@@ -97,7 +104,7 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
                     dialogue = s.dialogue, narration = s.narration,
                     action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
                     beat_ref = s.beatRef, carry_over = s.carryOver,
-                    first_asset_ids = s.assetIds.joinToString(",", "[", "]"),
+                    first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
                     last_asset_ids = "[]",
                     visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
                     sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
@@ -107,8 +114,13 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         }
         refresh()
         val errCount = result.gateErrors.size
+        // v1.7.17：目录为空意味着这些分镜一镜都不会引用资产（渲染只能回退项目级前4张）。
+        // 目录现在只收「已生图的母卡」，资产没生图就没有目录项，必须把原因直接说清楚，
+        // 否则用户只会觉得"我有资产啊，怎么不引用"。
+        val noAssetNote = if (catalog.isEmpty())
+            "。⚠ 本项目还没有已生成图像的角色/场景资产，分镜未引用任何资产（渲染将回退项目级前4张）；请先到资产页把资产图生成出来，再重生成分镜" else ""
         _state.value = _state.value.copy(generating = false, message =
-            "已生成${result.shots.size}镜" + (if (errCount > 0) "（其中${errCount}镜校验有误，见列表标记）" else "，全部通过校验✓"))
+            "已生成${result.shots.size}镜" + (if (errCount > 0) "（其中${errCount}镜校验有误，见列表标记）" else "，全部通过校验✓") + noAssetNote)
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }

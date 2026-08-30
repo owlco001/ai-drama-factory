@@ -29,12 +29,24 @@ data class StylePreset(
      * 正向：纯色背景、影棚布景、主体孤立、无环境。
      * 负向：场景/环境/家具/杂物等干扰元素。
      */
-    val studioBackdropPositive: String = "plain solid color background, studio backdrop, isolated subject, no environment, no scenery, product shot style, clean seamless backdrop",
+    val studioBackdropPositive: String = "plain solid color background, seamless studio backdrop, isolated subject, no environment, no scenery, no props around, character reference sheet, centered subject, even soft studio lighting, sharp focus on the character",
     val studioBackdropNegative: List<String> = listOf(
         "scene background", "environment", "landscape", "furniture", "props around",
         "complex background", "outdoor", "interior setting", "decorated room",
+        "background scenery", "detailed background", "busy background", "gradient background",
+        "room interior", "crowd", "bokeh background", "pedestal", "tabletop", "multiple objects",
         "场景背景", "环境", "风景", "家具", "杂物", "复杂背景", "室外", "室内陈设",
     ),
+    /**
+     * v1.7.17：角色资产专用正向 suffix，替代 [globalPromptSuffix]。
+     *
+     * 原实现角色卡也套 globalPromptSuffix（cinematic / shallow depth of field /
+     * naturalistic lighting / vertical 9:16 framing），这些全是场景化、环境化语义，
+     * 与「纯色无干扰背景」正面对冲——模型为了满足 cinematic 打光与 9:16 构图，
+     * 会自动补出环境与陈设，角色卡背景始终清不干净。
+     * 角色资产本就是给 i2i 锁脸用的参考图，要的是干净底 + 主体清晰，不是电影感画面。
+     */
+    val characterStudioSuffix: String = DEFAULT_CHARACTER_STUDIO_SUFFIX,
 ) {
 
     /** 角色资产生成尺寸（1024x1024 正方形，对齐 pavo v0.9.8） */
@@ -70,8 +82,11 @@ data class StylePreset(
      * 导致时代红线全面踩线。现返回值只含正向描述；禁词一律经 [ImageGenRequest.negativePrompt]
      * 走独立的 negative_prompt API 通道。
      */
-    fun withEraConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
-        val pos = positiveSuffix
+    fun withEraConstraints(basePrompt: String, allowed: List<String> = emptyList(), suffixOverride: String? = null): String {
+        // suffixOverride 非空时（角色棚拍），丢弃 globalPromptSuffix 的场景化语义，
+        // 只保留 era 正向红线 + 调用方给的棚拍 suffix。
+        val pos = if (suffixOverride.isNullOrBlank()) positiveSuffix
+                  else listOf(era.positive, suffixOverride).filter { it.isNotBlank() }.joinToString(" ")
         val allowedNote = if (allowed.isNotEmpty())
             "。本镜依剧本设定允许出现跨时代器物：${allowed.joinToString("、")}；其余仍须符合西汉风貌" else ""
         return buildString {
@@ -93,7 +108,8 @@ data class StylePreset(
      * 使角色资产与场景/环境解耦。仅用于 [AssetsLogic.Kind.CHARACTER] 类资产。
      */
     fun withCharacterStudioConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
-        val eraConstrained = withEraConstraints(basePrompt, allowed)
+        // 顺序即权重：era 红线 → 棚拍 suffix → 纯色背景指令（放在最末，模型对尾部权重最高）
+        val eraConstrained = withEraConstraints(basePrompt, allowed, suffixOverride = characterStudioSuffix)
         return buildString {
             append(eraConstrained)
             if (studioBackdropPositive.isNotBlank()) append("。${studioBackdropPositive}")
@@ -126,6 +142,12 @@ data class StylePreset(
 
     companion object {
         const val DEFAULT_GLOBAL_SUFFIX = "cinematic, shallow depth of field, naturalistic lighting, 24fps motion cadence, professional color grading, vertical 9:16 framing"
+        /**
+         * 角色资产专用正向 suffix（见 [StylePreset.characterStudioSuffix]）。
+         * 刻意不含 cinematic / 9:16 framing / naturalistic lighting —— 那些是给视频与场景用的，
+         * 用在角色卡上会逼模型补环境，与纯色棚拍底直接冲突。
+         */
+        const val DEFAULT_CHARACTER_STUDIO_SUFFIX = "character reference sheet style, plain neutral backdrop, even soft studio lighting, centered subject, sharp focus, subject fully visible in frame, high detail face and costume"
         val DEFAULT_GLOBAL_NEGATIVE = listOf(
             "deformed", "mismatched identity", "different actor", "costume change",
             "modern watermark", "text overlay", "low quality", "motion blur on subject",
