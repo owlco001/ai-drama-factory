@@ -8,6 +8,10 @@ import kotlin.test.assertEquals
 /**
  * T014 任务1 回归单测：角色棚拍无干扰背景约束。
  * 验证角色资产生成时 positive/negative 各自带棚拍约束；场景/道具类不受影响。
+ *
+ * v1.7.19：角色改走**主体版 era**（见 [StylePreset.eraPositiveSubjectOnly]）——
+ * 完整 era 正文里的「建筑、场景」语义会诱导模型补背景，与纯色棚拍底正面对冲，
+ * 这是角色卡背景一直清不掉的根因（v1.7.17 只调了 suffix 顺序，没动红线正文）。
  */
 class StudioBackdropTest {
 
@@ -17,7 +21,8 @@ class StudioBackdropTest {
         val out = preset.withCharacterStudioConstraints("一位将军，身穿汉代铠甲")
         assertTrue(out.contains("一位将军，身穿汉代铠甲"))
         assertTrue(out.contains(preset.studioBackdropPositive))
-        assertTrue(out.contains(preset.era.positive), "仍应带 era 正向约束")
+        assertTrue(out.contains(preset.eraPositiveSubjectOnly), "仍应带 era 正向约束（主体版）")
+        assertFalse(out.contains(preset.era.positive), "完整 era 正文含建筑/场景语义，会诱导模型补背景")
     }
 
     @Test fun `studioNegativePromptFor 含棚拍负向干扰词`() {

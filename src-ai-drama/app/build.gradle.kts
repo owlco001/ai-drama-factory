@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 56
-        versionName = "1.7.18"  // v1.7.18: AI助手自然语言操控全模块 + 首页模型API Key入口 + 自定义模型持久化接线 + 视频多参(分辨率/帧数/帧率)充分利用
+        versionCode = 58
+        versionName = "1.7.20"  // v1.7.20: 三类资产干扰修复(角色卡背景/场景卡人物/道具卡背景) + 取消六姿态改「角色参考图套装」4张独立图(图生视频标准)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

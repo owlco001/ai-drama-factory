@@ -552,8 +552,8 @@ fun AssetsPage(
                         },
                         onOpenEditor = { editingAssetId = card.assetId },
                         onRegen = { vm.generate(card.assetId) },
-                        onBuildPosePack = if (card.kind == AssetsLogic.Kind.CHARACTER && card.parentId == null) {
-                            { vm.buildCharacterPosePack(card.assetId) }
+                        onBuildReferenceSheet = if (card.kind == AssetsLogic.Kind.CHARACTER && card.parentId == null) {
+                            { vm.buildCharacterReferenceSheet(card.assetId) }
                         } else null
                     )
                 }
@@ -663,7 +663,7 @@ fun AssetsPage(
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { confirmDeleteId = null },
                 title = { Text("删除该资产？") },
-                text = { Text("将同时删除其6姿态子卡与已生成的图，不可恢复。") },
+                text = { Text("将同时删除其参考图子卡与已生成的图，不可恢复。") },
                 confirmButton = {
                     Button(onClick = {
                         vm?.remove(delId)
@@ -680,7 +680,7 @@ fun AssetsPage(
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { confirmBatchDeleteIds = null },
                 title = { Text("删除所选 ${ids.size} 项资产？") },
-                text = { Text("将同时删除关联的6姿态子卡与已生成内容，不可恢复。") },
+                text = { Text("将同时删除关联的参考图子卡与已生成内容，不可恢复。") },
                 confirmButton = {
                     Button(onClick = {
                         vm?.removeBatch(ids)
@@ -733,7 +733,7 @@ private fun GridAssetCard(
     onToggleSelect: () -> Unit,
     onOpenEditor: () -> Unit,
     onRegen: () -> Unit,
-    onBuildPosePack: (() -> Unit)? = null,
+    onBuildReferenceSheet: (() -> Unit)? = null,
 ) {
     val borderColor = if (card.reviewState == "regen" || card.auditState == "rejected") {
         MaterialTheme.colorScheme.error
@@ -813,7 +813,7 @@ private fun GridAssetCard(
                         else -> StatusBadge("待生成", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
-                    // 操作按钮（评审 + 重生成/生成姿态）
+                    // 操作按钮（评审 + 重生成/生成参考图）
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         // 保留 / 重生成 切换（小按钮）
                         val kept = card.reviewState == "keep"
@@ -831,15 +831,15 @@ private fun GridAssetCard(
                         ) {
                             Text(if (kept) "已选" else if (regen) "重生成" else "保留", style = MaterialTheme.typography.labelSmall)
                         }
-                        // 角色母卡 → 生成6姿态
-                        if (onBuildPosePack != null) {
+                        // 角色母卡 → 生成参考图套装（4 张独立图，不拼图）
+                        if (onBuildReferenceSheet != null) {
                             OutlinedButton(
-                                onClick = onBuildPosePack,
+                                onClick = onBuildReferenceSheet,
                                 modifier = Modifier.height(28.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp),
                                 shape = MaterialTheme.shapes.extraSmall,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            ) { Text("6姿态", style = MaterialTheme.typography.labelSmall) }
+                            ) { Text("参考图", style = MaterialTheme.typography.labelSmall) }
                         }
                     }
                 }
@@ -945,7 +945,7 @@ private fun PreviewAssetCards() {
                     card = AssetsLogic.AssetCard("a1", AssetsLogic.Kind.CHARACTER, "女主·冷艳·黑长直",
                         remoteUrl = "https://cdn.example.com/img/abc123.jpg", reviewState = "keep"),
                     selectionMode = false, selected = false,
-                    onToggleSelect = {}, onOpenEditor = {}, onRegen = {}, onBuildPosePack = {})
+                    onToggleSelect = {}, onOpenEditor = {}, onRegen = {}, onBuildReferenceSheet = {})
                 GridAssetCard(
                     card = AssetsLogic.AssetCard("a2", AssetsLogic.Kind.SCENE, "雨夜霓虹街头",
                         generating = true),

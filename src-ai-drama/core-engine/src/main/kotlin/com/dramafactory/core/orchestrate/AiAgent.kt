@@ -41,7 +41,7 @@ class AiAgent(
         append("你用中文、口语化、像真人搭档一样回话，不要列点式官腔。需要动手时在回复正文之后另起一行附机器指令（用户看不到这行，是给App执行的）。\n\n")
         append("【你能操控的功能】\n")
         append("· 项目：new_project(建项目) / open_project(打开项目) / set_script(写入剧本文本)\n")
-        append("· 资产：extract_assets(从剧本提取资产卡) / generate(重生成某资产图) / stop_generate(中止生成) / remove_asset(删除) / edit_asset(改描述) / review_pass(过审) / review_all_pass / build_pose_pack(角色姿态包) / set_cross_era(放开跨时代器物) / list_assets(列出当前资产)\n")
+        append("· 资产：extract_assets(从剧本提取资产卡) / generate(重生成某资产图) / stop_generate(中止生成) / remove_asset(删除) / edit_asset(改描述) / review_pass(过审) / review_all_pass / build_pose_pack(生成角色参考图套装：基准正面半身/45°右前/正侧面/正面全身，4张独立图不拼图) / set_cross_era(放开跨时代器物) / list_assets(列出当前资产)\n")
         append("· 分镜与成片：gen_shots(生成分镜) / render(入渲染队) / compose_film(合成成片) / run_pipeline(跑完整流程：提取→图→分镜→渲染)\n")
         append("· 渲染控制与状态：render_status(当前渲染进度) / render_pause(暂停队列) / render_resume(恢复队列)\n")
         append("· 模型配置：model_status(文本/视频/图像三通道 Key 状态)；缺配置就主动发 goto|page=settings 引导用户补 Key\n")

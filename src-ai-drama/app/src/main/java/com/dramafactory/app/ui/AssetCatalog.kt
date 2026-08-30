@@ -8,8 +8,8 @@ import com.dramafactory.app.data.AssetEntity
  * v1.7.17：此前 StoryboardViewModel 与 AppGraph 各自手写了一遍
  * `assetsAllOf(projectId).map { AssetSnapshot(...) }`，两处规则不同步，且都把
  * 全部资产不筛不滤地塞给 LLM，导致三个真问题：
- *   1. 6 姿态子卡（front_anchor / side_45 / expression_angry …）跟母卡一起进目录，
- *      LLM 看到 7 张同名"张角"随手引一张侧脸/怒容当首帧 → 跨镜长相与姿态漂移；
+ *   1. 参考图子卡（front_bust / side_45_right / profile_side / front_full_body …）跟母卡一起进目录，
+ *      LLM 看到 5 张同名"张角"随手引一张侧脸/半身当首帧 → 跨镜长相与构图漂移；
  *   2. 还没生图的资产（remote_url 与 image_uri 都空）也进目录，LLM 照引不误，
  *      渲染时 mapNotNull 把无图资产静默丢掉 → 该镜参考图为空、完全不锁脸，用户无感知；
  *   3. name 直接 substringBefore("：")，prompt 里没冒号时 name = 整段描述，
@@ -26,7 +26,7 @@ object AssetCatalog {
      * 构造给 LLM 的资产目录。
      *
      * 过滤规则（按顺序）：
-     * - 排除子卡：parent_id 非空 或 pose_role 非空（6 姿态包只保留母卡）；
+     * - 排除子卡：parent_id 非空 或 pose_role 非空（参考图套装只保留母卡）；
      * - 排除无图卡：remote_url 与 image_uri 均为空（还没生图，引用了也拿不到参考图）；
      * - 排除判了重生成的卡：review_state == "regen"（用户已否决这张图）；
      * - kind 归一化：仅保留 character / scene / prop / local，未知值当 local。
@@ -85,7 +85,7 @@ object AssetCatalog {
      *
      * 依次尝试：
      * 1. 「名字：描述」/「名字: 描述」→ 冒号前的部分（清单行落库格式）；
-     * 2. 「张角，正面立姿（front anchor）」→ 逗号前的部分（姿态子卡格式）；
+     * 2. 「张角，正面立姿（front anchor）」→ 逗号前的部分（参考图子卡格式）；
      * 3. 都没有 → 整段截断到 NAME_MAX 字。
      * 任何一步结果为空或过长都继续降级，保证 name 永不为空。
      */

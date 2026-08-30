@@ -17,7 +17,7 @@ import kotlin.test.assertNotNull
  * - E. 提交前忠实性校验（时间逆转词表 + 台词逐字边界 + 资产真实）
  * - C. 时代红线（era 注入 + 按镜放行 + 视觉字段error/台词warn）
  * - F. 开场帧重渲染逻辑（keep_first_frame 逃生 + prompt 否定孤立原图 + 道具i2i绑定）
- * - B. 角色 DNA 6 姿态资产包（pose 定义 + 中英双语构图指令）
+ * - B. 角色参考图套装（角度定义 + 中英双语构图指令）
  */
 class QualityEngineTest {
 
@@ -161,16 +161,41 @@ class QualityEngineTest {
             "非JSON应拒绝，实际 errorCode=${r.errorCode}")
     }
 
-    // ============ B. 角色 DNA 6 姿态资产包 ============
+    // ============ B. 角色参考图套装（v1.7.20，取代 6 姿态资产包）============
 
     @Test
-    fun b_六姿态定义完整() {
-        val poses = StylePreset.HAN_DEFAULT.characterPoses
-        assertEquals(6, poses.size)
-        val keys = poses.map { it.key }.toSet()
-        assertEquals(setOf("front_anchor", "side_45", "full_body_riding", "expression_serious", "expression_angry", "expression_calm"), keys)
-        assertTrue(poses.all { it.cn.isNotBlank() && it.en.isNotBlank() }, "每个 pose 需中英双语构图指令")
-        assertTrue(poses.filter { it.expression }.size == 3, "3 个情绪特写")
+    fun b_参考图套装定义完整() {
+        val shots = StylePreset.HAN_DEFAULT.referenceShots
+        assertEquals(4, shots.size, "短剧流水线默认 4 张独立参考图")
+        val keys = shots.map { it.key }.toSet()
+        assertEquals(setOf("front_bust", "side_45_right", "profile_side", "front_full_body"), keys)
+        assertTrue(shots.all { it.cn.isNotBlank() && it.en.isNotBlank() }, "每张参考图需中英双语构图指令")
+        assertTrue(shots.none { it.expression }, "锁脸参考图必须中性表情，默认套装不含情绪特写")
+    }
+
+    @Test
+    fun b2_参考图通用规范与禁忌生效() {
+        val preset = StylePreset.HAN_DEFAULT
+        val p = AssetPromptBuilder.finalReferencePrompt(preset, "张角，灰袍道长", preset.referenceShots.first())
+        assertTrue(p.contains(preset.referenceCommonPositive), "通用硬性规范必须叠加到每张参考图")
+        assertTrue(p.contains("plain solid color background"), "参考图要纯色/纯白干净底")
+        val redline = p.substringAfter("Do NOT include", "")
+        assertTrue(redline.contains("multiple views in one image"), "禁拼图：多小人挤一张图会让视频模型识别失败")
+        assertTrue(redline.contains("sunglasses"), "禁遮眼")
+        assertTrue(redline.contains("exaggerated expression"), "禁夸张表情（参考图必须中性）")
+        assertTrue(redline.contains("watermark"), "禁水印")
+        // 时代红线仍生效：参考图也必须是西汉风貌
+        assertTrue(p.contains(preset.eraPositiveSubjectOnly), "参考图仍受时代红线约束")
+        assertFalse(p.contains("木构与夯土建筑"), "参考图不该诱导描绘建筑环境")
+    }
+
+    @Test
+    fun b3_专业版表情包不进默认套装() {
+        val preset = StylePreset.HAN_DEFAULT
+        assertEquals(0, preset.referenceShots.count { it.expression }, "默认套装不含情绪图")
+        val expr = StylePreset.defaultExpressionShots()
+        assertEquals(4, expr.size)
+        assertTrue(expr.all { it.expression }, "专业版表情包（喜/怒/平静/忧伤）")
     }
 
     // ============ C. 时代红线 ============

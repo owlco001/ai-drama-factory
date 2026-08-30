@@ -10,11 +10,15 @@ package com.dramafactory.core.quality
  * - 只有 AssetsViewModel 一处把禁词并入正向，其余三处的时代红线形同虚设。
  *
  * 这里收敛成一处，规则如下：
- * 1. 正向顺序即权重：主体描述 → era 红线 →（角色）棚拍 suffix →（角色）纯色背景指令
- *    → Do NOT include 禁词 → 质量负向；
- * 2. 角色类丢弃 globalPromptSuffix 的 cinematic / 9:16 framing / naturalistic lighting，
- *    那些场景化语义会逼模型补环境，与纯色棚拍底正面对冲；
- * 3. 禁词一律并入正向（图像端无 negative_prompt 字段），只取 ASCII 项（英文抑制强于中文）。
+ * 1. 正向顺序即权重：主体描述 → era 红线 → 类型专用 suffix → 类型专用背景指令
+ *    → Do NOT include 禁词 → 质量负向（模型对尾部权重最高，故背景指令压在最后）；
+ * 2. 禁词一律并入正向（图像端无 negative_prompt 字段），只取 ASCII 项（英文抑制强于中文）。
+ *
+ * v1.7.19：三类资产各走一套约束。此前 scene / prop 都只走 era 红线，
+ * 于是场景被模型自行塞入人物、道具被套上 cinematic 等环境化语义而背景脏：
+ * - character：主体版 era（剥离建筑/场景语义）+ 棚拍 suffix + 纯色棚拍底，禁环境杂物；
+ * - scene：完整 era（场景本就该有建筑陈设）+ cinematic + 空场无人指令，禁人物；
+ * - prop：主体版 era + 道具 suffix（去 cinematic / 9:16）+ 纯色底孤立单品，禁环境人物。
  */
 object AssetPromptBuilder {
 
@@ -35,35 +39,79 @@ object AssetPromptBuilder {
         kind: String,
         basePrompt: String,
         allowed: List<String> = emptyList(),
-    ): String = if (isCharacter(kind)) {
-        preset.withCharacterStudioConstraints(basePrompt, allowed)
-    } else {
-        preset.withEraConstraints(basePrompt, allowed)
+    ): String = when (kindOf(kind)) {
+        KIND_CHARACTER -> preset.withCharacterStudioConstraints(basePrompt, allowed)
+        KIND_SCENE -> preset.withSceneConstraints(basePrompt, allowed)
+        KIND_PROP -> preset.withPropConstraints(basePrompt, allowed)
+        else -> preset.withEraConstraints(basePrompt, allowed)
     }
 
-    /** 完整正向 prompt（正向约束 + 禁词并入 + 质量负向）。 */
+    /**
+     * 完整正向 prompt（正向约束 + 禁词并入 + 质量负向）。
+     *
+     * @param extraNegative 额外禁词表（如参考图的通用禁忌），叠加在该类型默认禁词之后。
+     */
     fun finalPrompt(
         preset: StylePreset,
         kind: String,
         basePrompt: String,
         allowed: List<String> = emptyList(),
+        extraNegative: List<String> = emptyList(),
     ): String {
         val head = constrained(preset, kind, basePrompt, allowed)
-        val neg = if (isCharacter(kind)) preset.studioNegativePromptFor(allowed) else preset.negativePromptFor(allowed)
-        val enForbidden = neg.split(",").map { it.trim() }
+        val baseNeg = when (kindOf(kind)) {
+            KIND_CHARACTER -> preset.studioNegativePromptFor(allowed)
+            KIND_SCENE -> preset.sceneNegativePromptFor(allowed)
+            KIND_PROP -> preset.propNegativePromptFor(allowed)
+            else -> preset.negativePromptFor(allowed)
+        }
+        val negItems = baseNeg.split(",").map { it.trim() }.filter { it.isNotEmpty() } + extraNegative
+        val enForbidden = negItems
             .filter { it.isNotEmpty() && it.all { c -> c.code < 128 } }
             .distinct()
         val redline = if (enForbidden.isNotEmpty()) " Do NOT include: ${enForbidden.joinToString(", ")}." else ""
         return "$head.$redline Negative prompt (soft): $QUALITY_NEGATIVE"
     }
 
+    /**
+     * 角色参考图专用完整 prompt（v1.7.20）。
+     *
+     * 复用角色资产的「纯色棚拍底 + 主体版 era」链路（即 [finalPrompt] 的 character 分支），
+     * 额外注入该参考图的角度构图指令与通用硬性规范。
+     *
+     * 顺序即权重：角色描述 → 角度构图指令（中英双语）→ 通用规范 →（内部）era 主体红线
+     * → 棚拍 suffix → 纯色背景指令 → Do NOT include 禁词 → 质量负向。
+     *
+     * 每张参考图独立成图：[shot] 只描述一个角度，绝不把多个角度塞进同一张画布
+     * （视频模型对拼图 / 多小人识别失败，会直接导致锁脸失效）。
+     */
+    fun finalReferencePrompt(
+        preset: StylePreset,
+        characterDesc: String,
+        shot: StylePreset.ReferenceShotSpec,
+        allowed: List<String> = emptyList(),
+    ): String {
+        val base = buildString {
+            append(characterDesc.trim())
+            append("。").append(shot.cn)
+            append(" ").append(shot.en)
+            if (preset.referenceCommonPositive.isNotBlank()) append("。").append(preset.referenceCommonPositive)
+        }
+        return finalPrompt(preset, KIND_CHARACTER, base, allowed, extraNegative = preset.referenceCommonNegative)
+    }
+
+    /** 参考图专用禁词：角色棚拍禁词 + 参考图通用禁忌（拼图 / 小人脸 / 逆光 / 遮眼 / 水印等）。 */
+    fun referenceNegativePromptFor(preset: StylePreset, allowed: List<String> = emptyList()): String =
+        (preset.studioNegativePromptFor(allowed).split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            + preset.referenceCommonNegative).distinct().joinToString(", ")
+
     /** 按资产类型取画幅（此前 StylePreset 里定义了这三个尺寸常量却无人使用） */
-    fun sizeFor(preset: StylePreset, kind: String): String = when (kind.trim().lowercase()) {
+    fun sizeFor(preset: StylePreset, kind: String): String = when (kindOf(kind)) {
         KIND_CHARACTER -> preset.characterImageSize
         KIND_SCENE -> preset.sceneImageSize
         KIND_PROP -> preset.propImageSize
         else -> preset.characterImageSize
     }
 
-    private fun isCharacter(kind: String): Boolean = kind.trim().lowercase() == KIND_CHARACTER
+    private fun kindOf(kind: String): String = kind.trim().lowercase()
 }

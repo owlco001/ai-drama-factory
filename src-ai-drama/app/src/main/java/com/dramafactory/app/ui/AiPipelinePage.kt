@@ -240,8 +240,8 @@ class AiPipelineViewModel : ViewModel() {
             }
             "build_pose_pack" -> {
                 val cid = act.param("characterId") ?: act.param("assetId") ?: return null
-                val n = assetsLogic.buildPosePack(cid) { "pose_${System.currentTimeMillis()}_${System.nanoTime()}" }
-                "已为角色 $cid 生成 $n 张姿态子卡"
+                val n = assetsLogic.buildReferenceSheet(cid) { "ref_${System.currentTimeMillis()}_${System.nanoTime()}" }
+                "已为角色 $cid 生成 $n 张独立参考图（基准正面半身/45°右前/正侧面/正面全身，各自成图不拼图）"
             }
             "retry_stage" -> {
                 "（retry_stage 暂由流水线内部自动重试，AI模式暂不直接触发）"

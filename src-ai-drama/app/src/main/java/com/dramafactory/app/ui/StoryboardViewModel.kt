@@ -75,7 +75,7 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
 
         // 第十五轮：拉项目资产注入 LLM 提示词，让分镜用 asset_id 引用真资产。
         // v1.7.17：改走 AssetCatalog.build —— 只给母卡、只给已有图的卡，
-        // 否则 LLM 会引用 6 姿态子卡（侧脸/怒容）或未生图的空卡，渲染时静默失锁。
+        // 否则 LLM 会引用 参考图子卡（侧脸/怒容）或未生图的空卡，渲染时静默失锁。
         val projectId = episodeId.substringBeforeLast("_ep")
         val assets = runCatching {
             withContext(Dispatchers.IO) { AppGraph.dao.assetsAllOf(projectId) }

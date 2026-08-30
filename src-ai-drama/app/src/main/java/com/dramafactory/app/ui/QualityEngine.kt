@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
  * 职责：
  * - A. 资产质量闸门：G1 文件级硬校验（纯 Kotlin，不调 API）+ G2 多模态打分（agnes-2.5-flash 带图，
  *   defects 非空直接拒，失败重试 ≤3 次）；结果落库 assets 表 quality_score/audit_state/defects。
- * - B. 角色 DNA 6 姿态资产包（由 AssetsLogic.buildPosePack 生成子卡）。
+ * - B. 角色参考图套装（由 AssetsLogic.buildReferenceSheet 生成子卡）。
  * - C. 时代红线：内置西汉预设（StylePreset.HAN_DEFAULT），negative/suffix 折叠进生成 prompt；
  *   按剧集放行 allowed_cross_era（经 episodes 表落库）。
  * - D/E. 分镜六铁律 + 提交前忠实性校验（纯函数，在 core-engine quality 包；本类提供桥接）。

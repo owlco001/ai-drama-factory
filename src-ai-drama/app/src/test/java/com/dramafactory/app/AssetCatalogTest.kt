@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 /**
  * v1.7.17 回归单测：分镜生成的资产目录构造 + 资产引用序列化。
  *
- * 背景：此前目录把 6 姿态子卡和还没生图的空卡一起喂给 LLM——
+ * 背景：此前目录把 参考图子卡和还没生图的空卡一起喂给 LLM——
  * LLM 引用侧脸/怒容子卡会让跨镜长相漂移，引用空卡则渲染时静默无参考图。
  */
 class AssetCatalogTest {
@@ -28,7 +28,7 @@ class AssetCatalogTest {
         pose_role = poseRole, prompt = prompt, remote_url = remoteUrl,
         image_uri = imageUri, review_state = review, updated_at = 0L)
 
-    @Test fun `排除 6 姿态子卡，只留母卡`() {
+    @Test fun `排除 参考图子卡，只留母卡`() {
         val rows = listOf(
             row("a_mother"),
             row("a_pose1", prompt = "张角，正面立姿", parentId = "a_mother", poseRole = "front_anchor"),

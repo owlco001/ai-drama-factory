@@ -21,8 +21,26 @@ data class StylePreset(
     val globalNegativePrompt: List<String> = DEFAULT_GLOBAL_NEGATIVE,
     /** era 块：红线核心 */
     val era: EraSpec = EraSpec(),
-    /** 角色 6 姿态定义（B 子模块用） */
-    val characterPoses: List<PoseSpec> = defaultCharacterPoses(),
+    /**
+     * 角色参考图套装（v1.7.20）。
+     *
+     * 取代旧的「6 姿态资产包」（正面锚点 / 45 度侧脸 / 全身骑马 / 三种情绪特写）——
+     * 那是「单张图里摆造型」的思路，而图生视频（Kling / 即梦 / Pika）真正需要的是
+     * **4 张彼此独立、纯白底、平视、中性表情的多角度参考图**，且严禁拼在一张画布上
+     * （多数视频模型对拼图 / 多小人识别失败，会直接导致锁脸失效）。
+     *
+     * 正规工程三视图（正交：正 / 侧 / 背全身的 CRS 设定板）只在数字人、LoRA 训练、
+     * 高精度长镜头才需要，短剧流水线不启用，避免算力浪费与画风漂移。
+     */
+    val referenceShots: List<ReferenceShotSpec> = defaultReferenceSheet(),
+
+    /**
+     * 参考图通用硬性规范（v1.7.20）——每张参考图都必须叠加，与具体角度无关。
+     * 对应《图生视频·角色参考图标准》的「必须遵守」清单。
+     */
+    val referenceCommonPositive: String = DEFAULT_REFERENCE_COMMON_POSITIVE,
+    /** 参考图通用禁忌（v1.7.20）——「踩坑禁忌」清单：拼图、小人脸、逆光、遮眼、夸张表情、水印等。 */
+    val referenceCommonNegative: List<String> = DEFAULT_REFERENCE_COMMON_NEGATIVE,
     /**
      * 角色棚拍无干扰背景约束（T014 任务1：用户要求角色生成用纯色/无背景模式，
      * 与场景/道具解耦，便于后续跨镜合成与绿幕抠图）。
@@ -47,6 +65,31 @@ data class StylePreset(
      * 角色资产本就是给 i2i 锁脸用的参考图，要的是干净底 + 主体清晰，不是电影感画面。
      */
     val characterStudioSuffix: String = DEFAULT_CHARACTER_STUDIO_SUFFIX,
+    /**
+     * v1.7.19：主体版 era 正向（角色 / 道具专用）。
+     *
+     * [EraSpec.positive] 原文要求「人物、服饰、建筑、器物、场景必须严格符合…木构与夯土建筑、
+     * 简牍竹简、青铜/漆木/陶器」——这些建筑与环境语义会强迫模型补出背景与陈设，
+     * 与角色棚拍底、道具纯色底正面对冲，这才是角色卡与道具卡背景清不干净的真正根因
+     * （v1.7.17 只调了 suffix 顺序，红线正文仍在喊「画建筑画场景」）。
+     * 本版只约束主体自身（服饰 / 器物形制与材质 / 照明），并显式声明不描绘建筑与环境。
+     */
+    val eraPositiveSubjectOnly: String = DEFAULT_ERA_POSITIVE_SUBJECT_ONLY,
+    /**
+     * v1.7.19：场景资产专用 —— 空场、无人物。
+     * 用户反馈场景卡被模型自行塞入人物：此前场景只走 [withEraConstraints]，
+     * 禁词表里没有任何「人」相关项，模型默认往空景里加人。
+     */
+    val sceneEmptyPositive: String = DEFAULT_SCENE_EMPTY_POSITIVE,
+    val sceneEmptyNegative: List<String> = DEFAULT_SCENE_EMPTY_NEGATIVE,
+    /**
+     * v1.7.19：道具资产专用 —— 纯色底、孤立单品、产品图式。
+     * 此前道具沿用 [globalPromptSuffix]（cinematic / naturalistic lighting / vertical 9:16 framing），
+     * 全是环境化语义，逼模型补场景；且道具没有任何纯色底约束，故背景干扰。
+     */
+    val propStudioSuffix: String = DEFAULT_PROP_STUDIO_SUFFIX,
+    val propStudioPositive: String = DEFAULT_PROP_STUDIO_POSITIVE,
+    val propStudioNegative: List<String> = DEFAULT_PROP_STUDIO_NEGATIVE,
 ) {
 
     /** 角色资产生成尺寸（1024x1024 正方形，对齐 pavo v0.9.8） */
@@ -82,11 +125,19 @@ data class StylePreset(
      * 导致时代红线全面踩线。现返回值只含正向描述；禁词一律经 [ImageGenRequest.negativePrompt]
      * 走独立的 negative_prompt API 通道。
      */
-    fun withEraConstraints(basePrompt: String, allowed: List<String> = emptyList(), suffixOverride: String? = null): String {
-        // suffixOverride 非空时（角色棚拍），丢弃 globalPromptSuffix 的场景化语义，
-        // 只保留 era 正向红线 + 调用方给的棚拍 suffix。
-        val pos = if (suffixOverride.isNullOrBlank()) positiveSuffix
-                  else listOf(era.positive, suffixOverride).filter { it.isNotBlank() }.joinToString(" ")
+    fun withEraConstraints(
+        basePrompt: String,
+        allowed: List<String> = emptyList(),
+        suffixOverride: String? = null,
+        eraPositiveOverride: String? = null,
+    ): String {
+        // suffixOverride 非空时（角色棚拍 / 道具），丢弃 globalPromptSuffix 的场景化语义，
+        // 只保留 era 正向红线 + 调用方给的专用 suffix。
+        // eraPositiveOverride：角色 / 道具改用主体版红线，避免红线正文里的
+        // 「建筑、场景」语义诱导模型补背景（v1.7.19）。
+        val eraPos = eraPositiveOverride ?: era.positive
+        val pos = if (suffixOverride.isNullOrBlank()) listOf(globalPromptSuffix, eraPos).filter { it.isNotBlank() }.joinToString(" ")
+                  else listOf(eraPos, suffixOverride).filter { it.isNotBlank() }.joinToString(" ")
         val allowedNote = if (allowed.isNotEmpty())
             "。本镜依剧本设定允许出现跨时代器物：${allowed.joinToString("、")}；其余仍须符合西汉风貌" else ""
         return buildString {
@@ -109,12 +160,53 @@ data class StylePreset(
      */
     fun withCharacterStudioConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
         // 顺序即权重：era 红线 → 棚拍 suffix → 纯色背景指令（放在最末，模型对尾部权重最高）
-        val eraConstrained = withEraConstraints(basePrompt, allowed, suffixOverride = characterStudioSuffix)
+        val eraConstrained = withEraConstraints(
+            basePrompt, allowed,
+            suffixOverride = characterStudioSuffix,
+            eraPositiveOverride = eraPositiveSubjectOnly,
+        )
         return buildString {
             append(eraConstrained)
             if (studioBackdropPositive.isNotBlank()) append("。${studioBackdropPositive}")
         }
     }
+
+    /**
+     * 场景专用约束（v1.7.19）：保留完整 era 正向（场景本就该有建筑与陈设）与
+     * globalPromptSuffix 的 cinematic 氛围，末尾追加「空场无人」指令——
+     * 模型对 prompt 尾部权重最高，把无人要求放最后才能压住它往空景里塞人的惯性。
+     */
+    fun withSceneConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
+        val eraConstrained = withEraConstraints(basePrompt, allowed)
+        return buildString {
+            append(eraConstrained)
+            if (sceneEmptyPositive.isNotBlank()) append("。${sceneEmptyPositive}")
+        }
+    }
+
+    /** 场景专用 negative：era 禁词之外叠加人物禁词。 */
+    fun sceneNegativePromptFor(allowed: List<String> = emptyList()): String =
+        (globalNegativePrompt + effectiveForbidden(allowed) + sceneEmptyNegative).distinct().joinToString(", ")
+
+    /**
+     * 道具专用约束（v1.7.19）：主体版 era（剥离建筑/场景）+ 道具 suffix（去 cinematic / 9:16）
+     * + 纯色底与孤立单品指令（末尾，权重最高）。
+     */
+    fun withPropConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
+        val eraConstrained = withEraConstraints(
+            basePrompt, allowed,
+            suffixOverride = propStudioSuffix,
+            eraPositiveOverride = eraPositiveSubjectOnly,
+        )
+        return buildString {
+            append(eraConstrained)
+            if (propStudioPositive.isNotBlank()) append("。${propStudioPositive}")
+        }
+    }
+
+    /** 道具专用 negative：era 禁词之外叠加环境 / 人物禁词。 */
+    fun propNegativePromptFor(allowed: List<String> = emptyList()): String =
+        (globalNegativePrompt + effectiveForbidden(allowed) + propStudioNegative).distinct().joinToString(", ")
 
     /**
      * 角色棚拍专用 negative（T014 任务1）：在 era 禁词之外，叠加棚拍负向干扰词。
@@ -129,14 +221,24 @@ data class StylePreset(
         val negative: List<String> = DEFAULT_ERA_NEGATIVE,
     )
 
-    /** 姿态定义（B 子模块：角色 DNA 6 姿态资产包）。 */
-    data class PoseSpec(
+    /**
+     * 参考图规格（v1.7.20）。
+     *
+     * 每张 spec 对应**一张独立图片**，绝不拼在一张画布上——视频模型对多小人拼图识别极差。
+     *
+     * @param key 落库到 assets.pose_role 的角度标识
+     * @param cn 中文构图指令
+     * @param en 英文构图指令（中英双语双保险，英文抑制力更强）
+     * @param expression 是否情绪特写。短剧流水线默认套装全部为 false（参考图必须中性表情）；
+     *                   仅专业完整版表情包使用，见 [defaultExpressionShots]。
+     */
+    data class ReferenceShotSpec(
         val key: String,
         /** 中文构图指令（注入 prompt） */
         val cn: String,
         /** 英文构图指令（注入 prompt） */
         val en: String,
-        /** 是否情绪特写（expression_*） */
+        /** 是否情绪特写（专业版表情包用，默认套装为 false） */
         val expression: Boolean = false,
     )
 
@@ -148,6 +250,33 @@ data class StylePreset(
          * 用在角色卡上会逼模型补环境，与纯色棚拍底直接冲突。
          */
         const val DEFAULT_CHARACTER_STUDIO_SUFFIX = "character reference sheet style, plain neutral backdrop, even soft studio lighting, centered subject, sharp focus, subject fully visible in frame, high detail face and costume"
+
+        /**
+         * 主体版 era 正向（见 [StylePreset.eraPositiveSubjectOnly]）。
+         * 保留服饰 / 器物形制 / 材质 / 照明红线，剥离「建筑、环境、场景」等会诱导模型补背景的语义，
+         * 并显式声明只刻画主体本身。
+         */
+        const val DEFAULT_ERA_POSITIVE_SUBJECT_ONLY = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），图中主体（人物服饰、器物形制与材质）必须严格符合该时代风貌：汉代衣冠（深衣、曲裾、直裾、冠巾）、简牍竹简、青铜/漆木/陶器、自然光与火烛照明；无电力、无工业、无现代器物。仅刻画主体本身，不得描绘建筑、环境或场景。"
+
+        /** 场景空场指令（见 [StylePreset.sceneEmptyPositive]）：空镜，供后续跨镜合成用。 */
+        const val DEFAULT_SCENE_EMPTY_POSITIVE = "empty location, no people, no human figures, no characters, no silhouettes, no crowd, only architecture and set dressing, wide establishing shot of an empty place, no living subject in frame"
+        val DEFAULT_SCENE_EMPTY_NEGATIVE = listOf(
+            "people", "person", "human", "human figure", "man", "woman", "child",
+            "character", "crowd", "silhouette", "pedestrian", "portrait", "face",
+            "人物", "人影", "人群", "行人", "角色", "人脸",
+        )
+
+        /** 道具专用 suffix（见 [StylePreset.propStudioSuffix]）：去 cinematic / 9:16 framing 等环境化语义。 */
+        const val DEFAULT_PROP_STUDIO_SUFFIX = "object reference sheet style, plain neutral backdrop, even soft studio lighting, centered single object, sharp focus, object fully visible in frame, high detail material and texture"
+        /** 道具纯色底与孤立单品指令（见 [StylePreset.propStudioPositive]）。 */
+        const val DEFAULT_PROP_STUDIO_POSITIVE = "plain solid color background, seamless neutral backdrop, isolated single object, product shot, centered object, no environment, no scenery, even soft studio lighting, sharp focus on the object, object fully visible in frame"
+        val DEFAULT_PROP_STUDIO_NEGATIVE = listOf(
+            "people", "person", "human", "hand holding", "model", "character", "face",
+            "scene background", "environment", "landscape", "furniture", "room interior",
+            "complex background", "detailed background", "outdoor", "tabletop",
+            "multiple objects", "pedestal",
+            "人物", "人", "手", "环境", "场景", "背景", "室内", "家具",
+        )
         val DEFAULT_GLOBAL_NEGATIVE = listOf(
             "deformed", "mismatched identity", "different actor", "costume change",
             "modern watermark", "text overlay", "low quality", "motion blur on subject",
@@ -199,23 +328,72 @@ data class StylePreset(
             "speaker", "音箱",
         )
 
-        /** 6 姿态定义（对齐 style_cinema.json per_type_overrides.character.poses + pose_templates）。 */
-        fun defaultCharacterPoses(): List<PoseSpec> = listOf(
-            PoseSpec("front_anchor",
-                "正面标准大头照，人脸占画面60-70%，正面平视，光线均匀（主锚点资产）",
-                "front-facing close-up portrait, face as the focal anchor, face occupying 60-70% of frame, eye-level, even lighting"),
-            PoseSpec("side_45",
-                "45度侧脸胸像，五官轮廓清晰，人脸占画面50-70%，光线均匀",
-                "45-degree three-quarter side face bust portrait, clear facial features and jawline, face occupying 50-70% of frame, even lighting"),
-            PoseSpec("full_body_riding",
-                "全身骑马立绘，完整盔甲服饰，固定马匹/装备样式，面部可见，光线均匀",
-                "full-body riding portrait on horse, complete armor and costume, fixed horse and equipment design, face visible, even lighting"),
-            PoseSpec("expression_serious", "情绪特写-严肃：眉头微蹙，目光沉凝，嘴唇紧抿",
-                "face close-up, expression: serious, furrowed brows, steady gaze, pressed lips", expression = true),
-            PoseSpec("expression_angry", "情绪特写-发怒：眉头紧锁，怒目圆睁，咬肌紧绷，嘴角下压",
+        /**
+         * 参考图通用硬性规范（见 [StylePreset.referenceCommonPositive]）——每张参考图都叠加，
+         * 与角度无关：平视 / 纯白底 / 中性表情 / 五官清晰无遮挡 / 无文字水印 / 同款服装妆造。
+         */
+        const val DEFAULT_REFERENCE_COMMON_POSITIVE = "平视镜头，中性平静表情，五官清晰完整无遮挡，纯白干净背景，均匀柔和棚拍柔光，构图居中，照片质感，无夸张透视，无文字水印，与同套其他参考图完全一致的服装发型妆容，用于AI视频角色参考图 / eye-level camera, neutral calm expression, clear complete unobstructed facial features, plain white clean background, even soft studio lighting, centered composition, photorealistic, no exaggerated perspective, no text and no watermark, identical costume hair and makeup as the other reference shots, AI video character reference"
+        /**
+         * 参考图通用禁忌（见 [StylePreset.referenceCommonNegative]）——踩坑清单：
+         * 拼图多小人（视频模型识别失败）、人脸过小（锁脸失败）、逆光阴阳脸、
+         * 墨镜厚刘海遮眼、夸张表情、大俯仰拍、文字水印。
+         */
+        val DEFAULT_REFERENCE_COMMON_NEGATIVE = listOf(
+            "multiple views in one image", "contact sheet", "collage", "split panel",
+            "grid of poses", "multiple small figures", "two people", "duplicate character",
+            "tiny face", "face too small", "distant shot", "small subject in large scene",
+            "backlight", "harsh shadow on face", "half face in shadow", "rim light only",
+            "sunglasses", "thick bangs covering eyes", "mask", "hat covering face", "face covered",
+            "exaggerated expression", "big smile", "grimace", "wide open mouth",
+            "looking up", "looking down", "extreme low angle", "extreme high angle", "dutch angle",
+            "text", "watermark", "subtitle", "sticker", "logo", "signature",
+            "拼图", "多角度拼一张", "九宫格", "多个小人", "两个人", "人脸过小", "远景小人",
+            "逆光", "阴阳脸", "半张脸阴影", "墨镜", "厚刘海", "遮眼", "口罩",
+            "夸张表情", "大笑", "仰头", "低头", "仰拍", "俯拍", "文字", "水印", "字幕", "贴纸",
+        )
+
+        /**
+         * 短剧流水线默认参考图套装（v1.7.20）：**4 张彼此独立的图片**。
+         *
+         * 取代旧的「6 姿态资产包」。选这 4 张的理由：
+         * - 基准正面半身：锁脸主锚点，最重要；人脸占画面约 1/3，太小会直接锁脸失败；
+         * - 45° 右前半身：解决人物转头时崩脸 / 变脸；
+         * - 正侧面：走路、侧对镜头、对话镜头；
+         * - 正面全身：锁定身高体型、服装版型、鞋履配饰。
+         *
+         * 四张必须同服装、同发型、同妆容，全部平视 + 纯白底 + 中性表情 + 五官无遮挡：
+         * 背景越花模型越容易改脸，这是踩坑最多的一条。
+         */
+        fun defaultReferenceSheet(): List<ReferenceShotSpec> = listOf(
+            ReferenceShotSpec("front_bust",
+                "正面半身（胸以上到大腿中部），平视镜头，脸部完整无遮挡，五官清晰，中性平静表情，纯白干净背景，均匀柔和棚拍柔光，构图居中，人脸占画面约三分之一，无夸张透视，照片质感（基准锁脸图，最重要）",
+                "front-facing half-body portrait from chest to mid-thigh, eye-level camera, face fully visible and unobstructed, clear facial features, neutral calm expression, plain white clean background, even soft studio lighting, centered composition, face occupying about one third of frame, no exaggerated perspective, photorealistic (primary face-lock reference)"),
+            ReferenceShotSpec("side_45_right",
+                "45度右前半身，头部右转45度露出半边侧脸，平视镜头，五官清晰，中性平静表情，纯白干净背景，均匀柔和棚拍柔光，构图居中（用于解决转头时崩脸、变脸）",
+                "45-degree right three-quarter half-body, head turned 45 degrees to the right showing one side of the face, eye-level camera, clear features, neutral calm expression, plain white background, even soft studio lighting, centered (for stable identity during head turns)"),
+            ReferenceShotSpec("profile_side",
+                "正侧面半身，耳朵与鼻梁侧面轮廓清晰完整，平视镜头，中性平静表情，纯白干净背景，均匀柔和棚拍柔光，构图居中（用于走路、侧对镜头、对话镜头）",
+                "true side profile half-body, clear and complete ear and nose bridge silhouette, eye-level camera, neutral calm expression, plain white background, even soft studio lighting, centered (for walking shots and side-facing dialogue)"),
+            ReferenceShotSpec("front_full_body",
+                "正面全身站姿，与前三张完全同款服装、发型、妆容，自然放松站姿，平视镜头，完整全身入镜，纯白干净背景，均匀柔和棚拍柔光（用于锁定身高、体型、服装版型、鞋履配饰）",
+                "front-facing full-body standing pose, exactly the same costume hair and makeup as the other reference shots, natural relaxed stance, eye-level camera, full body in frame, plain white background, even soft studio lighting (to lock height build costume silhouette footwear and accessories)"),
+        )
+
+        /**
+         * 专业完整版可选：表情参考包（喜 / 怒 / 平静 / 忧伤）。
+         *
+         * 短剧流水线默认**不生成**——图生视频的锁脸参考图必须是中性表情，
+         * 夸张表情会让后续视频很难生成正常表情。仅大项目 / 数字人 / LoRA 训练扩展用。
+         */
+        fun defaultExpressionShots(): List<ReferenceShotSpec> = listOf(
+            ReferenceShotSpec("expression_joy", "情绪特写-喜悦：眉眼舒展，嘴角自然上扬，神态明朗",
+                "face close-up, expression: joyful, relaxed brows, natural smile, bright demeanor", expression = true),
+            ReferenceShotSpec("expression_angry", "情绪特写-愤怒：眉头紧锁，怒目圆睁，咬肌紧绷，嘴角下压",
                 "face close-up, expression: angry, knitted brows, glaring eyes, clenched jaw, downturned mouth", expression = true),
-            PoseSpec("expression_calm", "情绪特写-平静：神情平和，目光沉稳，嘴角自然微合",
+            ReferenceShotSpec("expression_calm", "情绪特写-平静：神情平和，目光沉稳，嘴角自然微合",
                 "face close-up, expression: calm, composed expression, steady eyes, relaxed mouth", expression = true),
+            ReferenceShotSpec("expression_sorrow", "情绪特写-忧伤：眉梢微垂，目光低敛，嘴角轻抿，神情黯淡",
+                "face close-up, expression: sorrowful, slightly lowered brows, downcast eyes, pressed lips, somber demeanor", expression = true),
         )
 
         /** 默认西汉预设单例。 */

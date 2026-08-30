@@ -184,7 +184,7 @@ interface DramaDao {
     @Query("SELECT remote_url FROM assets WHERE asset_id=:assetId")
     suspend fun assetRemoteUrl(assetId: String): String?
 
-    /** 第十一轮：删除资产（含6姿态子卡由外层逐个删） */
+    /** 第十一轮：删除资产（含参考图子卡由外层逐个删） */
     @Query("DELETE FROM assets WHERE asset_id=:assetId") suspend fun deleteAsset(assetId: String)
     @Query("UPDATE assets SET reference_image_uri=:referenceImageUri, updated_at=:updatedAt WHERE asset_id=:assetId")
     suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long)

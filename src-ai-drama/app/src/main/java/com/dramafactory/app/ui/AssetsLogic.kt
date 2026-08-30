@@ -22,7 +22,7 @@ class AssetsLogic {
         val remoteUrl: String? = null,     // 生成结果URL/data uri
         val reviewState: String = "none",  // none/keep/regen
         val generating: Boolean = false,   // 生成中转圈
-        /** 角色 6 姿态资产包：母卡 assetId（子图卡指向母卡）；null=独立资产 */
+        /** 角色参考图套装：母卡 assetId（参考图子卡指向母卡）；null=独立资产 */
         val parentId: String? = null,
         // ---- 第六轮：本地上传 / 图生图 / 视频参考 扩展 ----
         /** 来源：generated（引擎生成）/ local（用户本地上传） */
@@ -34,7 +34,7 @@ class AssetsLogic {
         /** 图生图参考图URI：生成图像时作为 input_images 传给图像API */
         val referenceImageUri: String? = null,
         // ---- QualityEngine（第九轮）----
-        /** 角色 DNA 6 姿态之一（front_anchor/side_45/full_body_riding/expression_*）；非角色为 null */
+        /** 参考图角度 key（front_bust/side_45_right/profile_side/front_full_body；专业版表情包为 expression_*）；非角色为 null */
         val poseRole: String? = null,
         /** G1+G2 审计状态：pending/approved/rejected */
         val auditState: String = "pending",
@@ -268,39 +268,50 @@ class AssetsLogic {
         return true
     }
 
-    // ---- QualityEngine（第九轮）：角色 DNA 6 姿态资产包（对齐 pavo 角色资产生成）----
+    // ---- 角色参考图套装（v1.7.20，取代旧的「6 姿态资产包」）----
 
     /**
-     * 为某个「角色」母卡生成 6 张姿态子图卡（front_anchor / side_45 / full_body_riding /
-     * expression_serious|angry|calm）。每张子图卡携带 poseRole 与中英双语构图指令 prompt。
+     * 为某个「角色」母卡生成参考图套装 —— **4 张彼此独立的图片**：
+     * front_bust（基准锁脸）/ side_45_right（45° 右前）/ profile_side（正侧面）/ front_full_body（正面全身）。
+     *
+     * 每张子图卡携带 poseRole（角度 key）与组装好的完整 prompt：
+     * 角度构图指令（中英双语）+ 通用硬性规范 + 主体版 era 红线 + 纯色棚拍底 + 禁词。
+     * **一张卡一张图，绝不拼图** —— 视频模型对拼图 / 多小人识别失败，会直接搞废锁脸。
+     *
      * @param characterId 角色母卡 assetId（kind=CHARACTER）
      * @param idGen 子图卡 id 生成器（App 层注入，保证唯一）
-     * @return 新增的子图卡数量（6）
+     * @return 新增的子图卡数量（4）
      */
-    fun buildPosePack(characterId: String, idGen: () -> String): Int {
+    fun buildReferenceSheet(characterId: String, idGen: () -> String): Int {
         val parent = _assets.value.firstOrNull { it.assetId == characterId } ?: return 0
         if (parent.kind != Kind.CHARACTER) return 0
-        val poses = com.dramafactory.core.quality.StylePreset.HAN_DEFAULT.characterPoses
+        val preset = com.dramafactory.core.quality.StylePreset.HAN_DEFAULT
         var added = 0
-        for (pose in poses) {
+        for (shot in preset.referenceShots) {
             val subId = idGen()
-            val subPrompt = buildPosePrompt(parent.prompt, pose)
+            val subPrompt = com.dramafactory.core.quality.AssetPromptBuilder
+                .finalReferencePrompt(preset, parent.prompt, shot)
             _assets.value += AssetCard(
                 assetId = subId, kind = Kind.CHARACTER,
-                prompt = subPrompt, parentId = characterId, poseRole = pose.key,
+                prompt = subPrompt, parentId = characterId, poseRole = shot.key,
             )
             added++
         }
         return added
     }
 
-    /** 按 style_cinema.json 的 pose_templates 注入中英双语构图指令（对齐 pavo 资产包语义）。 */
-    fun buildPosePrompt(characterDesc: String, pose: com.dramafactory.core.quality.StylePreset.PoseSpec): String {
-        return "$characterDesc，${pose.cn}（${pose.en}）"
-    }
+    /**
+     * 组装某张参考图的完整 prompt。
+     * 委托 core 层 [AssetPromptBuilder]，避免 app / desktop 两套规则漂移（v1.7.17 的教训）。
+     */
+    fun buildReferencePrompt(
+        characterDesc: String,
+        shot: com.dramafactory.core.quality.StylePreset.ReferenceShotSpec,
+    ): String = com.dramafactory.core.quality.AssetPromptBuilder
+        .finalReferencePrompt(com.dramafactory.core.quality.StylePreset.HAN_DEFAULT, characterDesc, shot)
 
-    /** 取某角色母卡关联的 6 姿势子图卡。 */
-    fun poseChildrenOf(characterId: String): List<AssetCard> =
+    /** 取某角色母卡关联的参考图子卡。 */
+    fun referenceChildrenOf(characterId: String): List<AssetCard> =
         _assets.value.filter { it.parentId == characterId && it.poseRole != null }
 
     /** QualityEngine 回调：把 G1+G2 审计结果同步进内存卡（UI 展示评分/拒绝原因/状态）。 */
@@ -311,10 +322,10 @@ class AssetsLogic {
         }
     }
 
-    /** 删除资产卡片：母卡删除时连带6姿态子卡；返回被删的id列表供DB清理 */
+    /** 删除资产卡片：母卡删除时连带参考图子卡；返回被删的id列表供DB清理 */
     fun removeAssetCascade(assetId: String): List<String> = removeAssetsCascade(listOf(assetId))
 
-    /** 第十二轮：批量删除（自动扩展6姿态子卡）；返回被删的id列表供DB清理 */
+    /** 第十二轮：批量删除（自动扩展参考图子卡）；返回被删的id列表供DB清理 */
     fun removeAssetsCascade(assetIds: List<String>): List<String> {
         if (assetIds.isEmpty()) return emptyList()
         val want = assetIds.toSet()

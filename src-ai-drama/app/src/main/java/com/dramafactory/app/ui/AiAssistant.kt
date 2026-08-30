@@ -207,7 +207,7 @@ class AiAssistantViewModel : ViewModel() {
                     cascade.size
                 }
                 if (removed == 0) "（找不到资产 $id）"
-                else "已删除资产 $id${if (removed > 1) "（含 ${removed - 1} 张姿态子卡）" else ""}"
+                else "已删除资产 $id${if (removed > 1) "（含 ${removed - 1} 张参考图子卡）" else ""}"
             }
             "edit_asset" -> {
                 val id = act.param("assetId") ?: return null
@@ -243,24 +243,25 @@ class AiAssistantViewModel : ViewModel() {
                 val parent = withContext(Dispatchers.IO) {
                     dao.assetsAllOf(pid).firstOrNull { it.asset_id == cid }
                 } ?: return "（找不到角色 $cid）"
-                if (parent.kind != "character") return "（$cid 不是角色资产，姿态包只给角色建）"
-                val poses = com.dramafactory.core.quality.StylePreset.HAN_DEFAULT.characterPoses
+                if (parent.kind != "character") return "（$cid 不是角色资产，参考图只给角色建）"
+                val preset = com.dramafactory.core.quality.StylePreset.HAN_DEFAULT
                 val n = withContext(Dispatchers.IO) {
                     var added = 0
-                    for (pose in poses) {
-                        val subId = "pose_${System.currentTimeMillis()}_${System.nanoTime()}"
-                        val subPrompt = AssetsLogic().buildPosePrompt(parent.prompt, pose)
+                    for (shot in preset.referenceShots) {
+                        val subId = "ref_${System.currentTimeMillis()}_${System.nanoTime()}"
+                        val subPrompt = com.dramafactory.core.quality.AssetPromptBuilder
+                            .finalReferencePrompt(preset, parent.prompt, shot)
                         runCatching {
                             dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
                                 asset_id = subId, project_id = pid, kind = "character",
-                                parent_id = cid, pose_role = pose.key, prompt = subPrompt,
+                                parent_id = cid, pose_role = shot.key, prompt = subPrompt,
                                 updated_at = System.currentTimeMillis()))
                             added++
                         }
                     }
                     added
                 }
-                "已为角色 $cid 生成 $n 张姿态子卡"
+                "已为角色 $cid 生成 $n 张独立参考图（基准正面半身/45°右前/正侧面/正面全身，各自成图不拼图）"
             }
             "set_cross_era" -> {
                 val e = epId ?: return "（请先打开项目）"

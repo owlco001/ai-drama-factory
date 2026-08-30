@@ -40,9 +40,11 @@ class AssetPromptBuilderTest {
         assertTrue(quality > redline, "质量负向应在最末")
     }
 
-    @Test fun `角色 prompt 仍带 era 红线正向`() {
+    @Test fun `角色 prompt 带主体版 era 且不诱导环境`() {
         val p = AssetPromptBuilder.finalPrompt(preset, "character", "张角")
-        assertTrue(p.contains(preset.era.positive), "时代红线不能因为去背景而丢失")
+        assertTrue(p.contains(preset.eraPositiveSubjectOnly), "时代红线不能因为去背景而丢失")
+        assertFalse(p.contains(preset.era.positive), "角色卡应收窄为主体版红线")
+        assertFalse(p.contains("木构与夯土建筑"), "完整 era 的建筑诱导词不该出现在角色卡")
     }
 
     @Test fun `场景与道具不受棚拍约束影响`() {
@@ -52,6 +54,28 @@ class AssetPromptBuilderTest {
 
         val prop = AssetPromptBuilder.finalPrompt(preset, "prop", "墨玉书简")
         assertFalse(prop.contains(preset.studioBackdropPositive))
+    }
+
+    @Test fun `场景卡禁人物，避免模型往空景塞人`() {
+        val scene = AssetPromptBuilder.finalPrompt(preset, "scene", "破庙内景")
+        assertTrue(scene.contains("no people"), "场景必须显式要求无人")
+        assertTrue(scene.contains("empty location"), "要求空场")
+        val redline = scene.substringAfter("Do NOT include", "")
+        assertTrue(redline.contains("people"), "人物禁词须并入 Do NOT include（图像端无 negative 字段）")
+        assertTrue(redline.contains("person"))
+        assertTrue(redline.contains("crowd"))
+    }
+
+    @Test fun `道具卡纯色底且去掉环境化 suffix`() {
+        val prop = AssetPromptBuilder.finalPrompt(preset, "prop", "墨玉书简")
+        assertTrue(prop.contains("plain solid color background"), "道具要纯色底")
+        assertTrue(prop.contains("isolated single object"), "道具要孤立单品，不带环境")
+        assertFalse(prop.contains("cinematic"), "cinematic 打光会逼模型补环境")
+        assertFalse(prop.contains("vertical 9:16 framing"), "竖屏构图与产品图式冲突")
+        assertFalse(prop.contains("木构与夯土建筑"), "道具不该被要求描绘建筑")
+        val redline = prop.substringAfter("Do NOT include", "")
+        assertTrue(redline.contains("environment"), "环境禁词须并入正向")
+        assertTrue(redline.contains("person"), "道具图不该出现人")
     }
 
     @Test fun `禁词只并英文，中文禁词不进正向`() {

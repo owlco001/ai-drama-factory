@@ -658,17 +658,20 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     // ==================== 第九轮 QualityEngine 接线 ====================
 
     /**
-     * B. 角色 DNA 6 姿态资产包：为某角色母卡生成 6 张姿态子图卡（front_anchor/side_45/
-     * full_body_riding/expression_serious|angry|calm），每张带中英双语构图指令，并落库 + 触发生成。
+     * B. 角色参考图套装（v1.7.20，取代旧的 6 姿态资产包）：为某角色母卡生成 4 张**彼此独立**
+     * 的参考图（front_bust 基准锁脸 / side_45_right 45° 右前 / profile_side 正侧面 /
+     * front_full_body 正面全身），每张带中英双语构图指令与通用硬性规范，并落库 + 触发生成。
      *
-     * 异步执行，无返回值：原签名 `Int` 恒返回字面量 6（实际工作在 viewModelScope.launch 里，
-     * 返回时任务还没跑完），与真实新增数量无关；调用点也只当点击回调用。改为 Unit，签名不再说谎。
+     * 每张各自成图、绝不拼图：视频模型对拼图 / 多小人识别失败，会直接搞废锁脸。
+     *
+     * 异步执行，无返回值：实际工作在 viewModelScope.launch 里，返回时任务还没跑完，
+     * 与真实新增数量无关；调用点也只当点击回调用，故签名用 Unit，不再说谎。
      */
-    fun buildCharacterPosePack(characterId: String) {
+    fun buildCharacterReferenceSheet(characterId: String) {
         viewModelScope.launch {
             var seq = 0
-            logic.buildPosePack(characterId) { "pose_${System.currentTimeMillis()}_${seq++}" }
-            for (child in logic.poseChildrenOf(characterId)) {
+            logic.buildReferenceSheet(characterId) { "ref_${System.currentTimeMillis()}_${seq++}" }
+            for (child in logic.referenceChildrenOf(characterId)) {
                 withContext(Dispatchers.IO) {
                     AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
                         asset_id = child.assetId, project_id = projectId, kind = "character",

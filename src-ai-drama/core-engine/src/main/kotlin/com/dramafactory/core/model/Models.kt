@@ -217,7 +217,7 @@ data class AssetQuality(
     val rejectReason: String? = null,          // 拒绝原因（error_code 或 reason）
     val g1ErrorCode: String? = null,           // G1 文件级硬校验错误码
     val faceRatio: Double? = null,             // 人脸占比（P1）
-    val poseRole: String? = null,              // 角色 6 姿态之一
+    val poseRole: String? = null,              // 参考图角度 key
     val updatedAt: Long = 0L,
 )
 
