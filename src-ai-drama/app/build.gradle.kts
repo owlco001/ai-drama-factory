@@ -116,3 +116,9 @@ dependencies {
     // MuMu 模拟器不暴露该共享库，导致 INSTALL_FAILED_MISSING_SHARED_LIBRARY。
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
+
+// v1.7.13：导出 Room schema 历史到 app/schemas/。
+// 此前没开导出，没人能核对「手写迁移 SQL」与「Room 期望 schema」是否一致
+// （v4→v5 的 finished_films 就对不上，于是被迫整库破坏性重建、用户数据全丢）。
+// 开启后每次升版本都会落一份 <version>.json，后续迁移有权威基准可比对。
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }

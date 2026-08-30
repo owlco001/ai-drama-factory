@@ -23,7 +23,7 @@ import kotlinx.coroutines.sync.withLock
         FinishedFilmEntity::class,
     ],
     version = 5,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class DramaDatabase : RoomDatabase() {
     abstract fun dao(): DramaDao
@@ -43,7 +43,8 @@ abstract class DramaDatabase : RoomDatabase() {
                 // 移除手写 migration 链：手写 SQL 与 FinishedFilmEntity 期望 schema 不一致会触发
                 // "Migration didn't properly handle: finished_films"，直接只留破坏性重建，
                 // Room 用最新 schema(version=5) 直接建库，旧库不匹配自动删重建（本地库数据本就未落盘）。
-                .fallbackToDestructiveMigration()  // 版本/ schema 不匹配时删库重建，永不卡迁移
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .fallbackToDestructiveMigration()  // 无匹配迁移（损坏/未知版本）时删库重建兜底
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
         }
