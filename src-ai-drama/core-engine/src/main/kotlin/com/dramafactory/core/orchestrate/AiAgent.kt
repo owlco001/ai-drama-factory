@@ -27,6 +27,12 @@ class AiAgent(
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     /** 当前项目 id 提示（进入不同项目自动切换上下文时由 VM 注入），让 AI 知道自己作用于哪个项目 */
     private val currentProjectHint: String? = null,
+    /** 消息滑动窗口保留的最大对话轮数（一轮=user+assistant），默认 10，防止长对话超出 LLM context */
+    private val maxTurns: Int = 10,
+    /** LLM 采样温度，默认 0.7（创意写作适中），原硬编码 0.0 */
+    private val temperature: Double = 0.7,
+    /** 日志输出函数，默认 println（core-engine 不含 Android Log） */
+    private val logger: (String) -> Unit = { println(it) },
 ) {
     private val systemPrompt = buildString {
         append("你是「AI短剧工厂」这个手机App的操控助手，风格像资深短剧编剧导演+产品搭档。\n")
@@ -87,15 +93,19 @@ class AiAgent(
         }
         _history.add(DialogueTurn(DialogueTurn.Side.USER, trimmed, nowMs()))
         _messages.add(ChatMessage(role = "user", content = trimmed))
+
+        // v1.7.16：滑动窗口裁剪——发送前确保消息数不超过上限
+        trimMessages()
+
         // v1.6.3 修对话闪退：textProvider.chat 是 Ktor/OkHttp，可能在某些 ROM 上抛 native
         // 异常逃过 Kotlin try-catch（红旗/澎湃OS 偶发）。这里包 try-catch 转成空回复，
         // 不让异常冒泡到 sendUserMessage 的 runCatching 之外的 native 路径。
         val resp: ChatResponse = try {
             textProvider.chat(
-                ChatRequest(messages = _messages.toList(), model = modelId, temperature = 0.8),
+                ChatRequest(messages = _messages.toList(), model = modelId, temperature = temperature),
             )
         } catch (t: Throwable) {
-            println("AiAgent chat failed: ${t.message}")
+            logger("AiAgent chat failed: ${t.message}")
             ChatResponse(content = "（AI 调用失败：${t.javaClass.simpleName}：${t.message?.take(80)}）", raw = "")
         }
         val raw = resp.content.ifBlank { "（AI 没有回复，请重试）" }
@@ -122,6 +132,25 @@ class AiAgent(
         _history.add(DialogueTurn(DialogueTurn.Side.AI, finalText, nowMs()))
         _messages.add(ChatMessage(role = "assistant", content = raw)) // 上下文保留原始（含[ACT]），便于多轮连贯
         return finalText
+    }
+
+    /**
+     * 滑动窗口裁剪：保留 system prompt + 最近 maxTurns 轮完整对话。
+     * 按完整对话对（user+assistant）删除，避免出现孤立消息。
+     * 在每次发送用户消息后、调用 LLM 前执行。
+     */
+    private fun trimMessages() {
+        val maxMessages = 1 + maxTurns * 2  // system + N轮(user+assistant)
+        while (_messages.size > maxMessages) {
+            // 找到第一条非 system 消息（应为 user），连同下一条（assistant）一起删除
+            val firstIdx = _messages.indexOfFirst { it.role != "system" }
+            if (firstIdx < 0) break
+            _messages.removeAt(firstIdx)
+            // 删除配对的 assistant 消息（如果存在且不是 system）
+            if (firstIdx < _messages.size && _messages[firstIdx].role != "system") {
+                _messages.removeAt(firstIdx)
+            }
+        }
     }
 
     /** 从展示文本里剥掉 [ACT] 行 */

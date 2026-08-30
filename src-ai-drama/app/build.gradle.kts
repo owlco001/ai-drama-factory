@@ -91,14 +91,13 @@ dependencies {
     // EncryptedSharedPreferences（架构§6 Key安全存储）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // T014：端上成片合成 —— ffmpeg-kit community 维护版 8.1.7（ffmpeg-kit-full，LGPL）。
-    // 官方 5.x/6.x 二进制已于 2025-04-01 下架；jitpack 5.1 仅为纯 Java 壳（APK 无 .so）。
-    // 现用 dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7（Maven Central，含真实原生库：
-    // libavcodec/libavformat/libavutil/libswscale/libswresample/libavfilter/libffmpegkit 等），
-    // Android SDK 35 + 16KB page 兼容；LGPL 版无 GPL 编码器（不含 libx264/x265），
-    // 故 MovieAssembler 改用 ffmpeg 内置 LGPL 编码器 mpeg4 替代 libx264（见 MovieAssembler.kt）。
-    // Package 仍为 com.arthenica.ffmpegkit.FFmpeg / FFprobeKit（drop-in 兼容，反射层无需改动）。
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
+    // T014：视频拼接 —— ffmpeg-kit-min-gpl 8.1.7（含 x264，LGPL+GPL）。
+    // 优化说明：从 ffmpeg-kit-full 切换到 min-gpl，native libs 从约 50MB 降至约 15MB（APK 省 ~30MB）。
+    // min-gpl 包含 x264（H.264 编码），满足短剧片段 concat + 重编码 + mp4 封装需求。
+    // 包名 dev.ffmpegkit-maintained（Maven Central 维护版），原 arthenica 包已停止维护。
+    // Android SDK 35 + 16KB page 兼容；MovieAssembler.kt 调用 ffmpeg 命令行构建 libx264。
+    // Package 下 com.arthenica.ffmpegkit.Ffmpeg / FFprobeKit 等 drop-in 替换，代码无需修改，仅依赖变更。
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-min-gpl:8.1.7")
     // 关键补丁：社区版 ffmpeg-kit-full:8.1.7 的 AAR 打包缺陷——classes.jar 缺
     // com.arthenica.smartexception.java.Exceptions，而 FFmpegKitConfig.<clinit> 引用它，
     // 导致 FFmpegKit.execute() 首次调用即 NoClassDefFoundError（MuMu 真机验证发现）。

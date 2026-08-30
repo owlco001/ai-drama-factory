@@ -272,7 +272,7 @@ object AppGraph {
             com.dramafactory.core.model.ShotMeta(shotId = "${episodeId}_shot${it.shotNo}", episodeId = episodeId, prompt = it.action)
         }
         val queue = com.dramafactory.app.ui.RenderRuntime.queueFor(episodeId)
-        runCatching { runBlocking { queue.enqueueEpisode(episodeId, metas) } }.map { metas.size }.getOrElse { 0 }
+        runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { queue.enqueueEpisode(episodeId, metas) } }.map { metas.size }.getOrElse { 0 }
         return metas.size
     }
 
