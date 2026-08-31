@@ -218,23 +218,12 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
                     val shot = AppGraph.dao.shotKeyframes(shotId) ?: AppGraph.dao.shotsOf(epId).firstOrNull { it.shot_id == shotId }
                     val refIds = AssetCatalog.parseRefIds(shot?.first_asset_ids)
                     val all = AppGraph.dao.assetsAllOf(projectId)
-                    // v1.7.17：引用了资产、但这些资产全都还没生图（或无 id 匹配）时，
-                    // 旧实现会返回空列表 → 该镜彻底没有参考图、不锁脸，且用户毫不知情。
-                    // 改为回退到项目级兜底，保证「有图可用」优先于「严格按引用」。
-                    val byRef = if (refIds.isNotEmpty()) {
-                        all.filter { it.asset_id in refIds }
-                            .mapNotNull { it.remote_url ?: it.image_uri }
-                            .filter { it.isNotBlank() }
-                            .distinct()
-                            .take(4)
-                    } else emptyList()
-                    if (byRef.isNotEmpty()) byRef else {
-                        all.filter { it.kind == "character" || it.kind == "scene" }
-                            .mapNotNull { it.remote_url ?: it.image_uri }
-                            .filter { it.isNotBlank() }
-                            .distinct()
-                            .take(4)
-                    }
+                    // v1.7.21：改走 AssetCatalog.resolveRefUris —— 引用母卡时展开其参考图套装
+                    // （front_bust 优先、单角色最多 2 张），否则 v1.7.20 生成的 4 张参考图
+                    // 一张都进不了渲染，锁脸还是只靠母卡那一张图。
+                    // 取不到时走项目级兜底（多角色项目不兜底，宁可不锁脸也不串脸）。
+                    AssetCatalog.resolveRefUris(all, refIds)
+                        .ifEmpty { AssetCatalog.fallbackUris(all) }
                 }.getOrDefault(emptyList())
             }
         }

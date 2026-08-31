@@ -30,14 +30,55 @@ class AssetPromptBuilderTest {
         assertTrue(p.contains("isolated subject"))
     }
 
-    @Test fun `纯色背景指令排在禁词段落之前`() {
-        val p = AssetPromptBuilder.finalPrompt(preset, "character", "张角")
-        val backdrop = p.indexOf("plain solid color background")
-        val redline = p.indexOf("Do NOT include")
-        val quality = p.indexOf("Negative prompt (soft)")
-        assertTrue(backdrop > 0, "必须有背景指令")
-        assertTrue(redline > backdrop, "背景指令应比禁词段更靠后（模型对尾部权重最高）")
-        assertTrue(quality > redline, "质量负向应在最末")
+    /**
+     * v1.7.21 修正：旧断言写反了（要求 redline > backdrop，等于把背景指令埋在 100+ 禁词之前）。
+     * 图像模型对 prompt **尾部**权重最高，最关键的一条约束必须在最末尾。
+     */
+    @Test fun `尾部强指令排在最末尾，高于禁词与质量负向`() {
+        for (kind in listOf("character", "scene", "prop")) {
+            val p = AssetPromptBuilder.finalPrompt(preset, kind, "测试")
+            val redline = p.indexOf("Do NOT include")
+            val quality = p.indexOf("Negative prompt (soft)")
+            val anchor = p.indexOf("【画面要求·最高优先级】")
+            assertTrue(redline > 0, "$kind 应有禁词段")
+            assertTrue(quality > redline, "$kind 质量负向应在禁词之后")
+            assertTrue(anchor > quality, "$kind 尾部强指令必须在质量负向之后（模型尾部权重最高）")
+            assertTrue(anchor > p.length - 400, "$kind 尾部强指令应紧贴 prompt 末尾")
+        }
+    }
+
+    @Test fun `尾部强指令内容按类型区分`() {
+        val c = AssetPromptBuilder.finalPrompt(preset, "character", "张角")
+        assertTrue(c.contains("BACKGROUND REQUIREMENT (HIGHEST PRIORITY)"))
+        assertTrue(c.contains("solid white background"), "角色尾部要锁死纯色底")
+
+        val s = AssetPromptBuilder.finalPrompt(preset, "scene", "破庙内景")
+        assertTrue(s.contains("EMPTY SCENE REQUIREMENT (HIGHEST PRIORITY)"))
+        assertTrue(s.contains("no people"), "场景尾部要锁死无人")
+
+        val p = AssetPromptBuilder.finalPrompt(preset, "prop", "墨玉书简")
+        assertTrue(p.contains("PROP SHOT REQUIREMENT (HIGHEST PRIORITY)"))
+        assertTrue(p.contains("no hands"), "道具尾部要锁死无手")
+    }
+
+    /**
+     * v1.7.21：禁词膨胀回归闸。
+     * 旧版三类卡均塞了 100+ 项（含 gun / train / refrigerator / skateboard 等无关项），
+     * 真正管用的 scene background / environment / people 被稀释成路人，约束等于失效。
+     */
+    @Test fun `禁词精简，不把完整时代红线塞进图像 prompt`() {
+        for (kind in listOf("character", "scene", "prop")) {
+            val p = AssetPromptBuilder.finalPrompt(preset, kind, "测试")
+            val notInclude = p.substringAfter("Do NOT include:", "").substringBefore("Negative prompt (soft):")
+            val items = notInclude.trim().trimEnd('.').split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            assertTrue(items.size <= 45, "$kind 禁词应精简（实际 ${items.size} 项）：$items")
+            assertFalse(p.contains("refrigerator"), "$kind 不该出现与资产外观无关的时代禁词")
+            assertFalse(p.contains("skateboard"))
+            assertFalse(p.contains("airplane"))
+        }
+        // 完整红线仍完整保留在视频端 negative 通道，未被裁掉
+        assertTrue(preset.sceneNegativePromptFor().contains("refrigerator"), "视频端仍用完整红线")
+        assertTrue(preset.studioNegativePromptFor().contains("refrigerator"))
     }
 
     @Test fun `角色 prompt 带主体版 era 且不诱导环境`() {
@@ -82,7 +123,32 @@ class AssetPromptBuilderTest {
         val p = AssetPromptBuilder.finalPrompt(preset, "character", "张角")
         assertTrue(p.contains("Do NOT include"), "英文禁词应并入正向（图像端无 negative_prompt 字段）")
         assertFalse(p.contains("手机"), "中文禁词并入正向只会稀释权重")
-        assertTrue(p.contains("mobile phone"), "应有对应的英文禁词")
+        assertTrue(p.contains("smartphone"), "应有对应的英文禁词")
+    }
+
+    /**
+     * v1.7.21：era 正向按资产类型分家。
+     *
+     * 旧版三类共用一份（场景用完整版），导致：
+     * - 场景 era 首句「所有**人物**、服饰、建筑…」——正向在喊「画人」，no people 压不住；
+     * - 道具 era 含「汉代衣冠」——等于请模型画个穿衣的人；
+     * - 角色 era 含「简牍竹简、青铜/漆木/陶器、火烛照明」——诱导模型在人物周围补器物与火光。
+     */
+    @Test fun `era 正向按类型分家，互不串味`() {
+        val c = AssetPromptBuilder.finalPrompt(preset, "character", "张角")
+        assertFalse(c.contains("简牍竹简"), "角色卡提器物会诱导模型在人物周围补道具")
+        assertFalse(c.contains("火烛照明"), "火光是环境元素，角色卡不该提")
+        assertTrue(c.contains("深衣"), "服饰红线必须保留")
+
+        val s = AssetPromptBuilder.finalPrompt(preset, "scene", "破庙内景")
+        assertFalse(s.contains(preset.era.positive), "场景不该再用完整 era（首句就在喊「人物」）")
+        assertTrue(s.contains("木构与夯土建筑"), "建筑红线是场景的本分")
+        assertFalse(s.substringBefore("Do NOT include").contains("所有人物"), "场景正向不得出现「人物」二字")
+
+        val p = AssetPromptBuilder.finalPrompt(preset, "prop", "墨玉书简")
+        assertFalse(p.contains("深衣"), "道具卡提衣冠等于请模型画个穿衣的人")
+        assertFalse(p.contains("火烛照明"), "道具卡不该提环境照明")
+        assertTrue(p.contains("简牍竹简"), "器物形制红线是道具的本分")
     }
 
     @Test fun `constrained 版本不含禁词与质量负向`() {

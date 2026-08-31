@@ -59,18 +59,19 @@ object AssetPromptBuilder {
         extraNegative: List<String> = emptyList(),
     ): String {
         val head = constrained(preset, kind, basePrompt, allowed)
-        val baseNeg = when (kindOf(kind)) {
-            KIND_CHARACTER -> preset.studioNegativePromptFor(allowed)
-            KIND_SCENE -> preset.sceneNegativePromptFor(allowed)
-            KIND_PROP -> preset.propNegativePromptFor(allowed)
-            else -> preset.negativePromptFor(allowed)
-        }
-        val negItems = baseNeg.split(",").map { it.trim() }.filter { it.isNotEmpty() } + extraNegative
+        // v1.7.21：图像端只喂「精简禁词」（20 余项），不再塞完整 era 红线（150+ 项）。
+        // 实测旧版三类卡禁词均 100+ 项，真正管用的 scene background / environment / people
+        // 被淹没在 gun / train / refrigerator / skateboard 这类无关噪声里，等于没说。
+        val negItems = preset.coreForbiddenFor(kind) + extraNegative
         val enForbidden = negItems
-            .filter { it.isNotEmpty() && it.all { c -> c.code < 128 } }
+            .filter { it.isNotBlank() && it.all { c -> c.code < 128 } }
             .distinct()
         val redline = if (enForbidden.isNotEmpty()) " Do NOT include: ${enForbidden.joinToString(", ")}." else ""
-        return "$head.$redline Negative prompt (soft): $QUALITY_NEGATIVE"
+        // v1.7.21：尾部强指令压在最末（模型对 prompt 尾部权重最高）。
+        // 旧版把「纯色背景」「空场无人」放在中部、后面还拖着 100+ 禁词，指令被稀释失效。
+        val anchor = preset.tailAnchorFor(kind)
+        val tail = if (anchor.isNotBlank()) " $anchor" else ""
+        return "$head.$redline Negative prompt (soft): $QUALITY_NEGATIVE.$tail"
     }
 
     /**
@@ -97,7 +98,7 @@ object AssetPromptBuilder {
             append(" ").append(shot.en)
             if (preset.referenceCommonPositive.isNotBlank()) append("。").append(preset.referenceCommonPositive)
         }
-        return finalPrompt(preset, KIND_CHARACTER, base, allowed, extraNegative = preset.referenceCommonNegative)
+        return finalPrompt(preset, KIND_CHARACTER, base, allowed, extraNegative = preset.referenceCoreForbidden)
     }
 
     /** 参考图专用禁词：角色棚拍禁词 + 参考图通用禁忌（拼图 / 小人脸 / 逆光 / 遮眼 / 水印等）。 */

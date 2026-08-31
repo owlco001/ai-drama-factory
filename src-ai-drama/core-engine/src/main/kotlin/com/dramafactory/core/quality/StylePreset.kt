@@ -41,6 +41,8 @@ data class StylePreset(
     val referenceCommonPositive: String = DEFAULT_REFERENCE_COMMON_POSITIVE,
     /** 参考图通用禁忌（v1.7.20）——「踩坑禁忌」清单：拼图、小人脸、逆光、遮眼、夸张表情、水印等。 */
     val referenceCommonNegative: List<String> = DEFAULT_REFERENCE_COMMON_NEGATIVE,
+    /** 参考图精简禁词（v1.7.21）——进图像 prompt 的那一份，见 [DEFAULT_REFERENCE_CORE_FORBIDDEN]。 */
+    val referenceCoreForbidden: List<String> = DEFAULT_REFERENCE_CORE_FORBIDDEN,
     /**
      * 角色棚拍无干扰背景约束（T014 任务1：用户要求角色生成用纯色/无背景模式，
      * 与场景/道具解耦，便于后续跨镜合成与绿幕抠图）。
@@ -74,7 +76,59 @@ data class StylePreset(
      * （v1.7.17 只调了 suffix 顺序，红线正文仍在喊「画建筑画场景」）。
      * 本版只约束主体自身（服饰 / 器物形制与材质 / 照明），并显式声明不描绘建筑与环境。
      */
-    val eraPositiveSubjectOnly: String = DEFAULT_ERA_POSITIVE_SUBJECT_ONLY,
+    val eraPositiveSubjectOnly: String = DEFAULT_ERA_POSITIVE_CHARACTER,
+    /**
+     * v1.7.21：角色专用 era 正向（[eraPositiveSubjectOnly] 的实质实现）。
+     *
+     * v1.7.19 版虽已剥离「建筑、场景」，但仍保留了「简牍竹简、青铜/漆木/陶器、
+     * 自然光与火烛照明」——器物与火光会诱导模型在人物周围补道具与光影，
+     * 这是角色卡背景清不干净的最后一环。本版只约束人物自身的服饰形制与材质。
+     */
+    val eraPositiveCharacter: String = DEFAULT_ERA_POSITIVE_CHARACTER,
+    /**
+     * v1.7.21：场景专用 era 正向。
+     *
+     * 关键修复：此前场景走完整 [EraSpec.positive]，其首句为「所有**人物**、服饰、
+     * 建筑、器物、场景必须严格符合该时代风貌」——**正向在喊「画人物」**，
+     * 与末尾的空场无人指令正面对冲，而正向语义权重更高，模型照画不误。
+     * 本版剥离「人物、服饰」，只约束建筑、陈设与照明，并显式声明画面中不得有人。
+     */
+    val eraPositiveScene: String = DEFAULT_ERA_POSITIVE_SCENE,
+    /**
+     * v1.7.21：道具专用 era 正向。
+     *
+     * 此前道具与角色共用主体版红线，里面写着「汉代衣冠（深衣、曲裾、直裾、冠巾）」——
+     * 道具卡在喊「画衣服」，等于邀请模型画一个穿衣的人物出来。
+     * 本版只约束器物自身的形制、材质与工艺。
+     */
+    val eraPositiveProp: String = DEFAULT_ERA_POSITIVE_PROP,
+    /**
+     * v1.7.21：尾部强指令（tail anchor）。
+     *
+     * 图像模型对 prompt **尾部**权重最高，而 v1.7.19 把「纯色背景」「空场无人」
+     * 这些最关键的约束放在了 prompt 中部，后面还拖着 100+ 条 Do NOT include 禁词
+     * 和质量负向——指令被彻底淹没（实测角色卡禁词 106 项、场景 100 项、道具 105 项）。
+     *
+     * 本版把每类资产最不可妥协的一条约束抽出来，中英双语、显式标注最高优先级，
+     * 压在 prompt 最末尾。
+     */
+    val characterTailAnchor: String = DEFAULT_CHARACTER_TAIL_ANCHOR,
+    val sceneTailAnchor: String = DEFAULT_SCENE_TAIL_ANCHOR,
+    val propTailAnchor: String = DEFAULT_PROP_TAIL_ANCHOR,
+    /**
+     * v1.7.21：资产图专用「精简禁词」——只进正向 Do NOT include 的那一份。
+     *
+     * 此前把 150+ 条完整时代红线全塞进图像 prompt，其中 gun / train / airplane /
+     * refrigerator / skateboard / battery 之类与资产卡外观毫无关系，
+     * 却在 100+ 项的噪声里把真正管用的「scene background / environment / people」
+     * 稀释成了路人。实测三类卡禁词均 100+ 项，模型无法分辨优先级。
+     *
+     * 精简原则：只留「该类型最可能翻车」的 20 余项 = 少量高频时代词 + 该类型专用干扰词。
+     * 完整 era 红线仍走视频端 negative_prompt 与一致性闸口（那两处支持长列表）。
+     */
+    val characterCoreForbidden: List<String> = DEFAULT_CHARACTER_CORE_FORBIDDEN,
+    val sceneCoreForbidden: List<String> = DEFAULT_SCENE_CORE_FORBIDDEN,
+    val propCoreForbidden: List<String> = DEFAULT_PROP_CORE_FORBIDDEN,
     /**
      * v1.7.19：场景资产专用 —— 空场、无人物。
      * 用户反馈场景卡被模型自行塞入人物：此前场景只走 [withEraConstraints]，
@@ -163,10 +217,10 @@ data class StylePreset(
         val eraConstrained = withEraConstraints(
             basePrompt, allowed,
             suffixOverride = characterStudioSuffix,
-            eraPositiveOverride = eraPositiveSubjectOnly,
+            eraPositiveOverride = eraPositiveCharacter,
         )
         return buildString {
-            append(eraConstrained)
+            append(eraConstrained.trimEnd('。', '.', ' ', '　'))
             if (studioBackdropPositive.isNotBlank()) append("。${studioBackdropPositive}")
         }
     }
@@ -177,9 +231,11 @@ data class StylePreset(
      * 模型对 prompt 尾部权重最高，把无人要求放最后才能压住它往空景里塞人的惯性。
      */
     fun withSceneConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
-        val eraConstrained = withEraConstraints(basePrompt, allowed)
+        val eraConstrained = withEraConstraints(
+            basePrompt, allowed, eraPositiveOverride = eraPositiveScene)
         return buildString {
-            append(eraConstrained)
+            // v1.7.21：era 正文以「。」结尾，直接再拼「。empty location…」会出双句号
+            append(eraConstrained.trimEnd('。', '.', ' ', '　'))
             if (sceneEmptyPositive.isNotBlank()) append("。${sceneEmptyPositive}")
         }
     }
@@ -196,10 +252,10 @@ data class StylePreset(
         val eraConstrained = withEraConstraints(
             basePrompt, allowed,
             suffixOverride = propStudioSuffix,
-            eraPositiveOverride = eraPositiveSubjectOnly,
+            eraPositiveOverride = eraPositiveProp,
         )
         return buildString {
-            append(eraConstrained)
+            append(eraConstrained.trimEnd('。', '.', ' ', '　'))
             if (propStudioPositive.isNotBlank()) append("。${propStudioPositive}")
         }
     }
@@ -213,6 +269,31 @@ data class StylePreset(
      */
     fun studioNegativePromptFor(allowed: List<String> = emptyList()): String =
         (globalNegativePrompt + effectiveForbidden(allowed) + studioBackdropNegative).distinct().joinToString(", ")
+
+    /**
+     * v1.7.21：取该资产类型的「尾部强指令」——压在 prompt 最末尾的那一条，
+     * 是该类型最不可妥协的约束（角色=纯色底只有一人 / 场景=绝对无人 / 道具=纯色底只有一物）。
+     */
+    fun tailAnchorFor(kind: String): String = when (kind.trim().lowercase()) {
+        AssetPromptBuilder.KIND_CHARACTER -> characterTailAnchor
+        AssetPromptBuilder.KIND_SCENE -> sceneTailAnchor
+        AssetPromptBuilder.KIND_PROP -> propTailAnchor
+        else -> ""
+    }
+
+    /**
+     * v1.7.21：取该资产类型的「精简禁词」——只进图像 prompt 的 Do NOT include 段。
+     *
+     * 与 [studioNegativePromptFor] / [sceneNegativePromptFor] / [propNegativePromptFor]
+     * 的区别：那三个是给**视频端 negative_prompt** 用的完整版（支持长列表，150+ 项无妨）；
+     * 本方法是给**图像端正向**用的精简版（20 余项），避免指令稀释。
+     */
+    fun coreForbiddenFor(kind: String): List<String> = when (kind.trim().lowercase()) {
+        AssetPromptBuilder.KIND_CHARACTER -> characterCoreForbidden
+        AssetPromptBuilder.KIND_SCENE -> sceneCoreForbidden
+        AssetPromptBuilder.KIND_PROP -> propCoreForbidden
+        else -> DEFAULT_ERA_NEGATIVE_ASSET
+    }
 
     /** 默认「西汉末年至新莽」红线（对齐 style_cinema.json era 块）。 */
     data class EraSpec(
@@ -256,7 +337,56 @@ data class StylePreset(
          * 保留服饰 / 器物形制 / 材质 / 照明红线，剥离「建筑、环境、场景」等会诱导模型补背景的语义，
          * 并显式声明只刻画主体本身。
          */
+        @Deprecated("v1.7.21 起按资产类型分家，改用 DEFAULT_ERA_POSITIVE_CHARACTER / _SCENE / _PROP")
         const val DEFAULT_ERA_POSITIVE_SUBJECT_ONLY = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），图中主体（人物服饰、器物形制与材质）必须严格符合该时代风貌：汉代衣冠（深衣、曲裾、直裾、冠巾）、简牍竹简、青铜/漆木/陶器、自然光与火烛照明；无电力、无工业、无现代器物。仅刻画主体本身，不得描绘建筑、环境或场景。"
+
+        /**
+         * v1.7.21 角色专用 era 正向：只约束人物自身的服饰形制与材质。
+         *
+         * 相较 v1.7.19 版移除了「简牍竹简、青铜/漆木/陶器、自然光与火烛照明」——
+         * 在角色卡里提器物与火光，模型就会在人物周围把它们画出来。
+         */
+        const val DEFAULT_ERA_POSITIVE_CHARACTER = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），图中人物的服饰形制、发式冠巾、面料质地必须严格符合汉代风貌（深衣、曲裾、直裾、冠巾，麻葛与丝帛）；无电力、无工业、无现代器物。只描绘这一个人本身：不得描绘任何背景、环境、建筑、陈设、器物、火光或其他角色。"
+
+        /**
+         * v1.7.21 场景专用 era 正向：只约束建筑、陈设与照明，**不再出现「人物」二字**。
+         *
+         * 这是「场景图里有人」的直接根因——旧版完整 era 首句写着「所有人物、服饰、
+         * 建筑、器物、场景必须严格符合该时代风貌」，正向在要求画人，
+         * 末尾的 no people 根本压不住。
+         */
+        const val DEFAULT_ERA_POSITIVE_SCENE = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），画面中的建筑形制、空间陈设与道具器物必须严格符合汉代风貌：木构与夯土建筑、简牍竹简、青铜/漆木/陶器、自然光与火烛照明；无电力、无工业、无现代器物。这是空场空镜，画面中不得出现任何人物。"
+
+        /**
+         * v1.7.21 道具专用 era 正向：只约束器物自身的形制、材质与工艺。
+         *
+         * 相较共用版移除了「汉代衣冠（深衣、曲裾、直裾、冠巾）」——
+         * 道具卡里提衣冠，等于请模型画一个穿着汉服的人出来。
+         */
+        const val DEFAULT_ERA_POSITIVE_PROP = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），该器物的形制、材质与工艺必须严格符合汉代风貌（简牍竹简、青铜、漆木、陶器、麻葛与丝帛）；无电力、无工业、无现代器物。只描绘这一件器物本身：不得描绘任何人物、服饰、背景、环境、建筑或其他物件。"
+
+        // ---- v1.7.21：尾部强指令（压在 prompt 最末尾，模型尾部权重最高）----
+
+        /** 角色：纯色底 + 画面里只有这一个人。 */
+        const val DEFAULT_CHARACTER_TAIL_ANCHOR = "【画面要求·最高优先级】背景必须是纯白或纯灰的单一纯色，无任何渐变与纹理；画面中只有这一个人，没有地面、墙面、家具、器物、植物、火光或任何环境元素；人物完整居中，头顶与脚下留白。 / BACKGROUND REQUIREMENT (HIGHEST PRIORITY): single flat solid white background, absolutely no environment, no scenery, no floor, no wall, no furniture, no objects, no plants, no firelight, no light patches, no gradient, no texture; only this one character centered in frame with clean margins."
+
+        /** 场景：绝对空场无人（正向在喊人，必须用最高优先级压回去）。 */
+        const val DEFAULT_SCENE_TAIL_ANCHOR = "【画面要求·最高优先级】这是一个完全空无一人的空镜：画面中绝对不能出现任何人物、人影、剪影、面孔、手部或任何活体，只有建筑与陈设；出现任何人物即视为失败。 / EMPTY SCENE REQUIREMENT (HIGHEST PRIORITY): absolutely no people, no person, no human figure, no silhouette, no face, no hands, no living being anywhere in frame; only architecture and set dressing; the presence of any human is a failure."
+
+        /** 道具：纯色底 + 画面里只有这一件器物，没有人手。 */
+        const val DEFAULT_PROP_TAIL_ANCHOR = "【画面要求·最高优先级】背景必须是纯白或纯灰的单一纯色；画面中只有这一件器物居中且完整呈现，没有人物、手、地面、桌面、衬布、其他物件或任何环境元素。 / PROP SHOT REQUIREMENT (HIGHEST PRIORITY): single flat solid white background, only this one object centered and fully visible, no people, no hands, no floor, no table, no cloth, no other objects, no environment."
+
+        /**
+         * v1.7.21：资产图专用「高频时代禁词」——完整 era 红线里与资产外观直接相关的那部分。
+         * 其余（机动车 / 火车 / 冰箱 / 滑板 / 枪械…）对资产卡外观没有意义，只对实景镜头有意义，
+         * 不进图像 prompt，仍保留在视频端 negative 与一致性闸口。
+         */
+        val DEFAULT_ERA_NEGATIVE_ASSET = listOf(
+            "modern object", "contemporary item", "modern clothing", "suit", "tie",
+            "high heels", "sneakers", "jeans", "T-shirt", "shorts", "short skirt",
+            "glasses", "sunglasses", "watch", "smartphone", "plastic", "neon sign",
+            "modern signage", "Latin letters", "Arabic numerals",
+        )
 
         /** 场景空场指令（见 [StylePreset.sceneEmptyPositive]）：空镜，供后续跨镜合成用。 */
         const val DEFAULT_SCENE_EMPTY_POSITIVE = "empty location, no people, no human figures, no characters, no silhouettes, no crowd, only architecture and set dressing, wide establishing shot of an empty place, no living subject in frame"
@@ -264,6 +394,11 @@ data class StylePreset(
             "people", "person", "human", "human figure", "man", "woman", "child",
             "character", "crowd", "silhouette", "pedestrian", "portrait", "face",
             "人物", "人影", "人群", "行人", "角色", "人脸",
+        )
+        /** 场景图精简禁词（v1.7.21）：高频时代词 + 空场无人干扰词，控制在 25 项内。 */
+        val DEFAULT_SCENE_CORE_FORBIDDEN = DEFAULT_ERA_NEGATIVE_ASSET + listOf(
+            "people", "person", "human", "human figure", "man", "woman", "child",
+            "character", "crowd", "silhouette", "pedestrian", "portrait", "face",
         )
 
         /** 道具专用 suffix（见 [StylePreset.propStudioSuffix]）：去 cinematic / 9:16 framing 等环境化语义。 */
@@ -276,6 +411,21 @@ data class StylePreset(
             "complex background", "detailed background", "outdoor", "tabletop",
             "multiple objects", "pedestal",
             "人物", "人", "手", "环境", "场景", "背景", "室内", "家具",
+        )
+        /** 道具图精简禁词（v1.7.21）：高频时代词 + 纯色底/孤立单品干扰词。 */
+        val DEFAULT_PROP_CORE_FORBIDDEN = DEFAULT_ERA_NEGATIVE_ASSET + listOf(
+            "people", "person", "human", "hand holding", "model", "character", "face",
+            "scene background", "environment", "landscape", "furniture", "room interior",
+            "complex background", "detailed background", "outdoor", "tabletop",
+            "multiple objects", "pedestal",
+        )
+        /** 角色图精简禁词（v1.7.21）：高频时代词 + 棚拍纯色底干扰词。 */
+        val DEFAULT_CHARACTER_CORE_FORBIDDEN = DEFAULT_ERA_NEGATIVE_ASSET + listOf(
+            "scene background", "environment", "landscape", "furniture", "props around",
+            "complex background", "outdoor", "interior setting", "decorated room",
+            "background scenery", "detailed background", "busy background",
+            "gradient background", "room interior", "crowd", "bokeh background",
+            "pedestal", "tabletop", "multiple objects", "second character",
         )
         val DEFAULT_GLOBAL_NEGATIVE = listOf(
             "deformed", "mismatched identity", "different actor", "costume change",
@@ -350,6 +500,20 @@ data class StylePreset(
             "拼图", "多角度拼一张", "九宫格", "多个小人", "两个人", "人脸过小", "远景小人",
             "逆光", "阴阳脸", "半张脸阴影", "墨镜", "厚刘海", "遮眼", "口罩",
             "夸张表情", "大笑", "仰头", "低头", "仰拍", "俯拍", "文字", "水印", "字幕", "贴纸",
+        )
+        /**
+         * v1.7.21：参考图精简禁词（进图像 prompt 的那一份）。
+         *
+         * 完整禁忌表 40+ 项，叠加到角色精简禁词上会重新逼近 70 项，前功尽弃。
+         * 这里只留「一旦踩了就彻底锁不住脸」的 14 项。
+         */
+        val DEFAULT_REFERENCE_CORE_FORBIDDEN = listOf(
+            "multiple views in one image", "collage", "grid of poses", "multiple small figures",
+            "two people", "duplicate character",
+            "tiny face", "face too small", "distant shot",
+            "backlight", "half face in shadow", "sunglasses", "face covered",
+            "exaggerated expression", "big smile", "looking up", "looking down",
+            "watermark", "text",
         )
 
         /**

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 58
-        versionName = "1.7.20"  // v1.7.20: 三类资产干扰修复(角色卡背景/场景卡人物/道具卡背景) + 取消六姿态改「角色参考图套装」4张独立图(图生视频标准)
+        versionCode = 59
+        versionName = "1.7.21"  // v1.7.21: 资产出图去干扰(era正向按类型分家/尾部强指令/禁词精简106→40) + 资产引用修复(参考图真正参与锁脸/母卡无图兜底/多角色禁用串脸兜底)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
