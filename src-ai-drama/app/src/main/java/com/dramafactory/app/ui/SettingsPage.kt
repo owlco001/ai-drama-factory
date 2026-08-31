@@ -27,6 +27,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
+import com.dramafactory.app.ui.components.PageHeader
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import com.dramafactory.app.ui.components.InlineStatus
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -46,7 +51,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("设置", style = MaterialTheme.typography.headlineSmall)
+        PageHeader(title = "设置", subtitle = "模型供应商 · Key 加密存储 · 渲染参数")
 
         // ---- 供应商选择（第四轮：多模型选择器）----
         Card(Modifier.fillMaxWidth()) {
@@ -62,8 +67,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                     ) {
                         RadioButton(selected = selected, onClick = { vm.selectProvider(p.id) })
                         Column(Modifier.weight(1f)) {
-                            Text("${if (selected) "●" else "○"} ${p.label}",
-                                style = MaterialTheme.typography.bodyMedium)
+                            Text(p.label, style = MaterialTheme.typography.bodyMedium)
                             Text(if (p.status == ProviderRegistry.Status.AVAILABLE) p.note
                                  else "待接入 · 选择后暂不可渲染",
                                 style = MaterialTheme.typography.bodySmall,
@@ -93,7 +97,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                         modifier = Modifier.fillMaxWidth(), minLines = 2)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.saveCustomModel() }) { Text("保存自定义模型") }
-                        if (st.customSaved) Text("已保存 ✓ Key加密入库", color = MaterialTheme.colorScheme.primary)
+                        if (st.customSaved) InlineStatus(Icons.Default.CheckCircle, "已保存 · Key加密入库",
+                            MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -127,9 +132,11 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                 }
                 when (val r = st.testResult) {
                     is SettingsLogic.TestResult.Success ->
-                        Text("✓ 连通成功 · 延迟${r.latencyMs}ms", color = MaterialTheme.colorScheme.primary)
+                        InlineStatus(Icons.Default.CheckCircle, "连通成功 · 延迟${r.latencyMs}ms",
+                            MaterialTheme.colorScheme.primary, Modifier.padding(top = 4.dp))
                     is SettingsLogic.TestResult.Failure ->
-                        Text("✗ ${r.message}", color = MaterialTheme.colorScheme.error)
+                        InlineStatus(Icons.Default.Warning, r.message,
+                            MaterialTheme.colorScheme.error, Modifier.padding(top = 4.dp))
                     null -> {}
                 }
                 if (st.saved) Text("已加密保存至Keystore（EncryptedSharedPreferences）",
@@ -242,15 +249,14 @@ fun TextModelSettingsBlock() {
                 ) {
                     RadioButton(selected = selected, onClick = { activeModelId = entry.providerId })
                     Column(Modifier.weight(1f)) {
-                        Text("${if (selected) "●" else "○"} ${entry.label}",
-                            style = MaterialTheme.typography.bodyMedium)
+                        Text(entry.label, style = MaterialTheme.typography.bodyMedium)
                         Text("模型：${entry.modelId} · Base：${entry.baseUrl}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline)
                     }
                     if (entry.isVerified)
-                        Text("✓ 已验证", color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelSmall)
+                        InlineStatus(Icons.Default.CheckCircle, "已验证",
+                            MaterialTheme.colorScheme.primary)
                     else if (entry.keyMasked != null)
                         Text("已保存未验证", color = MaterialTheme.colorScheme.outline,
                             style = MaterialTheme.typography.labelSmall)
@@ -320,9 +326,11 @@ fun TextModelSettingsBlock() {
             }
             when (val r = testResult) {
                 is SettingsLogic.TestResult.Success ->
-                    Text("✓ 连通成功 · 延迟${r.latencyMs}ms", color = MaterialTheme.colorScheme.primary)
+                    InlineStatus(Icons.Default.CheckCircle, "连通成功 · 延迟${r.latencyMs}ms",
+                        MaterialTheme.colorScheme.primary, Modifier.padding(top = 4.dp))
                 is SettingsLogic.TestResult.Failure ->
-                    Text("✗ ${r.message}", color = MaterialTheme.colorScheme.error)
+                    InlineStatus(Icons.Default.Warning, r.message,
+                        MaterialTheme.colorScheme.error, Modifier.padding(top = 4.dp))
                 null -> {}
             }
             if (saved) Text("已加密保存至 Keystore（Key 与视频通道独立）",
@@ -395,8 +403,8 @@ fun VideoParamsBlock(vm: SettingsViewModel) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = ::save) { Text("保存视频参数") }
-                if (savedTip) Text(" 已保存 ✓", color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall)
+                if (savedTip) InlineStatus(Icons.Default.CheckCircle, "已保存",
+                    MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -441,8 +449,8 @@ fun ImageModelBlock(vm: SettingsViewModel) {
                         vm.saveImageKey(agnesKey); agnesKey = ""; savedTip = true
                     }
                 }, enabled = agnesKey.trim().isNotEmpty()) { Text("保存图像 Key") }
-                if (savedTip) Text(" 已保存 ✓", color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall)
+                if (savedTip) InlineStatus(Icons.Default.CheckCircle, "已保存",
+                    MaterialTheme.colorScheme.primary)
             }
 
             Text("自定义图像模型（OpenAI 兼容）", style = MaterialTheme.typography.titleSmall)
@@ -470,8 +478,8 @@ fun ImageModelBlock(vm: SettingsViewModel) {
                         baseUrl = ""; modelId = ""; customKey = ""; customTip = true
                     }
                 }) { Text("保存自定义图像模型") }
-                if (customTip) Text(" 已保存 ✓（图像通道切换到自定义模型）",
-                    color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                if (customTip) InlineStatus(Icons.Default.CheckCircle, "已保存（图像通道切换到自定义模型）",
+                    MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -508,7 +516,7 @@ private fun PreviewSettingsIdle() {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("视频模型供应商", style = MaterialTheme.typography.titleMedium)
-                    Text("● Agnes（MVP唯一供应商）")
+                    Text("Agnes（MVP唯一供应商）")
                     OutlinedTextField(value = "sk-test", onValueChange = {}, label = { Text("输入 sk- 开头的API Key") })
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {}) { Text("测试连通") }

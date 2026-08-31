@@ -38,6 +38,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.width
+import com.dramafactory.app.ui.components.HeroButton
+import com.dramafactory.app.ui.components.StatusCard
+import com.dramafactory.app.ui.components.StatusMessage
+import com.dramafactory.app.ui.components.statusErr
+import com.dramafactory.app.ui.components.statusInfo
+import com.dramafactory.app.ui.components.statusOk
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.dramafactory.app.ui.Page
@@ -98,7 +110,7 @@ class AiPipelineViewModel : ViewModel() {
     }
 
     // ---- 流水线状态 ----
-    var statusMsg by mutableStateOf<String?>(null)
+    var statusMsg by mutableStateOf<StatusMessage?>(null)
         private set
     var pipelineEvents by mutableStateOf(emptyList<ProgressEvent>())
         private set
@@ -253,7 +265,7 @@ class AiPipelineViewModel : ViewModel() {
     /** 用户发送一句话（智能体式自由对话） */
     fun sendUserMessage(text: String) {
         if (agent == null) {
-            statusMsg = "⏳ 智能体初始化中，稍等…"
+            statusMsg = statusInfo("智能体初始化中，稍等…")
             return
         }
         val a = agent!!
@@ -262,7 +274,7 @@ class AiPipelineViewModel : ViewModel() {
             isThinking = true
             runCatching { a.say(text) { notice ->
                 // v1.7.3：AI 执行长任务时实时汇报进度（非流式，阶段提示逐条追加）
-                historyFlow.value = historyFlow.value + DialogueTurn(DialogueTurn.Side.AI, "🔄 $notice")
+                historyFlow.value = historyFlow.value + DialogueTurn(DialogueTurn.Side.AI, notice)
             } }
                 .onSuccess {
                     historyFlow.value = a.history
@@ -287,7 +299,7 @@ class AiPipelineViewModel : ViewModel() {
         val a = agent ?: return
         val script = resolveScriptWithDraft()
         if (script.length < 100) {
-            statusMsg = "❌ 剧本太短（需≥100字），先多聊点或者粘入文本后点开工"
+            statusMsg = statusErr("剧本太短（需≥100字），先多聊点或者粘入文本后点开工")
             return
         }
         launchPipeline(script, null, onFinish)
@@ -342,7 +354,7 @@ class AiPipelineViewModel : ViewModel() {
             android.util.Log.e("DramaAI", "launchPipeline crashed", e)
             com.dramafactory.app.AppGraph.CrashLog.record(
                 com.dramafactory.app.AppGraph.appContext() ?: return@CoroutineExceptionHandler, "launchPipeline", e)
-            statusMsg = "❌ 运行异常：" + (e.message ?: e.javaClass.simpleName)
+            statusMsg = statusErr("运行异常：" + (e.message ?: e.javaClass.simpleName))
             isRunning = false
         }) {
             val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
@@ -353,8 +365,8 @@ class AiPipelineViewModel : ViewModel() {
             })
             res.onSuccess { run ->
                 android.util.Log.d("DramaAI", "run onSuccess ep=${run.episodeId} success=${run.success} errs=${run.errors.size}")
-                statusMsg = if (run.success) "✅ 全流程完成，共 ${run.errors.size} 条异常"
-                else "⚠️ 流水线异常：" + run.errors.firstOrNull()?.msg
+                statusMsg = if (run.success) statusOk("全流程完成，共 ${run.errors.size} 条异常")
+                else statusErr("流水线异常：" + run.errors.firstOrNull()?.msg)
                 finishedEpId = run.episodeId.takeIf { it.isNotBlank() }
                 onFinish(finishedEpId)
                 // 自动接力：等渲染完成 → 合成成片 → 展示
@@ -363,9 +375,9 @@ class AiPipelineViewModel : ViewModel() {
             }.onFailure { e ->
                 android.util.Log.e("DramaAI", "run onFailure", e)
                 statusMsg = when (e) {
-                    is AiOrchestrator.AiError.InputTooShort -> "❌ 文本太短：" + e.msg
-                    is AiOrchestrator.AiError.ModelBlocked -> "❌ 模型不可用（${e.modelId}）：" + e.msg
-                    else -> "❌ " + e.message
+                    is AiOrchestrator.AiError.InputTooShort -> statusErr("文本太短：" + e.msg)
+                    is AiOrchestrator.AiError.ModelBlocked -> statusErr("模型不可用（${e.modelId}）：" + e.msg)
+                    else -> statusErr(e.message ?: e.javaClass.simpleName)
                 }
                 onFinish(null)
             }
@@ -383,25 +395,25 @@ class AiPipelineViewModel : ViewModel() {
             val total = tasks.size
             val done = tasks.count { it.state == "COMPLETED" }
             android.util.Log.d("DramaAI", "poll#$i ep=$episodeId total=$total done=$done")
-            statusMsg = if (total == 0) "⏳ 渲染任务准备中…"
-            else "🎬 渲染中 $done/$total 镜…"
+            statusMsg = if (total == 0) statusInfo("渲染任务准备中…")
+            else statusInfo("渲染中 $done/$total 镜…")
             if (total > 0 && done >= total) {
-                statusMsg = "🎬 渲染完成，正在合成成片…"
+                statusMsg = statusInfo("渲染完成，正在合成成片…")
                 val file = if (ctx != null) {
                     runCatching { com.dramafactory.app.AppGraph.composeFilmIfReady(episodeId, ctx) }.getOrNull()
                 } else null
                 android.util.Log.d("DramaAI", "compose result=${file?.absolutePath}")
                 if (file != null) {
                     finishedFilmPath = file.absolutePath
-                    statusMsg = "✅ 成片已生成，可播放/分享"
+                    statusMsg = statusOk("成片已生成，可播放/分享")
                 } else {
-                    statusMsg = "✅ 渲染完成，但暂无可用视频片段合成（检查视频生成 key）"
+                    statusMsg = statusOk("渲染完成，但暂无可用视频片段合成（检查视频生成 key）")
                 }
                 return
             }
             kotlinx.coroutines.delay(3000)
         }
-        statusMsg = "⏳ 渲染超时（3分钟未完成），可稍后到「成片库」手动合成"
+        statusMsg = statusInfo("渲染超时（3分钟未完成），可稍后到「成片库」手动合成")
     }
 }
 
@@ -432,12 +444,17 @@ fun AiPipelinePage(
                 Row(Modifier.fillMaxWidth().padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("🤖 AI · " + when (vm.subView) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Face, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    Text("AI · " + when (vm.subView) {
                         AiPipelineViewModel.SubView.ASSETS -> "资产库"
                         AiPipelineViewModel.SubView.STORYBOARD -> "分镜"
                         AiPipelineViewModel.SubView.LIBRARY -> "成片库"
                         else -> ""
                     }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { vm.backToAi() }) { Text("← 返回 AI") }
                 }
@@ -470,7 +487,9 @@ fun AiPipelinePage(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("🤖 AI 智能体", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.Face, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Text("AI 智能体", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 ModelChip(vm)
                 TextButton(onClick = onBack) { Text("退出") }
@@ -478,15 +497,7 @@ fun AiPipelinePage(
         }
 
         // 状态提示（初始化中/错误等）
-        vm.statusMsg?.let {
-            Surface(tonalElevation = 1.dp, shape = MaterialTheme.shapes.medium,
-                color = if (it.startsWith("✅")) MaterialTheme.colorScheme.primaryContainer
-                        else if (it.startsWith("❌") || it.startsWith("⚠️")) Color(0x1AFF0000)
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth()) {
-                Text(it, Modifier.padding(8.dp, 6.dp), style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        vm.statusMsg?.let { StatusCard(it) }
 
         // 对话区
         if (!running) {
@@ -529,13 +540,12 @@ fun AiPipelinePage(
                         ) {
                             Text("发送")
                         }
-                        Button(
+                        HeroButton(
+                            text = "开工成片",
                             onClick = { vm.generateFromAgent(onFinish = {}) },
                             enabled = canGenerate && !thinking,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text("🎬 开工成片")
-                        }
+                        )
                     }
                 }
             }
@@ -545,8 +555,13 @@ fun AiPipelinePage(
         if (vm.hasStarted || vm.finishedEpId != null) {
             if (running) {
                 androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text("⏳ 流水线运行中…", style = MaterialTheme.typography.labelMedium,
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.Refresh, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Text("流水线运行中…", style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary)
+                }
             }
             PipelineProgressSection(vm = vm, onBack = onBack, onNavigate = onNavigate)
         }
@@ -567,7 +582,9 @@ private fun ChatBubble(turn: DialogueTurn) {
                 shape = CircleShape,
                 modifier = Modifier.size(32.dp),
             ) {
-                Text("🤖", Modifier.wrapContentSize(), style = MaterialTheme.typography.titleSmall)
+                Icon(Icons.Default.Face, contentDescription = "AI",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(18.dp).wrapContentSize())
             }
             Spacer(Modifier.size(6.dp))
         }
@@ -594,7 +611,9 @@ private fun ChatBubble(turn: DialogueTurn) {
                 shape = CircleShape,
                 modifier = Modifier.size(32.dp),
             ) {
-                Text("👤", Modifier.wrapContentSize(), style = MaterialTheme.typography.titleSmall)
+                Icon(Icons.Default.Person, contentDescription = "我",
+                    tint = MaterialTheme.colorScheme.onSecondary,
+                    modifier = Modifier.size(18.dp).wrapContentSize())
             }
         }
     }
@@ -607,7 +626,11 @@ private fun ThinkingBubble() {
             color = MaterialTheme.colorScheme.primary,
             shape = CircleShape,
             modifier = Modifier.size(32.dp),
-        ) { Text("🤖", Modifier.wrapContentSize(), style = MaterialTheme.typography.titleSmall) }
+        ) {
+            Icon(Icons.Default.Face, contentDescription = "AI",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(18.dp).wrapContentSize())
+        }
         Spacer(Modifier.size(6.dp))
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             shape = BubbleAiShape) {
@@ -635,7 +658,8 @@ private fun ModelChip(vm: AiPipelineViewModel) {
             modifier = Modifier.clickable { expanded = true },
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("🧠", style = MaterialTheme.typography.bodySmall)
+                Icon(Icons.Default.Settings, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.size(4.dp))
                 Text(activeLabel, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             }
@@ -643,7 +667,11 @@ private fun ModelChip(vm: AiPipelineViewModel) {
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             models.forEach { m ->
                 DropdownMenuItem(
-                    text = { Text("${m.label}${if (m.providerId == active) "  ✓" else ""}") },
+                    text = { Text(m.label) },
+                    trailingIcon = {
+                        if (m.providerId == active) Icon(Icons.Default.Check, contentDescription = "当前模型",
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    },
                     onClick = { vm.viewModelScopeSafeSetModel(m.modelId); expanded = false; vm.reinitAgent() },
                 )
             }
@@ -658,7 +686,12 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
     LaunchedEffect(events.lastOrNull()?.elapsedMs) {
         if (events.isNotEmpty()) listState.animateScrollToItem(events.lastIndex)
     }
-    Text("🚀 流水线进度", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    Row(verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(Icons.Default.Send, contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+    Text("流水线进度", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    }
     LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (events.isEmpty()) {
@@ -694,18 +727,21 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
             }
         }
     }
-    vm.statusMsg?.let {
-        Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium,
-            color = if (it.startsWith("✅")) MaterialTheme.colorScheme.primaryContainer else Color(0x1AFF0000),
-            modifier = Modifier.fillMaxWidth()) {
-            Text(it, Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
-        }
-    }
+    vm.statusMsg?.let { StatusCard(it, dense = false) }
     if (vm.finishedEpId != null) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.showAssets() }, modifier = Modifier.weight(1f)) { Text("🎨 资产库") }
-            Button(onClick = { vm.showStoryboard() }, modifier = Modifier.weight(1f)) { Text("🎬 分镜") }
-            Button(onClick = { vm.showLibrary() }, modifier = Modifier.weight(1f)) { Text("📽 成片库") }
+            OutlinedButton(onClick = { vm.showAssets() }, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp)); Text("资产库")
+            }
+            OutlinedButton(onClick = { vm.showStoryboard() }, modifier = Modifier.weight(1f)) {
+                Icon(painterResource(R.drawable.ic_movie), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp)); Text("分镜")
+            }
+            OutlinedButton(onClick = { vm.showLibrary() }, modifier = Modifier.weight(1f)) {
+                Icon(painterResource(R.drawable.ic_video_library), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp)); Text("成片库")
+            }
         }
     }
     // 成品展示：成片就绪直接内嵌播放器
@@ -713,7 +749,12 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
         Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.large,
             modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("🎬 成品成片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(painterResource(R.drawable.ic_movie), contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Text("成品成片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
                 AndroidView(
                     factory = { ctx ->
                         android.widget.VideoView(ctx).apply {
@@ -739,7 +780,10 @@ private fun PipelineProgressSection(vm: AiPipelineViewModel, onBack: () -> Unit,
                             }
                             it.startActivity(android.content.Intent.createChooser(intent, "播放成片"))
                         }
-                    }, modifier = Modifier.weight(1f)) { Text("▶ 播放") }
+                    }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "播放", modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp)); Text("播放")
+                    }
                     OutlinedButton(onClick = { onNavigate(Page.LIBRARY) }, modifier = Modifier.weight(1f)) { Text("去成片库") }
                 }
             }
@@ -753,7 +797,7 @@ private fun stageNumber(stage: PipelineStage5): String = when (stage) {
     PipelineStage5.AUDIT -> "3"
     PipelineStage5.GENERATE_STORYBOARD -> "4"
     PipelineStage5.ENQUEUE_RENDER -> "5"
-    PipelineStage5.ENQUEUE_RENDER_DONE -> "✓"
+    PipelineStage5.ENQUEUE_RENDER_DONE -> "5"
 }
 
 /**

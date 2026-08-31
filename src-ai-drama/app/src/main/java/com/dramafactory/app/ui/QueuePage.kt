@@ -25,6 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
+import com.dramafactory.app.ui.components.PageHeader
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -85,7 +92,7 @@ fun QueuePage(
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("渲染队列", style = MaterialTheme.typography.headlineSmall)
+        PageHeader(title = "渲染队列", subtitle = "镜头状态机实时刷新 · 可暂停/恢复/取消")
 
         // ---- 总进度卡 ----
         Card(Modifier.fillMaxWidth()) {
@@ -138,8 +145,13 @@ fun QueuePage(
                         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) {
                                 Text(shotId, style = MaterialTheme.typography.bodyMedium)
-                                Text(shotStateLabel(stateName), style = MaterialTheme.typography.bodySmall,
-                                    color = shotStateColor(stateName))
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(shotStateIcon(stateName), contentDescription = null,
+                                        tint = shotStateColor(stateName), modifier = Modifier.size(16.dp))
+                                    Text(shotStateLabel(stateName), style = MaterialTheme.typography.bodySmall,
+                                        color = shotStateColor(stateName))
+                                }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 // 第六轮：图生视频「设参考图」入口（复用本地上传选图）
@@ -206,14 +218,26 @@ private fun LaunchedPickEffect(block: () -> Unit) {
 
 /** 状态机中文标签 */
 internal fun shotStateLabel(s: String) = when (s) {
-    "PENDING" -> "⏳ 待处理"
-    "SUBMITTING" -> "📤 提交中"
-    "SUBMITTED" -> "🔄 已提交·生成中"
-    "COMPLETED" -> "✅ 已完成"
-    "FAILED" -> "❌ 失败"
-    "BLOCKED" -> "⛔ 已放弃"
-    "RECONCILE" -> "⚠️ 待对账"
+    "PENDING" -> "待处理"
+    "SUBMITTING" -> "提交中"
+    "SUBMITTED" -> "已提交·生成中"
+    "COMPLETED" -> "已完成"
+    "FAILED" -> "失败"
+    "BLOCKED" -> "已放弃"
+    "RECONCILE" -> "待对账"
     else -> s
+}
+
+/** 状态机图标（与 shotStateColor 同一套语义色，替代 emoji 前缀） */
+internal fun shotStateIcon(s: String): ImageVector = when (s) {
+    "PENDING" -> Icons.Default.DateRange
+    "SUBMITTING" -> Icons.Default.ArrowForward
+    "SUBMITTED" -> Icons.Default.Refresh
+    "COMPLETED" -> Icons.Default.CheckCircle
+    "FAILED" -> Icons.Default.Warning
+    "BLOCKED" -> Icons.Default.Clear
+    "RECONCILE" -> Icons.Default.Warning
+    else -> Icons.Default.Info
 }
 
 @Composable
@@ -256,5 +280,5 @@ private fun PreviewQueuePage() {
 }
 
 private fun shotStateLabelStatic(s: String) = when (s) {
-    "SUBMITTED" -> "🔄 已提交·生成中"; "COMPLETED" -> "✅ 已完成"; "RECONCILE" -> "⚠️ 待对账"; else -> s
+    "SUBMITTED" -> "已提交·生成中"; "COMPLETED" -> "已完成"; "RECONCILE" -> "待对账"; else -> s
 }

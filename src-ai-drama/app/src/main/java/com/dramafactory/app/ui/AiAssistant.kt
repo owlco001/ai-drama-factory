@@ -8,6 +8,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -29,6 +33,7 @@ import com.dramafactory.app.ui.theme.BubbleUserShape
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
+import com.dramafactory.app.R
 import com.dramafactory.core.orchestrate.AiAgent
 import com.dramafactory.core.orchestrate.ActionIntent
 import com.dramafactory.core.orchestrate.DialogueTurn
@@ -163,7 +168,7 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本/小说文本，先『上传剧本』或跟我说『剧本是：…』）"
-                onNotice("🔍 正在从剧本提取角色/场景/道具资产…")
+                onNotice("正在从剧本提取角色/场景/道具资产…")
                 val assets = runCatching { AppGraph.extractAssetsFor(script) }.getOrElse { emptyList() }
                 withContext(Dispatchers.IO) {
                     assets.forEach { a ->
@@ -181,7 +186,7 @@ class AiAssistantViewModel : ViewModel() {
             "generate" -> {
                 val id = act.param("assetId") ?: return null
                 val pid = projectId ?: return "（请先打开项目）"
-                onNotice("🎨 正在重新生成资产图：$id …")
+                onNotice("正在重新生成资产图：$id …")
                 val row = withContext(Dispatchers.IO) {
                     dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
                 } ?: return "（找不到资产 $id，先让我 list_assets 看看有哪些）"
@@ -285,7 +290,7 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本）"
-                onNotice("🎬 正在生成分镜（编剧+导演）…")
+                onNotice("正在生成分镜（编剧+导演）…")
                 // v1.7.18：对齐 StoryboardViewModel 的 v1.7.17 链路——目录只给已生图的母卡，
                 // first_asset_ids 落标准 JSON，渲染据此注入参考图锁脸。
                 val catalog = withContext(Dispatchers.IO) { AssetCatalog.build(dao.assetsAllOf(pid)) }
@@ -320,14 +325,14 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val shots = withContext(Dispatchers.IO) { dao.shotsOf(e) }
                 if (shots.isEmpty()) return "（还没有分镜，先让我「生成分镜」）"
-                onNotice("🎞️ 正在入队渲染（含锁脸资产注入/补生成）…")
+                onNotice("正在入队渲染（含锁脸资产注入/补生成）…")
                 val aiShots = shots.map { com.dramafactory.core.orchestrate.DefaultAiOrchestrator.AiShot(it.shot_no, it.action ?: "", it.dialogue) }
                 val n = AppGraph.enqueueRenderFor(e, aiShots)
                 "已入渲染队 $n 条（去「渲染」标签看进度）"
             }
             "compose_film" -> {
                 val e = epId ?: return "（请先打开项目并跑渲染）"
-                onNotice("🎞️ 正在合成成片…")
+                onNotice("正在合成成片…")
                 val f = if (ctx != null) AppGraph.composeFilmFor(e, ctx) else null
                 if (f != null) "已成片：${f.absolutePath}（去「成片」标签播放）" else "（渲染还没完成，暂时无法合成成片）"
             }
@@ -336,7 +341,7 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本或跟我说『剧本是：…』）"
-                onNotice("🚀 启动完整流水线：提取→生图→审计→分镜→渲染…")
+                onNotice("启动完整流水线：提取→生图→审计→分镜→渲染…")
                 val res = AppGraph.runFullPipeline(script) { onNotice("· $it") }
                 if (res.isSuccess) {
                     currentEpisodeId = AppGraph.aiOrchestrator.currentEpisodeId.value ?: e
@@ -376,10 +381,10 @@ class AiAssistantViewModel : ViewModel() {
                 val videoCfg = runCatching { AppGraph.dao.verifiedConfig(AppGraph.CONFIG_VIDEO) }.getOrNull()
                 buildString {
                     append("模型配置状态：\n")
-                    append("· 文本：${if (hasText) "✓ 已配置" else "✗ 未配置"}（AI 对话/编剧用）\n")
-                    append("· 视频：${if (hasVideo) "✓ 已配置" else "✗ 未配置"}" +
+                    append("· 文本：${if (hasText) "已配置" else "未配置"}（AI 对话/编剧用）\n")
+                    append("· 视频：${if (hasVideo) "已配置" else "未配置"}" +
                         if (videoCfg?.provider_id == "custom") "（自定义：${videoCfg.model}）" else "" + "\n")
-                    append("· 图像：${if (hasImage) "✓ 已配置" else "✗ 未配置（默认共用视频 Key）"}\n")
+                    append("· 图像：${if (hasImage) "已配置" else "未配置（默认共用视频 Key）"}\n")
                     append("缺配置的话，跟我说『打开设置』就能去补 Key。")
                 }
             }
@@ -417,7 +422,7 @@ class AiAssistantViewModel : ViewModel() {
             }
             runCatching { a.say(text) { notice ->
                 // v1.7.3：AI 执行长任务时实时汇报进度（非流式，阶段提示逐条追加）
-                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "🔄 $notice")
+                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, notice)
             } }
                 .onSuccess { _history.value = a.history }
                 .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.javaClass.simpleName}：${e.message?.take(300) ?: ""}") }
@@ -460,7 +465,10 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                 .background(DramaGradient.ai())
                 .clickable { expanded = !expanded },
             contentAlignment = Alignment.Center,
-        ) { Text("✨", style = MaterialTheme.typography.titleLarge) }
+        ) {
+            Icon(painterResource(R.drawable.ic_sparkle), contentDescription = "AI 助手",
+                tint = DramaColor.OnPrimary, modifier = Modifier.size(26.dp))
+        }
 
         if (expanded) {
             Surface(
@@ -476,14 +484,20 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                             color = MaterialTheme.colorScheme.primaryContainer,
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.padding(end = 8.dp),
-                        ) { Text("🤖", Modifier.padding(6.dp), style = MaterialTheme.typography.titleMedium) }
+                        ) {
+                            Icon(Icons.Default.Face, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(6.dp).size(22.dp))
+                        }
                         Text("AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.weight(1f))
                         val proj = vm.currentProjectId
                         Text(if (proj != null) "项目:$proj" else "未选项目",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        IconButton(onClick = { expanded = false }) { Text("✕") }
+                        IconButton(onClick = { expanded = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭")
+                        }
                     }
                     val listState = rememberLazyListState()
                     LaunchedEffect(vm.history.value.size) {
@@ -537,7 +551,12 @@ private fun ChatBubbleLocal(turn: DialogueTurn) {
 private fun ThinkingBubbleLocal() {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = BubbleAiShape) {
-            Text("🤔 思考中…", Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.Refresh, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                Text("思考中…", style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }

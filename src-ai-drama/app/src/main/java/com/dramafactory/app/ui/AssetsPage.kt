@@ -55,6 +55,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
 import androidx.compose.ui.Modifier
@@ -73,6 +75,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import com.dramafactory.app.ui.components.HeroButton
+import com.dramafactory.app.ui.components.IconActionButton
+import com.dramafactory.app.ui.components.PageHeader
 import coil.compose.AsyncImage
 import com.dramafactory.app.AppGraph
 import com.dramafactory.app.ui.theme.DramaColor
@@ -248,27 +256,9 @@ fun AssetsPage(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 92.dp)
         ) {
-            // ---- 页面标题 + 设置 ----
+            // ---- 页面标题（设置入口统一在顶部 TopAppBar 齿轮）----
             item(span = { GridItemSpan(2) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("资产库", style = MaterialTheme.typography.headlineSmall)
-                        Text("莽途·墨痕初现 · 第 1 集",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline)
-                    }
-                    OutlinedButton(
-                        onClick = { /* TODO: 打开设置 */ },
-                        modifier = Modifier.size(36.dp),
-                        shape = CircleShape,
-                        contentPadding = PaddingValues(0.dp),
-                        border = null
-                    ) { Text("⚙", style = MaterialTheme.typography.titleSmall) }
-                }
+                PageHeader(title = "资产库", subtitle = "莽途·墨痕初现 · 第 1 集")
             }
 
             // ---- 分类筛选 chips ----
@@ -306,7 +296,7 @@ fun AssetsPage(
                             selectionMode = !selectionMode
                             selectedIds.value = emptySet()
                         },
-                        label = { Text(if (selectionMode) "退出选择" else "☑ 批量") },
+                        label = { Text(if (selectionMode) "退出选择" else "批量") },
                         border = FilterChipDefaults.filterChipBorder(
                             enabled = true, selected = selectionMode,
                             borderColor = if (selectionMode) MaterialTheme.colorScheme.primary
@@ -326,28 +316,15 @@ fun AssetsPage(
                     Box(Modifier.fillMaxWidth().height(2.dp).background(DramaGradient.hero()))
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("✨", style = MaterialTheme.typography.titleMedium)
+                            Icon(painterResource(R.drawable.ic_sparkle), contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                             Text("剧本模式 · 资产生成", style = MaterialTheme.typography.titleMedium)
                         }
-                        Button(
+                        HeroButton(
+                            text = "一键从剧本提取资产卡",
                             onClick = { vm?.extractFromScript() },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = MaterialTheme.shapes.medium,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Box(
-                                Modifier.fillMaxSize()
-                                    .background(DramaGradient.hero())
-                                    .padding(horizontal = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("⚡", style = MaterialTheme.typography.titleSmall)
-                                    Text("一键从剧本提取资产卡", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -384,7 +361,8 @@ fun AssetsPage(
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("🛡", style = MaterialTheme.typography.titleMedium, color = DramaColor.Warning)
+                            Icon(painterResource(R.drawable.ic_shield), contentDescription = "时代红线",
+                                tint = DramaColor.Warning, modifier = Modifier.size(22.dp))
                             Text("时代红线", style = MaterialTheme.typography.titleMedium)
                             Surface(
                                 color = DramaColor.Warning.copy(alpha = 0.15f),
@@ -451,15 +429,23 @@ fun AssetsPage(
                                     if (p.isNotBlank()) vm?.add("a_${System.currentTimeMillis()}", kind ?: AssetsLogic.Kind.CHARACTER, p)
                                 },
                                 enabled = prompt.isNotBlank()
-                            ) { Text("➕") }
+                            ) { Icon(Icons.Default.Add, contentDescription = "添加") }
                         }
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconActionButton(icon = "📷", label = "拍摄图片", onClick = { startCapture(CaptureKind.IMAGE) }, modifier = Modifier.weight(1f))
-                        IconActionButton(icon = "🎥", label = "拍摄视频", onClick = { startCapture(CaptureKind.VIDEO) }, modifier = Modifier.weight(1f))
-                        IconActionButton(icon = "🖼", label = "相册图片", onClick = { albumImageLauncher.launch("image/*") }, modifier = Modifier.weight(1f))
-                        IconActionButton(icon = "⬆", label = "相册视频", onClick = { albumVideoLauncher.launch("video/*") }, modifier = Modifier.weight(1f))
+                        IconActionButton(label = "拍摄图片", onClick = { startCapture(CaptureKind.IMAGE) }, modifier = Modifier.weight(1f),
+                            icon = { Icon(painterResource(R.drawable.ic_camera), contentDescription = "拍摄图片",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant) })
+                        IconActionButton(label = "拍摄视频", onClick = { startCapture(CaptureKind.VIDEO) }, modifier = Modifier.weight(1f),
+                            icon = { Icon(painterResource(R.drawable.ic_videocam), contentDescription = "拍摄视频",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant) })
+                        IconActionButton(label = "相册图片", onClick = { albumImageLauncher.launch("image/*") }, modifier = Modifier.weight(1f),
+                            icon = { Icon(painterResource(R.drawable.ic_image), contentDescription = "相册图片",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant) })
+                        IconActionButton(label = "相册视频", onClick = { albumVideoLauncher.launch("video/*") }, modifier = Modifier.weight(1f),
+                            icon = { Icon(painterResource(R.drawable.ic_video_library), contentDescription = "相册视频",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant) })
                     }
                     captureError?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall,
@@ -505,7 +491,7 @@ fun AssetsPage(
                                 selectedIds.value = emptySet()
                                 selectionMode = false
                                 confirmBatchDeleteIds = ids
-                            }, enabled = selectedIds.value.isNotEmpty()) { Text("🗑 删除所选") }
+                            }, enabled = selectedIds.value.isNotEmpty()) { Text("删除所选") }
                         }
                     }
                 }
@@ -566,31 +552,12 @@ fun AssetsPage(
             color = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
         ) {
             val passed = vm?.reviewAllPassed() == true
-            Button(
+            HeroButton(
+                text = if (passed) "继续渲染" else "请先完成全部资产评审（保留）",
                 onClick = onContinue,
                 enabled = passed,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).height(48.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Box(
-                    Modifier.fillMaxSize()
-                        .background(
-                            if (passed) DramaGradient.hero()
-                            else Brush.verticalGradient(
-                                listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant))
-                        )
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("➤", style = MaterialTheme.typography.titleSmall)
-                        Text(if (passed) "继续渲染" else "请先完成全部资产评审（保留）",
-                            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            )
         }
     }
         // ---- 第十一轮：资产编辑器（点击卡片弹出：改描述/上传参考图）----
@@ -614,7 +581,7 @@ fun AssetsPage(
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { refPickForAsset = editorCard.assetId }) {
-                                Text(if (editorCard.referenceImageUri == null) "🖼 上传参考图" else "🖼 更换参考图")
+                                Text(if (editorCard.referenceImageUri == null) "上传参考图" else "更换参考图")
                             }
                             if (editorCard.referenceImageUri != null) {
                                 OutlinedButton(onClick = { vm?.setReferenceImage(editorCard.assetId, null) }) {
@@ -623,7 +590,7 @@ fun AssetsPage(
                             }
                         }
                         if (editorCard.referenceImageUri != null)
-                            Text("✓ 已挂参考图，重生成时作为 input_images",
+                            Text("已挂参考图，重生成时作为 input_images",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.tertiary)
                         Text("保存后需点「重生成」才会按新描述/新参考图重新出图。",
@@ -645,12 +612,12 @@ fun AssetsPage(
                         // 第十一轮：生成中 → 停止按钮
                         if (editorCard.generating && vm != null) {
                             OutlinedButton(onClick = { vm.stopGenerate(editorCard.assetId) },
-                                modifier = Modifier.padding(end = 8.dp)) { Text("⏹ 停止") }
+                                modifier = Modifier.padding(end = 8.dp)) { Text("停止") }
                         }
                         // 删除资产（含子卡），确认后执行
                         if (vm != null) {
                             OutlinedButton(onClick = { confirmDeleteId = editorCard.assetId },
-                                modifier = Modifier.padding(end = 8.dp)) { Text("🗑 删除") }
+                                modifier = Modifier.padding(end = 8.dp)) { Text("删除") }
                         }
                         OutlinedButton(onClick = { editingAssetId = null }) { Text("关闭") }
                     }
@@ -703,26 +670,6 @@ fun AssetsPage(
             if (refPickForAsset != null) refPickLauncher.launch("image/*")
     }
 }
-/** 图标按钮：拍摄/相册等 4 个入口（设计稿 .icon-btn） */
-@Composable
-private fun IconActionButton(icon: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.height(56.dp),
-        shape = MaterialTheme.shapes.medium,
-        contentPadding = PaddingValues(0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(icon, style = MaterialTheme.typography.titleMedium)
-            Text(label, style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
 
 /** 设计稿 .asset 卡片：92dp 缩略图 + 标题/描述 + 状态 badge/操作 */
 @Composable
@@ -772,8 +719,8 @@ private fun GridAssetCard(
                         )
                     }
                 } else {
-                    Text(gridThumbEmoji(card), style = MaterialTheme.typography.headlineMedium,
-                        color = gridThumbTint(card))
+                    Icon(gridThumbPainter(card), contentDescription = null,
+                        modifier = Modifier.size(40.dp), tint = gridThumbTint(card))
                 }
                 // 多选态复选框
                 if (selectionMode) {
@@ -786,8 +733,8 @@ private fun GridAssetCard(
                             .border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraSmall),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (selected) Text("✓", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary)
+                        if (selected) Icon(Icons.Default.Check, contentDescription = "已选",
+                            tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -870,12 +817,13 @@ private fun gridThumbBg(card: AssetsLogic.AssetCard): Brush {
     return Brush.linearGradient(0f to c1, 1f to c2)
 }
 
-private fun gridThumbEmoji(card: AssetsLogic.AssetCard): String = when {
-    card.videoUri != null -> "🎬"
-    card.kind == AssetsLogic.Kind.SCENE -> "🎭"
-    card.kind == AssetsLogic.Kind.PROP -> "🗡"
-    card.kind == AssetsLogic.Kind.LOCAL -> "🖼"
-    else -> "👤"
+@Composable
+private fun gridThumbPainter(card: AssetsLogic.AssetCard): Painter = when {
+    card.videoUri != null -> rememberVectorPainter(Icons.Default.PlayArrow)
+    card.kind == AssetsLogic.Kind.SCENE -> painterResource(R.drawable.ic_movie)
+    card.kind == AssetsLogic.Kind.PROP -> rememberVectorPainter(Icons.Default.Build)
+    card.kind == AssetsLogic.Kind.LOCAL -> painterResource(R.drawable.ic_image)
+    else -> rememberVectorPainter(Icons.Default.Person)
 }
 
 private fun gridThumbTint(card: AssetsLogic.AssetCard): androidx.compose.ui.graphics.Color = when (card.kind) {
@@ -907,14 +855,14 @@ private fun AssetThumb(card: AssetsLogic.AssetCard) {
     val shape = MaterialTheme.shapes.small
     val bg = MaterialTheme.colorScheme.surfaceVariant
     @Composable
-    fun placeholder(emoji: String) {
+    fun placeholder(icon: Painter) {
         Box(Modifier.size(size).clip(shape).background(bg), contentAlignment = Alignment.Center) {
-            Text(emoji, style = MaterialTheme.typography.titleLarge)
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(36.dp))
         }
     }
-    if (card.videoUri != null) { placeholder("🎬"); return }
+    if (card.videoUri != null) { placeholder(rememberVectorPainter(Icons.Default.PlayArrow)); return }
     val model: Any? = card.imageUri ?: card.remoteUrl
-    if (model == null) { placeholder("🖼"); return }
+    if (model == null) { placeholder(painterResource(R.drawable.ic_image)); return }
     var failed by remember(model) { mutableStateOf(false) }
     if (failed) {
         Box(Modifier.size(size).clip(shape).background(bg), contentAlignment = Alignment.Center) {

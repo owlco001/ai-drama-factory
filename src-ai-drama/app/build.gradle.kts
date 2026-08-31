@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 60
-        versionName = "1.8.0"  // v1.8.0: 质量三闸接线(保真闸+六铁律+开场帧重渲染) + 参考图真注入inputImages + 音频禁去头对齐工具
+        versionCode = 61
+        versionName = "1.8.1"  // v1.8.1: UI 质感打磨（去 emoji 化 + HeroButton/PrimaryButton/PageHeader/StatusCard 组件化 + 状态色语义化）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -72,6 +72,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
+    // v1.8.1：图标只用 core 的 49 个 + res/drawable 下自定义 vector（ic_camera/ic_videocam/
+    // ic_video_library/ic_link/ic_shield/ic_movie/ic_image/ic_sparkle/ic_prop）。
+    // 不用 material-icons-extended：它给 debug APK 加 32MB（3000+ 未用图标全进 dex）。
     debugImplementation("androidx.compose.ui:ui-tooling")   // @Preview渲染
 
     // Activity/Lifecycle/ViewModel-Compose（接core-engine的StateFlow）

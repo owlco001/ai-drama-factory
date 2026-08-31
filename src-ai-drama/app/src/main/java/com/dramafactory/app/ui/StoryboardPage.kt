@@ -24,11 +24,35 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.dramafactory.app.ui.components.HeroButton
+import com.dramafactory.app.ui.components.PrimaryButton
+
+/** 图标 + 短文案 状态标记（替代此前 ✓ / ⚠ 等 emoji 前缀） */
+@Composable
+private fun StatusChip(icon: ImageVector, text: String, tint: Color) {
+    Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(icon, contentDescription = text, tint = tint, modifier = Modifier.size(16.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = tint)
+    }
+}
 
 /**
  * 分镜编辑页（第十二轮：可操作化）：
@@ -87,12 +111,32 @@ fun StoryboardPage(
                             Row(Modifier.fillMaxWidth(),
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("📜 剧本原文（${script.length}字）",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(if (showScript) "收起 ▲" else "展开 ▼",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary)
+                                Row(
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(Icons.Default.List, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp))
+                                    Text("剧本原文（${script.length}字）",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Row(
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text(if (showScript) "收起" else "展开",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary)
+                                    Icon(
+                                        if (showScript) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (showScript) "收起" else "展开",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             }
                             if (showScript) {
                                 Text(script, Modifier.padding(top = 8.dp)
@@ -108,25 +152,42 @@ fun StoryboardPage(
         }
 
         item {
-            Button(onClick = { vm.generateWithAi() }, enabled = !st.generating,
-                modifier = Modifier.fillMaxWidth()) {
-                Text(if (st.generating) "AI 生成中…" else "🤖 AI 生成分镜（编剧+导演）")
-            }
+            HeroButton(
+                text = if (st.generating) "AI 生成中…" else "AI 生成分镜（编剧+导演）",
+                onClick = { vm.generateWithAi() },
+                enabled = !st.generating,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         if (st.shots.isNotEmpty()) {
             item {
-                Button(onClick = { vm.enqueueRender { n -> queuedCount = n } },
-                    enabled = !st.generating, modifier = Modifier.fillMaxWidth()) {
-                    Text("🎬 渲染本集全部 ${st.shots.size} 镜")
-                }
+                PrimaryButton(
+                    text = "渲染本集全部 ${st.shots.size} 镜",
+                    onClick = { vm.enqueueRender { n -> queuedCount = n } },
+                    enabled = !st.generating,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
         queuedCount?.let { n ->
             item {
                 Card(Modifier.fillMaxWidth()) {
-                    Text(if (n > 0) "已入队 $n 镜，进度见「渲染」标签页 ✓" else "没有可渲染的镜头",
-                        Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        Modifier.padding(12.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (n > 0) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        } else {
+                            Icon(Icons.Default.Info, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        }
+                        Text(if (n > 0) "已入队 $n 镜，进度见「渲染」标签页" else "没有可渲染的镜头",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }
@@ -157,34 +218,57 @@ fun StoryboardPage(
                         Text("#${shot.shot_no} · ${shot.duration_seconds.toInt()}秒",
                             style = MaterialTheme.typography.titleSmall)
                         when {
-                            shot.sb_check == "pass" -> Text("校验✓",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary)
-                            shot.sb_check == "pending" -> Text("待生成",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline)
-                            else -> Text("⚠${shot.sb_check.removePrefix("error:")}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error)
+                            shot.sb_check == "pass" -> StatusChip(
+                                icon = Icons.Default.CheckCircle, text = "校验通过",
+                                tint = MaterialTheme.colorScheme.primary)
+                            shot.sb_check == "pending" -> StatusChip(
+                                icon = Icons.Default.DateRange, text = "待生成",
+                                tint = MaterialTheme.colorScheme.outline)
+                            else -> StatusChip(
+                                icon = Icons.Default.Warning,
+                                text = shot.sb_check.removePrefix("error:"),
+                                tint = MaterialTheme.colorScheme.error)
                         }
                     }
                     shot.action?.let { Text("动作：$it", style = MaterialTheme.typography.bodyMedium) }
                     shot.visual_prompt?.let {
-                        Text("🎬 $it", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary)
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(painterResource(R.drawable.ic_movie), contentDescription = "视觉指令",
+                                tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                            Text(it, style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.secondary)
+                        }
                     }
                     // v1.7.17：把「本镜引用了哪些资产」显式摆出来。
                     // 此前这层完全不可见——LLM 引错（或引了还没生图的卡）用户无从察觉，
                     // 只会在成片里看到角色换脸。引用为空即代表渲染时回退项目级前4张，锁不住脸。
                     val refs = AssetCatalog.parseRefIds(shot.first_asset_ids)
                     if (refs.isNotEmpty()) {
-                        Text("🔗 引用：${refs.joinToString("、") { st.assetNames[it] ?: it }}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary)
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(painterResource(R.drawable.ic_link), contentDescription = "引用资产",
+                                tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(16.dp))
+                            Text("引用：${refs.joinToString("、") { st.assetNames[it] ?: it }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.tertiary)
+                        }
                     } else {
-                        Text("⚠ 未引用资产：渲染将回退项目级前4张",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error)
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = "未引用资产",
+                                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            Text("未引用资产：渲染将回退项目级前4张",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error)
+                        }
                     }
                     shot.dialogue?.let { Text("台词：「$it」", style = MaterialTheme.typography.bodySmall) }
                     shot.narration?.let { Text("旁白：$it", style = MaterialTheme.typography.bodySmall) }
@@ -193,10 +277,25 @@ fun StoryboardPage(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         // 第十三轮：已出产视频 → 预览入口
                         st.videoUris[shot.shot_id]?.let { uri ->
-                            Button(onClick = { previewUri = uri }) { Text("▶ 预览") }
+                            OutlinedButton(onClick = { previewUri = uri }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "预览",
+                                    modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("预览")
+                            }
                         }
-                        OutlinedButton(onClick = { editingShotId = shot.shot_id }) { Text("✏ 编辑") }
-                        OutlinedButton(onClick = { confirmDeleteShotId = shot.shot_id }) { Text("🗑 删除") }
+                        OutlinedButton(onClick = { editingShotId = shot.shot_id }) {
+                            Icon(Icons.Default.Edit, contentDescription = "编辑",
+                                modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("编辑")
+                        }
+                        OutlinedButton(onClick = { confirmDeleteShotId = shot.shot_id }) {
+                            Icon(Icons.Default.Delete, contentDescription = "删除",
+                                modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("删除")
+                        }
                     }
                 }
             }

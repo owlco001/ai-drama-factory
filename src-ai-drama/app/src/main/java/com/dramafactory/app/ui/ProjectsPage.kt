@@ -28,7 +28,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
+import com.dramafactory.app.ui.components.PageHeader
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -64,16 +69,21 @@ fun ProjectsPage(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("AI短剧工厂", style = MaterialTheme.typography.headlineSmall)
+            PageHeader(title = "AI短剧工厂", subtitle = "创建项目 · 导入剧本 · 进入制作")
         }
         // 第九轮：数据库初始化失败诊断横幅（建项目无反应的根因可视化）
         if (com.dramafactory.app.AppGraph.roomInitError != null) {
             item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("⚠️ 数据库不可用（建项目/渲染均会失败）",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.error)
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Warning, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            Text("数据库不可用（建项目/渲染均会失败）",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.error)
+                        }
                         Text("根因：" + (com.dramafactory.app.AppGraph.roomInitError ?: "") +
                                 "\n建议：卸载重装本应用（将清空本地数据）。",
                             style = MaterialTheme.typography.bodySmall)
@@ -112,7 +122,7 @@ fun ProjectsPage(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             picker.launch(arrayOf("text/plain", "text/markdown"))
-                        }) { Text(if (st.importedNovel == null || st.importedPasted) "导入文件 TXT/MD" else "已导入✓ 重新选") }
+                        }) { Text(if (st.importedNovel == null || st.importedPasted) "导入文件 TXT/MD" else "重新选择文件") }
                         Button(onClick = { vm.create { id -> id?.let(onEnterProject) } },
                             enabled = st.newName.isNotBlank() && !st.creating) { Text("创建") }
                     }
@@ -204,8 +214,13 @@ private fun HomeModelConfigCard(onOpenSettings: () -> Unit) {
                 Text("模型配置", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
                 if (missing.isEmpty()) {
-                    Text("全部就绪 ✓", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary)
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Text("全部就绪", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
                 } else {
                     Text("待配置：${missing.joinToString("、") { it.second }}",
                         style = MaterialTheme.typography.labelSmall,
@@ -229,7 +244,12 @@ private fun HomeModelConfigCard(onOpenSettings: () -> Unit) {
 @Composable
 private fun StatusDot(label: String, ok: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(if (ok) "●" else "○", color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        Icon(
+            if (ok) Icons.Default.CheckCircle else Icons.Default.Warning,
+            contentDescription = null,
+            tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(16.dp),
+        )
         Spacer(Modifier.padding(end = 2.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium)
     }

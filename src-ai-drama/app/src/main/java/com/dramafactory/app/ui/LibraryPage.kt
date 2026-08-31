@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -57,7 +58,7 @@ fun LibraryPage() {
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("成片库", style = MaterialTheme.typography.headlineSmall)
+        PageHeader(title = "成片库", subtitle = "已合成剧集 · 可播放与分享")
 
         if (episodes.value.isEmpty()) {
             Card(Modifier.fillMaxWidth()) {
@@ -77,7 +78,7 @@ fun LibraryPage() {
                             verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("第$epId 集", style = MaterialTheme.typography.titleMedium)
                             val doneAll = done == total && total > 0
-                            Text(if (doneAll) "已完成 ✓ 可合成" else "$done/$total 镜完成",
+                            Text(if (doneAll) "已完成 · 可合成" else "$done/$total 镜完成",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (doneAll) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.outline)
@@ -197,7 +198,7 @@ fun LibraryPage() {
             } catch (e: Throwable) {
                 kotlin.Result.failure(e)
             }
-            result.onSuccess { shareMsg = "✅ 合成完成，可点击「分享」" }
+            result.onSuccess { shareMsg = "合成完成，可点击「分享」" }
             result.onFailure { shareMsg = "合成失败：" + it.message }
             composingEp = null
         }
@@ -212,7 +213,7 @@ private fun PreviewLibrary() {
     MaterialTheme {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("成片库", style = MaterialTheme.typography.headlineSmall)
-            for ((name, sub) in listOf("第p1_ep1 集" to "已完成 ✓ 可导出", "第p2_ep1 集" to "12/24 镜完成")) {
+            for ((name, sub) in listOf("第p1_ep1 集" to "已完成 · 可导出", "第p2_ep1 集" to "12/24 镜完成")) {
                 Card(Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column { Text(name); Text(sub, style = MaterialTheme.typography.bodySmall) }
