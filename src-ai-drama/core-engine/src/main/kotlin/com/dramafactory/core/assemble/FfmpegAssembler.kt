@@ -8,6 +8,10 @@ import java.io.File
  *   2. 归一化路径：混合分辨率/帧率 → scale+pad 到448x832 + 硬编(h264_mediacodec，端侧)/libx264(JVM)；
  *   3. 降级路径：耗时>10分钟或OOM → 分段导出（每8镜一段），云端组装接口预留。
  *
+ * **连续剧禁去头（pavo head_trim 教训，v1.8.0 固化）**：拼接阶段绝不对任意镜（含首镜）
+ * 开头做 `-ss` 裁剪——首句台词常落开场 0.5s，裁头必切对白。本管理器只做整体 concat/
+ * 归一化，不带任何裁头逻辑；如需去黑场/静音，由上游在每镜内部（尾部 pad）处理，不在此裁。
+ *
  * 执行器抽象：端侧为FFmpegKit调用器；JVM测试用命令行ffmpeg桩。
  */
 class FfmpegAssembler(

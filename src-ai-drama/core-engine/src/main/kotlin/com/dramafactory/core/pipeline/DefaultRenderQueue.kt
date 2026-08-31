@@ -11,6 +11,8 @@ import com.dramafactory.core.provider.BudgetGuard
 import com.dramafactory.core.provider.CheckpointStore
 import com.dramafactory.core.provider.RenderQueue
 import com.dramafactory.core.provider.VideoProvider
+import com.dramafactory.core.quality.FidelityGate
+import com.dramafactory.core.quality.StoryboardGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -54,6 +56,15 @@ class DefaultRenderQueue(
     var shotAssetImageResolver: suspend (shotId: String) -> List<String> = { _ -> emptyList() },
     /** 第六轮：视频参考解析：shotId → referenceVideoUri（仅当模型标记支持时由上游填充） */
     var shotReferenceVideoResolver: suspend (shotId: String) -> String? = { _ -> null },
+    // v1.8.0：质量三闸接线（对齐 pavo fidelity_gate + storyboard 六铁律 + shot_director 开场帧重渲染）
+    /** 提交前保真闸数据：给定 shotId 返回编译好的分镜条目（含台词/资产/时长/beat/carry_over） */
+    var fidelityGateEntryProvider: suspend (shotId: String) -> StoryboardGate.Entry? = { _ -> null },
+    /** catalog 已批准资产集合（FidelityGate A.1 资产真实校验用） */
+    var catalogApprovedIdsProvider: suspend (episodeId: String) -> Set<String> = { _ -> emptySet() },
+    /** 整集六铁律是否未通过（读 shots.sb_check；有 error → 整集中止）。null=未配置(放行) */
+    var storyboardBlockedProvider: suspend (episodeId: String) -> Boolean? = { _ -> null },
+    /** 开场帧重渲染（不去头改重渲染）：返回重渲染后首帧 URI；null=用原始 first（逃生开关） */
+    var openingFrameProvider: suspend (shotId: String) -> String? = { _ -> null },
     // v1.7.18：视频参数提供器（分辨率/帧数/帧率）。App 层从设置持久化读取，
     // null 表示用 VideoSubmitRequest 默认值。每镜提交前查询，改参数即时生效。
     var videoParamsProvider: suspend (shotId: String) -> VideoParams? = { _ -> null },
@@ -148,9 +159,41 @@ class DefaultRenderQueue(
             // 此后进程无论在哪一行被杀，恢复时都能看到该镜处于SUBMITTING→对账，绝不静默重提。
             checkpointStore.markSubmitting(shotId)
 
+            // ★v1.8.0 质量三闸·整集六铁律（提交前整集一次）：任一镜 sb_check=error → 整集中止，
+            // 绝不烧钱出未过审的镜。对齐 pavo storyboard 六铁律 gate（fail-closed）。
+            val epBlocked = runCatching { storyboardBlockedProvider(episodeId) }.getOrNull()
+            if (epBlocked == true) { pause("storyboard_gate"); return }
+
             val (dialogue, narration, action) = shotPromptResolver(shotId)
             val prompt = com.dramafactory.core.provider.ChineseAudioInjector.buildShotPrompt(dialogue, narration, action)
-            val (first, last) = shotKeyframeResolver(shotId)
+
+            // ★v1.8.0 质量三闸·提交前保真闸（FidelityGate A.1-A.7 确定性校验）：
+            // 资产真实 / 台词逐字 / 时长镜序 / 禁编造 / 禁时间逆转 / 状态不漂移 / 跨镜一致。
+            // blocked 的镜直接不提交（对齐 pavo：blocked 镜 continue，记 render_manifest.blocked_shots）。
+            val gateEntry = runCatching { fidelityGateEntryProvider(shotId) }.getOrNull()
+            if (gateEntry != null) {
+                val catIds = runCatching { catalogApprovedIdsProvider(episodeId) }.getOrNull() ?: emptySet()
+                val gr = FidelityGate.gateShot(
+                    entry = gateEntry,
+                    motionPrompt = prompt,
+                    catalogApprovedIds = catIds,
+                    submittedDuration = gateEntry.panel.duration,
+                    expectedIndex = gateEntry.index,
+                )
+                if (gr.blocked) {
+                    val reason = gr.issues.filter { it.severity == "error" }
+                        .joinToString("; ") { "${it.code}: ${it.message}" }
+                    runCatching { checkpointStore.markFailed(shotId, "fidelity_blocked: $reason") }
+                    return
+                }
+            }
+
+            val (firstRaw, last) = shotKeyframeResolver(shotId)
+            // ★v1.8.0 开场帧重渲染（不去头改重渲染，对齐 pavo head_trim 教训）：
+            // 连续剧分镜严禁裁掉视频开头（首句台词常落开场 0.5s，去头必切对白），
+            // 改为用重渲染后的电影开场帧作为首关键帧。openingFrameProvider 返回重渲染帧 URI，
+            // 空=用原始 first（逃生开关，资产图本身就是理想开场帧时用）。
+            val first = runCatching { openingFrameProvider(shotId) }.getOrNull() ?: firstRaw
             val referenceVideo = shotReferenceVideoResolver(shotId)
             // v1.7.2：套用 pavo 锁脸——每镜注入角色/场景资产参考图（i2i），保证跨镜长相一致
             val assetImages = shotAssetImageResolver(shotId)

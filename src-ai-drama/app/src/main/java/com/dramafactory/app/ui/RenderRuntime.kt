@@ -1,8 +1,10 @@
 package com.dramafactory.app.ui
 
 import com.dramafactory.app.AppGraph
+import com.dramafactory.app.ui.AssetCatalog
 import com.dramafactory.core.pipeline.DefaultPipelineOrchestrator
 import com.dramafactory.core.pipeline.DefaultRenderQueue
+import com.dramafactory.core.quality.StoryboardGate
 
 /**
  * 渲染队列运行时 —— 按集懒建/复用DefaultRenderQueue实例 + 编排器恢复入口。
@@ -40,6 +42,49 @@ object RenderRuntime {
                 },
                 // v1.7.18：视频参数透传（设置页可调；每镜提交前读取，改参数即时生效）
                 videoParamsProvider = { _ -> AppGraph.videoParams },
+                // ★v1.8.0 质量三闸接线（对齐 pavo fidelity_gate + storyboard 六铁律 + shot_director 开场帧重渲染）
+                // 提交前保真闸：把该镜分镜条目编译为 StoryboardGate.Entry 跑 FidelityGate。
+                // 未绑定资产的镜 fail-soft 跳过（避免误杀纯场景/动作镜，整集 sb_check 仍覆盖）。
+                fidelityGateEntryProvider = { shotId ->
+                    runCatching { AppGraph.dao.shotKeyframes(shotId) }.getOrNull()?.let { shot ->
+                        val assetIds = AssetCatalog.parseRefIds(shot.first_asset_ids)
+                        if (assetIds.isEmpty()) null else {
+                            val beatIdx = shot.beat_ref?.filter { it.isDigit() }?.toIntOrNull() ?: shot.shot_no
+                            val beatRef = shot.beat_ref?.takeIf { it.isNotBlank() } ?: "beat_%02d".format(shot.shot_no)
+                            StoryboardGate.Entry(
+                                shotId = shot.shot_id,
+                                index = shot.shot_no,
+                                panel = StoryboardGate.Panel(
+                                    action = shot.action ?: "",
+                                    dialogue = parseShotDialogue(shot.dialogue),
+                                    duration = shot.duration_seconds,
+                                ),
+                                beatRef = beatRef,
+                                beatIndex = beatIdx,
+                                associateAssetIds = assetIds,
+                                carryOver = shot.carry_over ?: "",
+                                durationSeconds = shot.duration_seconds,
+                            )
+                        }
+                    }
+                },
+                // catalog 已批准（有图）资产集合：FidelityGate A.1 资产真实校验用
+                catalogApprovedIdsProvider = { epId ->
+                    val pid = epId.substringBeforeLast("_ep")
+                    runCatching { AppGraph.dao.assetsAllOf(pid) }.getOrNull()
+                        ?.filter { !it.remote_url.isNullOrBlank() || !it.image_uri.isNullOrBlank() }
+                        ?.map { it.asset_id }?.toSet() ?: emptySet()
+                },
+                // 整集六铁律：任一镜 sb_check 含 error → 整集中止（fail-closed）
+                storyboardBlockedProvider = { epId ->
+                    runCatching { AppGraph.dao.shotsOf(epId) }.getOrNull()?.let { shots ->
+                        shots.any { it.sb_check.contains("error", ignoreCase = true) && it.sb_check != "pass" }
+                    }
+                },
+                // 开场帧重渲染（不去头改重渲染）：用写回 shot.first_image_uri 的重渲染帧；空=逃生用原始 first
+                openingFrameProvider = { shotId ->
+                    runCatching { AppGraph.dao.shotKeyframes(shotId)?.first_image_uri }.getOrNull()
+                },
             )
         }
     }
@@ -105,5 +150,27 @@ object RenderRuntime {
         val base = ctx?.cacheDir ?: ctx?.filesDir
         if (base != null) return java.io.File(base, "clips")
         return java.io.File(System.getProperty("java.io.tmpdir") ?: "/tmp", "ai-drama-clips")
+    }
+
+    /**
+     * 把 shots 表 dialogue 字符串解析为 StoryboardGate.DialogueLine 列表（提交前保真闸逐字校验用）。
+     * 支持纯文本 / 多行 / "角色：台词" 形态；JSON 数组退化为按条取 text 字段。
+     */
+    private fun parseShotDialogue(raw: String?): List<StoryboardGate.DialogueLine> {
+        if (raw.isNullOrBlank()) return emptyList()
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("[")) {
+            return runCatching {
+                val arr = org.json.JSONArray(trimmed)
+                (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val t = o.optString("text").ifEmpty { o.optString("line") }
+                    if (t.isBlank()) null else StoryboardGate.DialogueLine(text = t)
+                }
+            }.getOrElse { emptyList() }
+        }
+        return trimmed.split("\n").mapNotNull { line ->
+            if (line.isBlank()) null else StoryboardGate.DialogueLine(text = line.trim())
+        }
     }
 }

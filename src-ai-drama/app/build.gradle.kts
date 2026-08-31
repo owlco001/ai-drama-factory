@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 59
-        versionName = "1.7.21"  // v1.7.21: 资产出图去干扰(era正向按类型分家/尾部强指令/禁词精简106→40) + 资产引用修复(参考图真正参与锁脸/母卡无图兜底/多角色禁用串脸兜底)
+        versionCode = 60
+        versionName = "1.8.0"  // v1.8.0: 质量三闸接线(保真闸+六铁律+开场帧重渲染) + 参考图真注入inputImages + 音频禁去头对齐工具
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -20,6 +20,10 @@ import java.io.File
  *   2. scale+pad 到 448x832 + h264_mediacodec（端侧硬编）
  *   3. 分段导出（每 8 镜一段），返回 Segmented，落 multi_parts_uris
  *
+ * **连续剧禁去头（pavo head_trim 教训，v1.8.0 固化）**：合成阶段不对首镜开头裁剪——
+ * 首句台词常落开场 0.5s，去头必切对白。独立音频对齐（[AudioShotAlign]）只在尾部 pad/trim，
+ * 此处合成只做 concat/归一化，不裁头。
+ *
  * JVM 单测注入 `executor = stub` 绕过真实 ffmpeg 调用，只测试策略选择与降级链。
  */
 interface MovieAssembler {
