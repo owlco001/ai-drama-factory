@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.DramaCard
+import com.dramafactory.app.ui.components.LocalDramaSnackbar
 import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -174,29 +175,25 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                 Text("关于 · 开源", style = MaterialTheme.typography.titleMedium)
                 Text("AI短剧工厂", style = MaterialTheme.typography.bodyMedium)
                 val ctx = androidx.compose.ui.platform.LocalContext.current
-                val copied = remember { mutableStateOf<String?>(null) }
+                val snackbar = LocalDramaSnackbar.current
                 OutlinedButton(onClick = {
                     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                         as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newPlainText(
                         "ai-drama-factory", About.PROJECT_URL))
-                    copied.value = "项目地址已复制"
+                    snackbar.show("项目地址已复制")
                 }) { Text(About.PROJECT_URL) }
                 OutlinedButton(onClick = {
                     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                         as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newPlainText(
                         "license", About.LICENSE_TEXT))
-                    copied.value = "许可证文本已复制"
+                    snackbar.show("许可证文本已复制")
                 }) { Text("License: MIT（点按复制全文）") }
                 Text("本软件基于 MIT License 开源发布。使用本项目生成的内容版权归内容创作者所有；" +
                         "请遵守目标平台的内容规范与相关法律法规。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline)
-                copied.value?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary)
-                }
             }
         }
     }
@@ -480,7 +477,7 @@ fun ImageModelBlock(vm: SettingsViewModel) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = {
-                    if (baseUrl.startsWith("http") && modelId.isNotBlank() && customKey.isNotBlank()) {
+                    if (baseUrl.startsWith("http", ignoreCase = false) && modelId.isNotBlank() && customKey.isNotBlank()) {
                         vm.saveCustomImageModel(baseUrl, modelId, customKey)
                         baseUrl = ""; modelId = ""; customKey = ""; customTip = true
                     }

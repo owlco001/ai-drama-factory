@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
 import com.dramafactory.app.ui.components.DramaCard
+import com.dramafactory.app.ui.components.DramaFilterChip
 import com.dramafactory.app.ui.components.EmptyState
 import com.dramafactory.app.ui.components.LocalDramaSnackbar
 import androidx.compose.ui.Alignment
@@ -109,11 +109,11 @@ fun ProjectsPage(
                     // ---- 导入模式切换（第四轮：小说/剧本）----
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(
+                        DramaFilterChip(
                             selected = st.importMode == ProjectsLogic.ImportMode.NOVEL,
                             onClick = { vm.selectMode(ProjectsLogic.ImportMode.NOVEL) },
                             label = { Text("小说模式") })
-                        FilterChip(
+                        DramaFilterChip(
                             selected = st.importMode == ProjectsLogic.ImportMode.SCRIPT,
                             onClick = { vm.selectMode(ProjectsLogic.ImportMode.SCRIPT) },
                             label = { Text("剧本模式") })

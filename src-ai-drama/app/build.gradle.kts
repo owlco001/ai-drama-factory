@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 66
-        versionName = "1.8.6"  // v1.8.6: textProviderFor 以激活文本模型为准(修复激活模型形同摆设) + 解析一致性单测
+        versionCode = 67
+        versionName = "1.8.7"  // v1.8.7: 统一 FilterChip 选中态(DramaFilterChip) + SettingsPage 复制反馈接 Snackbar
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

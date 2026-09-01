@@ -36,8 +36,6 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +78,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import com.dramafactory.app.ui.components.HeroButton
 import com.dramafactory.app.ui.components.IconActionButton
+import com.dramafactory.app.ui.components.DramaFilterChip
 import com.dramafactory.app.ui.components.PageHeader
 import coil.compose.AsyncImage
 import com.dramafactory.app.AppGraph
@@ -273,36 +272,21 @@ fun AssetsPage(
                     for (k in kinds) {
                         val label = k?.label ?: "全部"
                         val selected = (k == null && kind == null) || k == kind
-                        FilterChip(
+                        DramaFilterChip(
                             selected = selected,
                             onClick = { kind = k },
                             label = { Text(label) },
                             enabled = !selectionMode,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                selectedLeadingIconColor = MaterialTheme.colorScheme.primary
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = !selectionMode, selected = selected,
-                                borderColor = if (selected) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.outlineVariant
-                            )
                         )
                     }
                     // 批量管理
-                    FilterChip(
+                    DramaFilterChip(
                         selected = selectionMode,
                         onClick = {
                             selectionMode = !selectionMode
                             selectedIds.value = emptySet()
                         },
                         label = { Text(if (selectionMode) "退出选择" else "批量") },
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true, selected = selectionMode,
-                            borderColor = if (selectionMode) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.outlineVariant
-                        )
                     )
                 }
             }
@@ -383,22 +367,13 @@ fun AssetsPage(
                         ) {
                             val selected = remember(eraAllowed) { eraAllowed.toSet() }
                             for (c in listOf("游标卡尺", "短裙", "现代招牌", "手机", "相机", "电脑")) {
-                                FilterChip(
+                                DramaFilterChip(
                                     selected = selected.contains(c),
                                     onClick = {
                                         val newSet = if (selected.contains(c)) selected - c else selected + c
                                         vm?.setEpisodeAllowedCrossEra(newSet.toList())
                                     },
                                     label = { Text(c) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        enabled = true, selected = selected.contains(c),
-                                        borderColor = if (selected.contains(c)) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.outlineVariant
-                                    )
                                 )
                             }
                         }
