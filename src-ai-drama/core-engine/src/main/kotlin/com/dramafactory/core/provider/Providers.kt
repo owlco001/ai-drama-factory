@@ -122,4 +122,10 @@ interface KeyVault {
     /** sk-***abc 展示 */
     fun masked(configId: String): String
     suspend fun delete(configId: String)
+
+    // ---- v1.9.0：同步读写（供非协程上下文使用，如 VideoProviderRouter 解析/激活标记）----
+    /** 同步读取；不存在返回空串，不抛异常 */
+    fun readSync(configId: String): String = ""
+    /** 同步写入（providerId 记空），失败静默 */
+    fun writeSync(configId: String, plainValue: String) {}
 }

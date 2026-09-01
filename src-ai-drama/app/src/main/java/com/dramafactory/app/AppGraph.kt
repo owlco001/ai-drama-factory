@@ -16,6 +16,7 @@ import com.dramafactory.core.pipeline.DefaultBudgetGuard
 import com.dramafactory.core.provider.AgnesProvider
 import com.dramafactory.core.provider.CheckpointStore
 import com.dramafactory.core.provider.KeyVault
+import com.dramafactory.core.provider.VideoProviderRouter
 import com.dramafactory.core.orchestrate.DefaultAiOrchestrator
 import com.dramafactory.core.orchestrate.PipelineStage5
 import java.io.File
@@ -35,7 +36,8 @@ object AppGraph {
     lateinit var keyVault: KeyVault; private set
     lateinit var checkpointStore: CheckpointStore; private set
     lateinit var agnes: AgnesProvider; internal set
-    val video get() = agnes
+    /** v1.9.0：视频通道按激活供应商动态路由（Kling/即梦/Runway/Luma/Pika/agnes/custom） */
+    val video get() = VideoProviderRouter.resolve()
     val text get() = agnes
     val image get() = agnes
     lateinit var budgetGuard: DefaultBudgetGuard; private set
@@ -77,6 +79,17 @@ object AppGraph {
             }.getOrNull()?.isNotBlank() == true
         }
     }
+
+    /** v1.9.0：视频供应商 configId（按 region 分池，供设置页保存/读取 Key 用） */
+    fun videoConfigIdFor(providerId: String): String =
+        VideoProviderRouter.configIdFor(providerId, com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion)
+
+    /** v1.9.0：按指定供应商 id 解析 VideoProvider（设置页测试连通/保存候选 Key 用） */
+    fun resolveVideoProviderFor(providerId: String, overrideKey: String? = null): com.dramafactory.core.provider.VideoProvider =
+        VideoProviderRouter.resolveFor(providerId, overrideKey)
+
+    /** v1.9.0：设置激活的视频供应商（保存 Key 或显式切换时调用，持久化） */
+    fun setActiveVideoProvider(id: String) = VideoProviderRouter.setActive(id)
 
     /** v1.8.8：设置页切换 Agnes 站点后调用，热重建 video/image provider（保留自定义模型 override）。 */
     fun applyAgnesRegion() = rebuildAgnes()
@@ -362,6 +375,12 @@ object AppGraph {
             // 图像/视频统一走 Agnes：key 可能在设置页被存到 agnes / agnes-video / agnes-image 任一 configId，
             // 这里按候选顺序取第一个非空，避免"设了key但读不到"导致图像/视频生成401失败
             rebuildAgnes()
+            // v1.9.0：视频通道供应商路由——按激活供应商动态选适配器（Kling/即梦/Runway/Luma/Pika/agnes/custom）
+            VideoProviderRouter.init(
+                keyVault = keyVault,
+                regionProvider = { com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion },
+                agnesProviderProvider = { agnes },
+            )
             // v1.7.18：按 provider_configs 里已保存的自定义模型重建 provider（"添加后能用"）。
             // 设置页保存自定义模型只落库 + KeyVault，此前运行时从不读表 → 自定义配置形同虚设。
             // 必须在 initialized=true 之后跑（refreshConfiguredProviders 内部早退保护），

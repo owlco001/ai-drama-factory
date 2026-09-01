@@ -3,8 +3,10 @@ package com.dramafactory.app.ui
 /**
  * 供应商注册表 —— 设置页多模型选择数据源（第四轮新增）。
  *
- * MVP：Agnes(PavoAPI) 全功能接入；其余为占位「待接入」标记，
- * 选择器可见可选，选中后UI提示暂不可渲染；自定义模型走OpenAI兼容格式。
+ * v1.9.0：Agnes(PavoAPI) + 五家专属适配器（可灵/即梦/Runway/Luma/Pika）全部可用，
+ * 各家 API 规格差异（鉴权头、关键帧字段名、图像格式 data URI/URL）由各自适配器封装；
+ * 选中并保存 Key 后即写入视频路由（VideoProviderRouter），渲染时按激活供应商出图。
+ * 自定义模型走 OpenAI 兼容格式。
  */
 object ProviderRegistry {
 
@@ -19,11 +21,11 @@ object ProviderRegistry {
 
     val ALL = listOf(
         ProviderInfo("agnes", "Agnes（PavoAPI）", Status.AVAILABLE, "MVP全功能接入"),
-        ProviderInfo("kling", "可灵 Kling", Status.COMING_SOON, "待接入"),
-        ProviderInfo("jimeng", "即梦 / 豆包 Seedance", Status.COMING_SOON, "待接入"),
-        ProviderInfo("runway", "Runway", Status.COMING_SOON, "待接入"),
-        ProviderInfo("luma", "Luma", Status.COMING_SOON, "待接入"),
-        ProviderInfo("pika", "Pika", Status.COMING_SOON, "待接入"),
+        ProviderInfo("kling", "可灵 Kling", Status.AVAILABLE, "专属适配器：image/image_tail 关键帧 · sound 音频"),
+        ProviderInfo("jimeng", "即梦 / 豆包 Seedance", Status.AVAILABLE, "专属适配器：多模态首/尾帧+参考图 · generate_audio"),
+        ProviderInfo("runway", "Runway", Status.AVAILABLE, "专属适配器：单 promptImage i2v · 模型自带音轨"),
+        ProviderInfo("luma", "Luma", Status.AVAILABLE, "专属适配器：keyframes 首/尾帧（需 URL）"),
+        ProviderInfo("pika", "Pika", Status.AVAILABLE, "专属适配器：image-to-video（需 URL）"),
         ProviderInfo("custom", "自定义模型（OpenAI兼容）", Status.AVAILABLE, "填 base_url + model_id + api_key"),
     )
 

@@ -18,9 +18,11 @@ import kotlinx.coroutines.withContext
 class SettingsViewModel : ViewModel() {
 
     private val logic = SettingsLogic(
-        videoProvider = AppGraph.video,
+        videoProviderFor = { AppGraph.resolveVideoProviderFor(it) },
+        configIdFor = { AppGraph.videoConfigIdFor(it) },
         keyVault = AppGraph.keyVault,
-        configId = AppGraph.CONFIG_VIDEO,   // MVP只做视频通道Key（Text/Image同供应商共用）
+        configId = AppGraph.videoConfigIdFor("agnes"),   // 默认 agnes（按 region 分池）
+        activate = { AppGraph.setActiveVideoProvider(it) },
     )
     val state: StateFlow<SettingsLogic.UiState> get() = logic.state
 
@@ -61,8 +63,10 @@ class SettingsViewModel : ViewModel() {
 
     /** v1.8.9：Agnes 站点切换后，视频 Key 池目标切到对应 region 的 configId 并刷新掩码 */
     fun onAgnesRegionChanged(region: com.dramafactory.core.provider.AgnesRegion) {
-        logic.updateConfigId(
-            com.dramafactory.core.provider.agnesScopedConfigId(AppGraph.CONFIG_VIDEO, region))
+        // v1.9.0：仅当当前选中 agnes 时跟随 region 切换 Key 池；其他供应商不受影响
+        if (logic.state.value.selectedProviderId == "agnes") {
+            logic.updateConfigId(AppGraph.videoConfigIdFor("agnes"))
+        }
         refresh()
     }
 

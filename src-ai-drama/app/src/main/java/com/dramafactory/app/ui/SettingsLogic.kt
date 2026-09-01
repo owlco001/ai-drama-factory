@@ -19,9 +19,14 @@ import kotlinx.coroutines.withContext
  * - UI只见masked掩码（sk-***abc），永不回显明文。
  */
 class SettingsLogic(
-    private val videoProvider: VideoProvider,
+    /** v1.9.0：按供应商 id 动态解析 VideoProvider（agnes/kling/jimeng/runway/luma/pika/custom） */
+    private val videoProviderFor: (String) -> VideoProvider,
+    /** v1.9.0：供应商 id → KeyVault configId（含 region 分池） */
+    private val configIdFor: (String) -> String,
     private val keyVault: KeyVault,
     configId: String,
+    /** v1.9.0：保存/切换供应商时持久化激活供应商 */
+    private val activate: (String) -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
@@ -81,11 +86,16 @@ class SettingsLogic(
      */
     fun selectProvider(providerId: String): Boolean {
         val info = ProviderRegistry.byId(providerId) ?: return false
+        // v1.9.0：按所选供应商切换 Key 池目标 configId（agnes 走 region 分池，其余 ${id}-video）
+        scopedConfigId = configIdFor(providerId)
         _state.value = _state.value.copy(
             selectedProviderId = providerId,
             providerLabel = "${info.label}（${if (info.status == ProviderRegistry.Status.AVAILABLE) "可用" else "待接入"}）",
             saved = false, customSaved = false)
-        return info.status == ProviderRegistry.Status.AVAILABLE
+        val available = info.status == ProviderRegistry.Status.AVAILABLE
+        // v1.9.0：选中可用供应商即持久化激活，重启后视频路由仍指向它
+        if (available) activate(providerId)
+        return available
     }
 
     fun onCustomFieldChanged(field: String, value: String) {
@@ -132,7 +142,7 @@ class SettingsLogic(
             return
         }
         _state.value = _state.value.copy(testing = true, testResult = null)
-        val result = withContext(io) { videoProvider.validateKey(key) }
+        val result = withContext(io) { videoProviderFor(_state.value.selectedProviderId).validateKey(key) }
         _state.value = when {
             result.isSuccess -> {
                 val info = result.getOrThrow()
@@ -155,7 +165,11 @@ class SettingsLogic(
         if (key.isEmpty()) return false
         val tested = (_state.value.testResult as? TestResult.Success) != null
         if (!tested && !forceWithoutTest) return false
-        withContext(io) { keyVault.save(scopedConfigId, videoProvider.id, key) }
+        withContext(io) {
+            keyVault.save(scopedConfigId, videoProviderFor(_state.value.selectedProviderId).id, key)
+            // v1.9.0：保存即激活该供应商（持久化），使其进入视频路由
+            activate(_state.value.selectedProviderId)
+        }
         _state.value = _state.value.copy(keyInput = "", saved = true)
         refresh()
         return true

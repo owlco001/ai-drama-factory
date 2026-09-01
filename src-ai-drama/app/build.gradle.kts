@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 69
-        versionName = "1.8.9"  // v1.8.9: Agnes Key 按 region 分池(中国站/国际站不共用 API Key)，不跨池回退
+        versionCode = 70
+        versionName = "1.9.0"  // v1.9.0: 补齐五家视频供应商(可灵/即梦/Runway/Luma/Pika)专属适配器 + 视频通道路由
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

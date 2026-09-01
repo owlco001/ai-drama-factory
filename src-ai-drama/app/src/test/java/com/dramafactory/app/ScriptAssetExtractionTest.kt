@@ -29,7 +29,18 @@ class ScriptAssetExtractionTest {
 
     private val dispatcher = StandardTestDispatcher()
 
-    @Before fun setUp() { Dispatchers.setMain(dispatcher) }
+    @Before fun setUp() {
+        Dispatchers.setMain(dispatcher)
+        // v1.9.0：AssetsViewModel 构造即取 AppGraph.text（=agnes）组装 describer，
+        // 纯 JVM 测试没有 Application.init 流程 → lateinit 崩溃（历史 flaky 根因）。
+        // 这里补一个离线实例，不发任何网络请求。
+        try {
+            com.dramafactory.app.AppGraph.agnes
+        } catch (t: Throwable) {
+            com.dramafactory.app.AppGraph.agnes =
+                com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { "sk-offline-test" })
+        }
+    }
     @After fun tearDown() { Dispatchers.resetMain() }
 
     @Test

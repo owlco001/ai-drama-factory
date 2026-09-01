@@ -22,7 +22,7 @@ class UiLogicTest {
     @Test
     fun 设置页_测试连通成功后允许保存并清空明文() = runTest {
         val vault = FakeVault()
-        val logic = SettingsLogic(FakeVideoProvider(ok = true), vault, "cfg1")
+        val logic = SettingsLogic({ FakeVideoProvider(ok = true) }, { "cfg1" }, vault, "cfg1")
         logic.refresh()
         logic.onKeyChanged("sk-abc1234567890")
 
@@ -42,7 +42,7 @@ class UiLogicTest {
     @kotlinx.coroutines.ExperimentalCoroutinesApi
     @Test
     fun 设置页_连通失败显示错误且不允许保存() = runTest {
-        val logic = SettingsLogic(FakeVideoProvider(ok = false), FakeVault(), "cfg1")
+        val logic = SettingsLogic({ FakeVideoProvider(ok = false) }, { "cfg1" }, FakeVault(), "cfg1")
         logic.onKeyChanged("sk-bad")
         logic.testConnection()
         val r = logic.state.value.testResult
@@ -53,7 +53,7 @@ class UiLogicTest {
     @kotlinx.coroutines.ExperimentalCoroutinesApi
     @Test
     fun 设置页_空Key提示() = runTest {
-        val logic = SettingsLogic(FakeVideoProvider(ok = true), FakeVault(), "cfg1")
+        val logic = SettingsLogic({ FakeVideoProvider(ok = true) }, { "cfg1" }, FakeVault(), "cfg1")
         logic.testConnection()
         assertEquals("请先输入API Key",
             (logic.state.value.testResult as SettingsLogic.TestResult.Failure).message)

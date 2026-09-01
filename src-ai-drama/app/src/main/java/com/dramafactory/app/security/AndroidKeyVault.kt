@@ -99,4 +99,8 @@ class AndroidKeyVault private constructor(
         put("$configId.key", null)
         put("$configId.provider", null)
     }
+
+    // v1.9.0：底层本就是同步 SharedPreferences，同步通道直接复用 get/put
+    override fun readSync(configId: String): String = get("$configId.key") ?: ""
+    override fun writeSync(configId: String, plainValue: String) { put("$configId.key", plainValue) }
 }
