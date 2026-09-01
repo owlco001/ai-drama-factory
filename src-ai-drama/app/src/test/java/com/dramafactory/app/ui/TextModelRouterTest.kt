@@ -10,6 +10,7 @@ import com.dramafactory.core.provider.DeepSeekProvider
 import com.dramafactory.core.provider.DefaultTextModelRouter
 import com.dramafactory.core.provider.InMemoryTextModelStore
 import com.dramafactory.core.provider.TextProvider
+import com.dramafactory.core.storage.InMemoryKeyVault
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -184,5 +185,30 @@ class TextModelRouterTest {
         val provider = DefaultTextModelRouter.resolve("agnes")
         assertNotNull(provider as AgnesProvider)
         assertEquals("agnes", provider.id)
+    }
+
+    // ---------- 持久化（v1.8.4：重启后激活模型不回退默认） ----------
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 激活模型持久化_重启复用KeyVault后hydrate恢复() = runTest {
+        val vault = InMemoryKeyVault()
+        // 进程1：切到 deepseek 并落盘（router.saveActiveModel 写 vault）
+        val store1 = InMemoryTextModelStore(keyVault = vault)
+        DefaultTextModelRouter.store = store1
+        DefaultTextModelRouter.setActiveTextModel("deepseek")
+        // 进程2：复用同一 vault（模拟落地文件 / SharedPreferences），新建 store 预热
+        val store2 = InMemoryTextModelStore(keyVault = vault)
+        store2.hydrateActive()
+        assertEquals("deepseek", store2.loadActiveModel())
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 激活模型持久化_无落盘时hydrate保留默认Agnes() = runTest {
+        val vault = InMemoryKeyVault()
+        val store = InMemoryTextModelStore(keyVault = vault)
+        store.hydrateActive()
+        assertEquals("agnes", store.loadActiveModel())
     }
 }

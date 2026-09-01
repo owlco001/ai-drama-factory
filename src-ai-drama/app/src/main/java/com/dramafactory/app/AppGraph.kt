@@ -349,6 +349,11 @@ object AppGraph {
                 .getOrElse { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = com.dramafactory.core.storage.InMemoryKeyVault()) }
             textModelRouter = com.dramafactory.core.provider.DefaultTextModelRouter
             com.dramafactory.core.provider.DefaultTextModelRouter.store = textModelStore
+            // v1.8.4：激活文本模型已落盘（saveActiveModel 写 KeyVault），这里在 init 同步预热进内存，
+            // 保证 initialized=true 之前内存已是持久值，避免任何 UI 首帧读到默认 agnes 再跳变。
+            kotlinx.coroutines.runBlocking {
+                runCatching { textModelStore.hydrateActive() }
+            }
 
             try {
                 movieAssembler = MovieAssemblerImpl(executor = androidFfmpegKitExecutor())

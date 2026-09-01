@@ -247,7 +247,14 @@ fun TextModelSettingsBlock() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RadioButton(selected = selected, onClick = { activeModelId = entry.providerId })
+                    RadioButton(selected = selected, onClick = {
+                        if (activeModelId != entry.providerId) {
+                            activeModelId = entry.providerId
+                            // v1.8.4：真正把选择写入 router（saveActiveModel 落盘），
+                            // 否则此前只是改本地 state，切换不生效、重启回退默认 agnes。
+                            scope.launch { router.setActiveTextModel(entry.providerId) }
+                        }
+                    })
                     Column(Modifier.weight(1f)) {
                         Text(entry.label, style = MaterialTheme.typography.bodyMedium)
                         Text("模型：${entry.modelId} · Base：${entry.baseUrl}",

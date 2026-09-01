@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 63
-        versionName = "1.8.3"  // v1.8.3: 空状态/加载态组件化 + 全局最小触摸目标 48dp
+        versionCode = 64
+        versionName = "1.8.4"  // v1.8.4: 激活文本模型落盘持久化，重启不回退默认 agnes
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

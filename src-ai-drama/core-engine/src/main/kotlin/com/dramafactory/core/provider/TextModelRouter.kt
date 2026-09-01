@@ -10,6 +10,9 @@ import com.dramafactory.core.provider.TextProvider
 /** 文本通道默认激活的 provider（候选表首项 Agnes 为 MVP 唯一供应商） */
 const val DEFAULT_ACTIVE_TEXT_MODEL = "agnes"
 
+/** 持久化激活文本模型的独立 configId（借 KeyVault 落地，区别于 text-<provider> 的 Key 存储） */
+const val PREF_ACTIVE_TEXT_MODEL = "text-active-model"
+
 /** 已注册文本模型条目（T014 §2.3） */
 data class TextModelEntry(
     val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
@@ -41,6 +44,8 @@ interface TextModelRouter {
 interface TextModelStore {
     fun loadActiveModel(): String
     suspend fun saveActiveModel(modelId: String)
+    /** v1.8.4：从 KeyVault 预热持久化的激活模型；AppGraph.init 阶段调用一次，无值则保留内存默认 */
+    suspend fun hydrateActive()
     suspend fun loadKey(providerId: String): String
     suspend fun saveKey(providerId: String, key: String)
     fun masked(providerId: String): String?
@@ -136,7 +141,19 @@ class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModel
     private val verified = mutableSetOf<String>()
 
     override fun loadActiveModel(): String = activeModelId
-    override suspend fun saveActiveModel(modelId: String) { activeModelId = modelId }
+
+    override suspend fun saveActiveModel(modelId: String) {
+        activeModelId = modelId
+        // v1.8.4：落盘，防止重启 App 后回退默认值 agnes。
+        // providerId 传空（语义上这不是一条 Key，只是偏好串）。
+        runCatching { keyVault?.save(PREF_ACTIVE_TEXT_MODEL, "", modelId) }
+    }
+
+    override suspend fun hydrateActive() {
+        // v1.8.4：AppGraph.init 同步预热；无值 / KeyVault 异常时保留内存默认（agnes）。
+        runCatching { keyVault?.load(PREF_ACTIVE_TEXT_MODEL) }
+            .getOrNull()?.takeIf { it.isNotBlank() }?.let { activeModelId = it }
+    }
 
     override suspend fun loadKey(providerId: String): String =
         keys[providerId] ?: keyVault?.load("text-$providerId").orEmpty()
