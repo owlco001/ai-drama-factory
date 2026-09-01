@@ -7,6 +7,9 @@ import com.dramafactory.core.provider.DeepSeekProvider
 import com.dramafactory.core.provider.KeyVault
 import com.dramafactory.core.provider.TextProvider
 
+/** 文本通道默认激活的 provider（候选表首项 Agnes 为 MVP 唯一供应商） */
+const val DEFAULT_ACTIVE_TEXT_MODEL = "agnes"
+
 /** 已注册文本模型条目（T014 §2.3） */
 data class TextModelEntry(
     val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
@@ -123,9 +126,12 @@ object DefaultTextModelRouter : TextModelRouter {
     }
 }
 
-/** 内存实现：JVM 单测默认走这个；生产 AppGraph 会换成 AndroidKeyVault 包装版本 */
+/** 内存实现：JVM 单测默认走这个；生产 AppGraph 注入带 AndroidKeyVault 的实例 */
 class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModelStore {
-    @Volatile private var activeModelId = "deepseek"
+    // v1.8.2 修复：默认激活模型此前写成 "deepseek"，与接口契约（默认候选表首项 = Agnes）
+    // 及 TextModelRouterTest 的期望都不一致 —— 用户未手动切换时文本通道实际走 DeepSeek，
+    // 而设置页 UI 按 Agnes 为默认渲染，状态与展示对不上。
+    @Volatile private var activeModelId = DEFAULT_ACTIVE_TEXT_MODEL
     private val keys = mutableMapOf<String, String>()
     private val verified = mutableSetOf<String>()
 

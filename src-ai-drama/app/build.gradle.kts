@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 61
-        versionName = "1.8.1"  // v1.8.1: UI 质感打磨（去 emoji 化 + HeroButton/PrimaryButton/PageHeader/StatusCard 组件化 + 状态色语义化）
+        versionCode = 62
+        versionName = "1.8.2"  // v1.8.2: 文本通道默认模型修正为 Agnes + 资产提取协程异常兜底（修崩溃与单测污染）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

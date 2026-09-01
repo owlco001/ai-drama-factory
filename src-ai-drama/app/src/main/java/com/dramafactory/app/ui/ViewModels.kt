@@ -552,7 +552,17 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     }
 
     /** 一键「从剧本提取资产卡」：提取→落库→逐卡触发生成（MVP不要求LLM） */
-    fun extractFromScript() = viewModelScope.launch {
+    fun extractFromScript() = viewModelScope.launch(
+        // v1.8.2：此前该协程没有任何异常兜底 —— 一旦落库/生成阶段抛出（例如 DB 未就绪、
+        // lateinit 未初始化），异常会一路抛到 Thread.uncaughtExceptionHandler：真机上表现为崩溃，
+        // 单测里表现为异常泄漏到下一个 runTest（CoroutinesInternalError / UncaughtExceptionsBeforeTest）。
+        // 这里统一兜住：记 CrashLog + 把失败转成用户可见提示。
+        kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+            android.util.Log.e("AssetsVM", "extractFromScript crashed", e)
+            runCatching { AppGraph.CrashLog.record(AppGraph.appContext() ?: return@CoroutineExceptionHandler, "extractFromScript", e) }
+            _extractMessage.value = "提取失败：" + (e.message ?: e.javaClass.simpleName)
+        },
+    ) {
         // 第六轮修复：await 剧本加载（旧实现直接读可能为null的scriptText字段；
         // CompletableDeferred.await() 挂起非阻塞，避免单线程调度器死锁）
         val text = scriptText.await()
