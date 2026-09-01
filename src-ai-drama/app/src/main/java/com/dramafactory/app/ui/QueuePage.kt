@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.PageHeader
@@ -98,8 +98,8 @@ fun QueuePage(
         PageHeader(title = "渲染队列", subtitle = "镜头状态机实时刷新 · 可暂停/恢复/取消")
 
         // ---- 总进度卡 ----
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val snap = st.snapshot
                 val pauseText: String? = snap.pausedReason
                 Text("第${snap.episodeId ?: "-"}集 · ${snap.completedShots}/${snap.totalShots} 镜完成",
@@ -154,8 +154,8 @@ fun QueuePage(
             }
             for ((shotId, stateName) in st.shotStates) {
                 item(key = shotId) {
-                    Card(Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    DramaCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier, horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) {
                                 Text(shotId, style = MaterialTheme.typography.bodyMedium)
                                 Row(verticalAlignment = Alignment.CenterVertically,
@@ -268,8 +268,8 @@ private fun PreviewQueuePage() {
     MaterialTheme {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("渲染队列", style = MaterialTheme.typography.headlineSmall)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
+            DramaCard(Modifier.fillMaxWidth()) {
+                Column(Modifier) {
                     Text("第p1_ep1集 · 12/24 镜完成", style = MaterialTheme.typography.titleMedium)
                     LinearProgressIndicator(progress = { 0.5f }, modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -282,8 +282,8 @@ private fun PreviewQueuePage() {
                 "s001" to shotStateLabelStatic("SUBMITTED"),
                 "s002" to shotStateLabelStatic("COMPLETED"),
                 "s003" to shotStateLabelStatic("RECONCILE"))) {
-                Card(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                DramaCard(Modifier.fillMaxWidth()) {
+                    Row(Modifier, horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(sid); Text(label, color = MaterialTheme.colorScheme.outline)
                     }
                 }

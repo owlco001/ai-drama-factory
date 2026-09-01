@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,7 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
+import com.dramafactory.app.ui.components.LocalDramaSnackbar
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material.icons.Icons
@@ -54,6 +55,7 @@ fun ProjectsPage(
 ) {
     val st by vm.state.collectAsState()
     val context = LocalContext.current
+    val snackbar = LocalDramaSnackbar.current
     var deleteTarget by remember { mutableStateOf<ProjectsLogic.ProjectItem?>(null) }
 
     // 小说文件选择器（TXT/MD）
@@ -77,8 +79,8 @@ fun ProjectsPage(
         // 第九轮：数据库初始化失败诊断横幅（建项目无反应的根因可视化）
         if (com.dramafactory.app.AppGraph.roomInitError != null) {
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DramaCard(Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(Icons.Default.Warning, contentDescription = null,
@@ -98,8 +100,8 @@ fun ProjectsPage(
             HomeModelConfigCard(onOpenSettings)
         }
         item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            DramaCard(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("新建项目", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(value = st.newName, onValueChange = vm::onNameChanged,
                         label = { Text("项目名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -161,8 +163,8 @@ fun ProjectsPage(
             }
         }
         items(st.projects, key = { it.projectId }) { p ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp),
+            DramaCard(Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text(p.name, style = MaterialTheme.typography.titleMedium)
@@ -187,7 +189,11 @@ fun ProjectsPage(
             title = { Text("删除项目「${target.name}」？") },
             text = { Text("项目的资产、分镜与渲染记录将一并删除，不可恢复。") },
             confirmButton = {
-                Button(onClick = { vm.delete(target.projectId); deleteTarget = null }) { Text("删除") }
+                Button(onClick = {
+                    vm.delete(target.projectId)
+                    snackbar.show("已删除项目「${target.name}」")
+                    deleteTarget = null
+                }) { Text("删除") }
             },
             dismissButton = { OutlinedButton(onClick = { deleteTarget = null }) { Text("取消") } },
         )
@@ -221,8 +227,8 @@ private fun HomeModelConfigCard(onOpenSettings: () -> Unit) {
     if (!checked) return
 
     val missing = listOf(!hasText to "文本", !hasVideo to "视频", !hasImage to "图像").filter { it.first }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DramaCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("模型配置", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
@@ -276,8 +282,8 @@ private fun PreviewProjects() {
     MaterialTheme {
         Column {
             Text("AI短剧工厂", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(16.dp))
-            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(Modifier.padding(16.dp)) {
+            DramaCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Column(Modifier) {
                     Text("新建项目", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(value = "", onValueChange = {}, label = { Text("项目名称") })
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -286,8 +292,8 @@ private fun PreviewProjects() {
                     }
                 }
             }
-            Card(Modifier.fillMaxWidth().padding(16.dp)) {
-                Row(Modifier.padding(16.dp)) {
+            DramaCard(Modifier.fillMaxWidth().padding(16.dp)) {
+                Row(Modifier) {
                     Column(Modifier.weight(1f)) {
                         Text("霸总爱上机器人")
                         Text("0字 · 08-25 12:00", style = MaterialTheme.typography.bodySmall)

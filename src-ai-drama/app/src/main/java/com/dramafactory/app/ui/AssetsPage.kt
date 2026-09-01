@@ -34,8 +34,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -59,6 +57,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,6 +85,7 @@ import coil.compose.AsyncImage
 import com.dramafactory.app.AppGraph
 import com.dramafactory.app.ui.theme.DramaColor
 import com.dramafactory.app.ui.theme.DramaGradient
+import com.dramafactory.app.ui.theme.DramaSpacing
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -309,13 +309,13 @@ fun AssetsPage(
 
             // ---- 剧本模式 · 资产生成 主卡片 ----
             item(span = { GridItemSpan(2) }) {
-                Card(
+                DramaCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentPadding = PaddingValues(0.dp),
                 ) {
                     Box(Modifier.fillMaxWidth().height(2.dp).background(DramaGradient.hero()))
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.padding(DramaSpacing.lg), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(painterResource(R.drawable.ic_sparkle), contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
@@ -355,12 +355,11 @@ fun AssetsPage(
 
             // ---- 时代红线 ----
             item(span = { GridItemSpan(2) }) {
-                Card(
+                DramaCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(DramaSpacing.lg), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(painterResource(R.drawable.ic_shield), contentDescription = "时代红线",
                                 tint = DramaColor.Warning, modifier = Modifier.size(22.dp))
@@ -477,8 +476,8 @@ fun AssetsPage(
             // ---- 多选操作栏 ----
             if (selectionMode) {
                 item(span = { GridItemSpan(2) }) {
-                    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
-                        Row(Modifier.padding(12.dp),
+                    DramaCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Text("已选 ${selectedIds.value.size} 项",
@@ -501,8 +500,8 @@ fun AssetsPage(
             // ---- 引擎未就绪 ----
             if (vm == null) {
                 item(span = { GridItemSpan(2) }) {
-                    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
-                        Text("引擎未就绪，请重启应用后重试", Modifier.padding(16.dp),
+                    DramaCard(Modifier.fillMaxWidth()) {
+                        Text("引擎未就绪，请重启应用后重试", Modifier,
                             color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -678,12 +677,12 @@ private fun GridAssetCard(
     } else {
         MaterialTheme.colorScheme.outlineVariant
     }
-    Card(
+    DramaCard(
         onClick = { if (selectionMode) onToggleSelect() else onOpenEditor() },
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(1.dp, borderColor)
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, borderColor),
+        contentPadding = PaddingValues(0.dp),
     ) {
         Column {
             // 缩略图区

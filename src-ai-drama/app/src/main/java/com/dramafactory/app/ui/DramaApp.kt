@@ -36,7 +36,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
+import com.dramafactory.app.ui.components.DramaSnackbarController
+import com.dramafactory.app.ui.components.DramaSnackbarHost
+import com.dramafactory.app.ui.components.LocalDramaSnackbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -173,7 +179,16 @@ fun DramaApp() {
         }
     }
 
+    // v1.8.5：统一瞬时反馈通道。SnackbarHost 挂在 Scaffold 上（唯一宿主，视觉走 DramaFactory 规格），
+    // controller 经 CompositionLocal 注入，页面任意位置 LocalDramaSnackbar.current.show(...) 即可触发。
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    val snackbarController = remember(snackbarHostState, snackbarScope) {
+        DramaSnackbarController(snackbarHostState, snackbarScope)
+    }
+    CompositionLocalProvider(LocalDramaSnackbar provides snackbarController) {
     Scaffold(
+        snackbarHost = { DramaSnackbarHost(snackbarHostState) },
         topBar = {
             // 子页（剧集/设置）显示返回箭头；主页面显示设置齿轮
             TopAppBar(
@@ -281,6 +296,7 @@ fun DramaApp() {
             }
             AiAssistantFloating(aiVm)
         }
+    }
     }
 }
 

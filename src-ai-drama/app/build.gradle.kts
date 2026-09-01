@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 64
-        versionName = "1.8.4"  // v1.8.4: 激活文本模型落盘持久化，重启不回退默认 agnes
+        versionCode = 65
+        versionName = "1.8.5"  // v1.8.5: 统一分区卡片(DramaCard) + 间距 token + 全局主题化 Snackbar
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

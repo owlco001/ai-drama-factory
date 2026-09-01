@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -54,8 +54,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         PageHeader(title = "设置", subtitle = "模型供应商 · Key 加密存储 · 渲染参数")
 
         // ---- 供应商选择（第四轮：多模型选择器）----
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("视频模型供应商", style = MaterialTheme.typography.titleMedium)
                 Text("当前：${st.providerLabel}", style = MaterialTheme.typography.bodyMedium)
                 for (p in ProviderRegistry.ALL) {
@@ -80,8 +80,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
 
         // ---- 自定义模型（OpenAI兼容格式，第四轮）----
         if (st.selectedProviderId == "custom") {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            DramaCard(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("自定义模型配置", style = MaterialTheme.typography.titleMedium)
                     Text("协议默认模板：POST {base_url}/videos 提交，GET {base_url}/videos/{id} 轮询（OpenAI兼容/pavo agnes_client.py 同构）。提交体含 model、prompt、keyframes 双帧、generate_audio。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
@@ -105,8 +105,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         }
 
         // ---- API Key输入 + 测试连通 + 保存 ----
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("API Key", style = MaterialTheme.typography.titleMedium)
                 Text("（视频通道 · 当前供应商：${st.providerLabel}）",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
@@ -156,8 +156,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         TextModelSettingsBlock()
 
         // ---- ROM保活指引入口（Q7）----
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("渲染保活指引", style = MaterialTheme.typography.titleMedium)
                 Text("国产ROM（小米/华为/OPPO/vivo）需手动允许后台运行：",
                     style = MaterialTheme.typography.bodySmall)
@@ -169,8 +169,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         }
 
         // ---- 开源信息（MIT License + 项目地址，点击可复制）----
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("关于 · 开源", style = MaterialTheme.typography.titleMedium)
                 Text("AI短剧工厂", style = MaterialTheme.typography.bodyMedium)
                 val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -234,8 +234,8 @@ fun TextModelSettingsBlock() {
         testResult = null
     }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DramaCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("文本模型（AI 全托管用")
             Text("选择「大脑」：AI 模式内粘贴剧本文本自动生成内容时调用此模型。视频/图像生成走上方供应商，不受影响。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
@@ -378,8 +378,8 @@ fun VideoParamsBlock(vm: SettingsViewModel) {
         savedTip = true
     }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DramaCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("视频参数（渲染时按镜生效）", style = MaterialTheme.typography.titleMedium)
             Text("分辨率 / 时长(帧数) / 帧率会透传给视频模型。改完点保存，下一次渲染立即生效，已排队的任务不受影响。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
@@ -434,8 +434,8 @@ fun ImageModelBlock(vm: SettingsViewModel) {
 
     LaunchedEffect(Unit) { vm.refreshImageKey() }
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DramaCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("图像模型（资产图 / 封面图）", style = MaterialTheme.typography.titleMedium)
             Text("图像与视频是独立 Key 通道。没配过时图像生成会回退用视频通道的 Key。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
@@ -520,8 +520,8 @@ private fun PreviewSettingsIdle() {
     MaterialTheme {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("设置", style = MaterialTheme.typography.headlineSmall)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            DramaCard(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("视频模型供应商", style = MaterialTheme.typography.titleMedium)
                     Text("Agnes（MVP唯一供应商）")
                     OutlinedTextField(value = "sk-test", onValueChange = {}, label = { Text("输入 sk- 开头的API Key") })

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -25,6 +24,7 @@ import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
@@ -80,8 +80,8 @@ fun LibraryPage() {
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for ((epId, done, total) in episodes.value) {
                 item(key = epId) {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp),
+                    DramaCard(Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier,
                             verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("第$epId 集", style = MaterialTheme.typography.titleMedium)
                             val doneAll = done == total && total > 0
@@ -221,8 +221,8 @@ private fun PreviewLibrary() {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("成片库", style = MaterialTheme.typography.headlineSmall)
             for ((name, sub) in listOf("第p1_ep1 集" to "已完成 · 可导出", "第p2_ep1 集" to "12/24 镜完成")) {
-                Card(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                DramaCard(Modifier.fillMaxWidth()) {
+                    Row(Modifier, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column { Text(name); Text(sub, style = MaterialTheme.typography.bodySmall) }
                         OutlinedButton(onClick = {}) { Text("导出分享") }
                     }

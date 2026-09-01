@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -21,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
@@ -63,8 +63,8 @@ fun EpisodePage(
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (ep in episodes.value) {
                     item(key = ep.episode_id) {
-                        Card(Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        DramaCard(Modifier.fillMaxWidth()) {
+                            Row(Modifier, horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
                                     Text("第${ep.ep_no}集", style = MaterialTheme.typography.titleMedium)
                                     val chars = ep.script_json?.length ?: 0

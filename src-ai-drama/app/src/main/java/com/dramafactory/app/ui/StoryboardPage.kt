@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -26,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
 import com.dramafactory.app.ui.components.LoadingRow
 import androidx.compose.foundation.layout.Spacer
@@ -103,13 +103,12 @@ fun StoryboardPage(
         scriptText?.let { script ->
             if (script.isNotBlank()) {
                 item {
-                    Card(
+                    DramaCard(
                         onClick = { showScript = !showScript },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = androidx.compose.material3.CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     ) {
-                        Column(Modifier.padding(12.dp)) {
+                        Column(Modifier) {
                             Row(Modifier.fillMaxWidth(),
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween) {
@@ -176,9 +175,9 @@ fun StoryboardPage(
         }
         queuedCount?.let { n ->
             item {
-                Card(Modifier.fillMaxWidth()) {
+                DramaCard(Modifier.fillMaxWidth()) {
                     Row(
-                        Modifier.padding(12.dp),
+                        Modifier,
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -198,8 +197,8 @@ fun StoryboardPage(
         }
         st.message?.let { msg ->
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Text(msg, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
+                DramaCard(Modifier.fillMaxWidth()) {
+                    Text(msg, style = MaterialTheme.typography.bodySmall,
                         color = if (msg.startsWith("已生成") || msg.contains("✓")) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.error)
                 }
@@ -216,11 +215,11 @@ fun StoryboardPage(
             }
         }
         items(st.shots, key = { it.shot_id }) { shot ->
-            Card(
+            DramaCard(
                 onClick = { editingShotId = shot.shot_id },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("#${shot.shot_no} · ${shot.duration_seconds.toInt()}秒",
                             style = MaterialTheme.typography.titleSmall)
