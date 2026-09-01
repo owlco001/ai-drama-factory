@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 65
-        versionName = "1.8.5"  // v1.8.5: 统一分区卡片(DramaCard) + 间距 token + 全局主题化 Snackbar
+        versionCode = 66
+        versionName = "1.8.6"  // v1.8.6: textProviderFor 以激活文本模型为准(修复激活模型形同摆设) + 解析一致性单测
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -199,35 +199,20 @@ object AppGraph {
 
     /**
      * 解析当前激活的文本模型 Provider，key 多候选兜底。
-     * 修「no key for config text-agnes」：AndroidKeyVault 存文本 key 用 text- 前缀，
-     * 而 router 内部按裸 agnes/deepseek 读 → 不匹配。这里按候选顺序取第一个非空 key，
-     * 无论用户在设置页把 key 存到 text-agnes / agnes / deepseek / text-deepseek / agnes-text 哪个 id 都能读到。
+     *
+     * 一致性契约（v1.8.6 理清，修复此前「激活模型形同摆设」）：
+     *   - [textModelRouter.activeTextModelId] 是用户在设置页 / AI 对话页选定的激活模型，
+     *     已落盘（v1.8.4）、默认 agnes，是选路的**唯一依据**。
+     *   - 此前这里写死 DeepSeek 优先候选表，只要任意 DeepSeek key 存在就走 DeepSeek，
+     *     与 v1.8.2（默认 agnes）、v1.8.4（激活持久化）的语义冲突。现改为以激活模型为准。
+     *   - 优先用激活 provider 的 key（多前缀兜底：text-<id> / <id> / <id>-text / <id>-chat）；
+     *     激活 provider 无 key 时，若另一 provider 有 key 则临时优雅回退，保证链路不中断；
+     *     两者都无 key：空跑激活 provider，由上层提示去设置页配置。
      */
     internal suspend fun textProviderFor(): com.dramafactory.core.provider.TextProvider {
         val active = textModelRouter.activeTextModelId()
-        // DeepSeek 优先（用户明确：APP 文字模型用 DeepSeek），其次 Agnes。
-        // 候选 configId 同时覆盖 keyVault 可能的 text- 前缀与裸 id。
-        val candidates = listOf(
-            "text-deepseek" to "deepseek",
-            "deepseek" to "deepseek",
-            "deepseek-chat" to "deepseek",
-            "text-agnes" to "agnes",
-            "agnes" to "agnes",
-            "agnes-text" to "agnes",
-        )
-        // 按候选顺序取第一个非空 key，并记住命中的 providerId，避免受 active 默认值误导。
-        var hitProvider: String? = null
-        val key = candidates.firstNotNullOfOrNull { (cfgId, prov) ->
-            val k = runCatching { keyVault.load(cfgId) }.getOrNull()?.takeIf { it.isNotBlank() }
-            if (k != null) { hitProvider = prov; k } else null
-        }.orEmpty()
-        if (key.isBlank()) {
-            // 都没 key：用激活模型（或默认 deepseek）的 provider 空跑，让上层显示"调用失败"引导去设置。
-            hitProvider = if (active.startsWith("deepseek")) "deepseek" else "agnes"
-        }
-        return when (hitProvider) {
-            "deepseek" -> com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
-            else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key })
+        return resolveTextProviderFor(active) { cfgId ->
+            runCatching { keyVault.load(cfgId) }.getOrNull()?.takeIf { it.isNotBlank() }
         }
     }
 
@@ -667,4 +652,45 @@ object AppGraph {
             runCatching { crashFile(context.applicationContext) }
                 .getOrNull()?.takeIf { it.exists() }?.readText()
     }
+}
+
+// ---- 文本 Provider 解析（文件级纯函数，便于 JVM 单测，不触发 object AppGraph 的 init）----
+
+/** 某 provider 在 keyVault 中可能落库的 configId 候选（多前缀兜底，历史兼容） */
+private fun textKeyConfigIds(providerId: String): List<String> = when (providerId) {
+    "deepseek" -> listOf("text-deepseek", "deepseek", "deepseek-chat")
+    else -> listOf("text-agnes", "agnes", "agnes-text")
+}
+
+/** 按 providerId 构造带 key 的 TextProvider（空 key 即上层应引导去设置页的空跑态） */
+private fun buildTextProvider(providerId: String, key: String): com.dramafactory.core.provider.TextProvider =
+    when (providerId) {
+        "deepseek" -> com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
+        else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key })
+    }
+
+/**
+ * 以激活文本模型为准解析实际 Provider（一致性契约见 [textProviderFor]）。
+ *
+ * 选路：激活 provider 优先 → 无 key 则另一 provider 优雅回退 → 都无 key 空跑激活 provider。
+ * [keyLoader] 接收 configId，返回非空 key 或 null（缺失/空白）。
+ */
+internal suspend fun resolveTextProviderFor(
+    active: String,
+    keyLoader: suspend (String) -> String?,
+): com.dramafactory.core.provider.TextProvider {
+    val isDeepseek = active.startsWith("deepseek", ignoreCase = true)
+    val primary = if (isDeepseek) "deepseek" else "agnes"
+    val fallback = if (isDeepseek) "agnes" else "deepseek"
+
+    // 1) 优先激活 provider 的 key
+    val primaryKey = textKeyConfigIds(primary).firstNotNullOfOrNull { keyLoader(it) }
+    if (primaryKey != null) return buildTextProvider(primary, primaryKey)
+
+    // 2) 激活 provider 无 key → 另一 provider 有 key 则临时优雅回退
+    val fbKey = textKeyConfigIds(fallback).firstNotNullOfOrNull { keyLoader(it) }
+    if (fbKey != null) return buildTextProvider(fallback, fbKey)
+
+    // 3) 都无 key → 空跑激活 provider，由上层提示去设置页配置
+    return buildTextProvider(primary, "")
 }
