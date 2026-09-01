@@ -1,4 +1,5 @@
 package com.dramafactory.app.ui
+import com.dramafactory.core.provider.AgnesRegion
 import com.dramafactory.core.provider.DefaultTextModelRouter
 
 import kotlinx.coroutines.launch
@@ -27,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.DramaCard
+import com.dramafactory.app.ui.components.DramaFilterChip
 import com.dramafactory.app.ui.components.LocalDramaSnackbar
 import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material.icons.Icons
@@ -147,6 +149,53 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
             }
         }
 
+        // ---- Agnes 站点（v1.8.8：中国站/国际站，影响视频/图像/文本全部通道）----
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // CompositionLocal 必须在 @Composable 作用域取值，再于 onClick 内复用该控制器
+                val snackbar = LocalDramaSnackbar.current
+                Text("Agnes 站点", style = MaterialTheme.typography.titleMedium)
+                Text("选择网关地域：中国站为国内镜像（api.agnes-ai.cn），覆盖文本/视频/图像全部接口；切换即时生效（视频/图像无需重启）。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                var region by remember { mutableStateOf(DefaultTextModelRouter.agnesRegion) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DramaFilterChip(
+                        selected = region == AgnesRegion.INTERNATIONAL,
+                        onClick = {
+                            if (region != AgnesRegion.INTERNATIONAL) {
+                                region = AgnesRegion.INTERNATIONAL
+                                // 主线程同步置位 + 热重建，避免与 video/image provider 读取竞态
+                                DefaultTextModelRouter.agnesRegion = AgnesRegion.INTERNATIONAL
+                                com.dramafactory.app.AppGraph.applyAgnesRegion()
+                                kotlinx.coroutines.GlobalScope.launch {
+                                    DefaultTextModelRouter.store.saveAgnesRegion(AgnesRegion.INTERNATIONAL)
+                                }
+                                snackbar.show("已切换到 Agnes 国际站")
+                            }
+                        },
+                        label = { Text("国际站") }
+                    )
+                    DramaFilterChip(
+                        selected = region == AgnesRegion.CHINA,
+                        onClick = {
+                            if (region != AgnesRegion.CHINA) {
+                                region = AgnesRegion.CHINA
+                                DefaultTextModelRouter.agnesRegion = AgnesRegion.CHINA
+                                com.dramafactory.app.AppGraph.applyAgnesRegion()
+                                kotlinx.coroutines.GlobalScope.launch {
+                                    DefaultTextModelRouter.store.saveAgnesRegion(AgnesRegion.CHINA)
+                                }
+                                snackbar.show("已切换到 Agnes 中国站")
+                            }
+                        },
+                        label = { Text("中国站") }
+                    )
+                }
+                Text("当前：${if (region == AgnesRegion.CHINA) "中国站 api.agnes-ai.cn/v1" else "国际站 apihub.agnes-ai.com/v1"}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+        }
+
         // ---- 视频参数（v1.7.18：多参充分利用）----
         VideoParamsBlock(vm)
 
@@ -254,7 +303,10 @@ fun TextModelSettingsBlock() {
                     })
                     Column(Modifier.weight(1f)) {
                         Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                        Text("模型：${entry.modelId} · Base：${entry.baseUrl}",
+                        val shownBase = if (entry.providerId == "agnes" &&
+                            DefaultTextModelRouter.agnesRegion == AgnesRegion.CHINA)
+                            com.dramafactory.core.provider.AgnesProvider.BASE_URL_CN else entry.baseUrl
+                        Text("模型：${entry.modelId} · Base：$shownBase",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline)
                     }

@@ -39,6 +39,30 @@ object AppGraph {
     val text get() = agnes
     val image get() = agnes
     lateinit var budgetGuard: DefaultBudgetGuard; private set
+
+    // v1.8.8：自定义模型 override（由 refreshConfiguredProviders 写入），rebuildAgnes() 复用，
+    // 保证运行时切换 Agnes 站点时自定义模型配置不丢。
+    private var agnesBaseUrlOverride: String? = null
+    private var agnesVideoModelOverride: String? = null
+    private var agnesImageModelOverride: String? = null
+
+    /** v1.8.8：按当前 region + 已配置 override 重建 video/image Agnes provider。 */
+    private fun rebuildAgnes() {
+        agnes = com.dramafactory.core.provider.AgnesProvider(
+            apiKeyProvider = {
+                listOf(CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes")
+                    .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
+                    .orEmpty()
+            },
+            baseUrlOverride = agnesBaseUrlOverride,
+            videoModelOverride = agnesVideoModelOverride,
+            imageModelOverride = agnesImageModelOverride,
+            region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
+        )
+    }
+
+    /** v1.8.8：设置页切换 Agnes 站点后调用，热重建 video/image provider（保留自定义模型 override）。 */
+    fun applyAgnesRegion() = rebuildAgnes()
     lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
     lateinit var movieLibraryDao: MovieLibraryDao; internal set
 
@@ -86,16 +110,11 @@ object AppGraph {
         val vModel = vcfg?.takeIf { it.provider_id == "custom" }?.model
         val iModel = icfg?.takeIf { it.provider_id == "custom" }?.model
         if (baseUrl.isNullOrBlank() && vModel == null && iModel == null) return
-        agnes = AgnesProvider(
-            apiKeyProvider = {
-                listOf("custom-video", "custom-image", CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT)
-                    .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
-                    .orEmpty()
-            },
-            baseUrlOverride = baseUrl,
-            videoModelOverride = vModel,
-            imageModelOverride = iModel,
-        )
+        // v1.8.8：记录 override 后复用 rebuildAgnes()，与运行时 region 热切换共用同一构建逻辑
+        agnesBaseUrlOverride = baseUrl
+        agnesVideoModelOverride = vModel
+        agnesImageModelOverride = iModel
+        rebuildAgnes()
         Log.i("AppGraph", "已按自定义模型重建 provider: base=${baseUrl ?: "默认"} video=${vModel ?: "默认"} image=${iModel ?: "默认"}")
     }
 
@@ -211,9 +230,9 @@ object AppGraph {
      */
     internal suspend fun textProviderFor(): com.dramafactory.core.provider.TextProvider {
         val active = textModelRouter.activeTextModelId()
-        return resolveTextProviderFor(active) { cfgId ->
+        return resolveTextProviderFor(active, { cfgId ->
             runCatching { keyVault.load(cfgId) }.getOrNull()?.takeIf { it.isNotBlank() }
-        }
+        }, region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion)
     }
 
     /** 从剧本文本提取资产（文字模型走用户自选 DeepSeek 等，key 多候选兜底） */
@@ -316,13 +335,16 @@ object AppGraph {
                 checkpointStore = com.dramafactory.core.storage.InMemoryCheckpointStore()
                 roomInitError = t.message ?: t.javaClass.name
             }
+            // v1.8.8：预热 Agnes 服务站点（中国站/国际站），再按当前 region 构建 video/image provider
+            com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion = kotlinx.coroutines.runBlocking {
+                runCatching { keyVault.load(com.dramafactory.core.provider.PREF_AGNES_REGION) }
+                    .getOrNull()?.takeIf { it.isNotBlank() }
+                    ?.let { runCatching { com.dramafactory.core.provider.AgnesRegion.valueOf(it) }.getOrNull() }
+                    ?: com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL
+            }
             // 图像/视频统一走 Agnes：key 可能在设置页被存到 agnes / agnes-video / agnes-image 任一 configId，
             // 这里按候选顺序取第一个非空，避免"设了key但读不到"导致图像/视频生成401失败
-            agnes = AgnesProvider(apiKeyProvider = {
-                listOf(CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes")
-                    .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
-                    .orEmpty()
-            })
+            rebuildAgnes()
             // v1.7.18：按 provider_configs 里已保存的自定义模型重建 provider（"添加后能用"）。
             // 设置页保存自定义模型只落库 + KeyVault，此前运行时从不读表 → 自定义配置形同虚设。
             // 必须在 initialized=true 之后跑（refreshConfiguredProviders 内部早退保护），
@@ -663,10 +685,14 @@ private fun textKeyConfigIds(providerId: String): List<String> = when (providerI
 }
 
 /** 按 providerId 构造带 key 的 TextProvider（空 key 即上层应引导去设置页的空跑态） */
-private fun buildTextProvider(providerId: String, key: String): com.dramafactory.core.provider.TextProvider =
+private fun buildTextProvider(
+    providerId: String,
+    key: String,
+    region: com.dramafactory.core.provider.AgnesRegion,
+): com.dramafactory.core.provider.TextProvider =
     when (providerId) {
         "deepseek" -> com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
-        else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key })
+        else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key }, region = region)
     }
 
 /**
@@ -674,10 +700,13 @@ private fun buildTextProvider(providerId: String, key: String): com.dramafactory
  *
  * 选路：激活 provider 优先 → 无 key 则另一 provider 优雅回退 → 都无 key 空跑激活 provider。
  * [keyLoader] 接收 configId，返回非空 key 或 null（缺失/空白）。
+ * [region] 为 Agnes 服务站点（中国站/国际站），仅影响 Agnes 通道。
  */
 internal suspend fun resolveTextProviderFor(
     active: String,
     keyLoader: suspend (String) -> String?,
+    region: com.dramafactory.core.provider.AgnesRegion =
+        com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
 ): com.dramafactory.core.provider.TextProvider {
     val isDeepseek = active.startsWith("deepseek", ignoreCase = true)
     val primary = if (isDeepseek) "deepseek" else "agnes"
@@ -685,12 +714,12 @@ internal suspend fun resolveTextProviderFor(
 
     // 1) 优先激活 provider 的 key
     val primaryKey = textKeyConfigIds(primary).firstNotNullOfOrNull { keyLoader(it) }
-    if (primaryKey != null) return buildTextProvider(primary, primaryKey)
+    if (primaryKey != null) return buildTextProvider(primary, primaryKey, region)
 
     // 2) 激活 provider 无 key → 另一 provider 有 key 则临时优雅回退
     val fbKey = textKeyConfigIds(fallback).firstNotNullOfOrNull { keyLoader(it) }
-    if (fbKey != null) return buildTextProvider(fallback, fbKey)
+    if (fbKey != null) return buildTextProvider(fallback, fbKey, region)
 
     // 3) 都无 key → 空跑激活 provider，由上层提示去设置页配置
-    return buildTextProvider(primary, "")
+    return buildTextProvider(primary, "", region)
 }

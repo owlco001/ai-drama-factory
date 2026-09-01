@@ -13,6 +13,9 @@ const val DEFAULT_ACTIVE_TEXT_MODEL = "agnes"
 /** 持久化激活文本模型的独立 configId（借 KeyVault 落地，区别于 text-<provider> 的 Key 存储） */
 const val PREF_ACTIVE_TEXT_MODEL = "text-active-model"
 
+/** v1.8.8：Agnes 服务站点偏好（agnes-region，值= AgnesRegion.name：INTERNATIONAL / CHINA） */
+const val PREF_AGNES_REGION = "agnes-region"
+
 /** 已注册文本模型条目（T014 §2.3） */
 data class TextModelEntry(
     val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
@@ -51,6 +54,9 @@ interface TextModelStore {
     fun masked(providerId: String): String?
     fun isVerified(providerId: String): Boolean
     suspend fun markVerified(providerId: String, ok: Boolean)
+    /** v1.8.8：Agnes 服务站点（无值/异常时回退 INTERNATIONAL） */
+    fun loadAgnesRegion(): AgnesRegion
+    suspend fun saveAgnesRegion(region: AgnesRegion)
 }
 
 /**
@@ -59,6 +65,10 @@ interface TextModelStore {
 object DefaultTextModelRouter : TextModelRouter {
 
     var store: TextModelStore = InMemoryTextModelStore()
+
+    /** v1.8.8：Agnes 服务站点（影响 text 通道 + AppGraph 据此构建 video/image provider）。
+     * 默认国际站；AppGraph.init 从 KeyVault 预热为持久值。 */
+    var agnesRegion: AgnesRegion = AgnesRegion.INTERNATIONAL
 
     private val CANDIDATES = listOf(
         TextModelEntry(
@@ -111,7 +121,7 @@ object DefaultTextModelRouter : TextModelRouter {
         val useKey = key ?: store.loadKey(entry.providerId)
         if (useKey.isBlank()) return Result.failure(ProviderError.AuthError("API Key 为空，请先保存"))
         val result = when (entry.providerId) {
-            "agnes" -> AgnesProvider(apiKeyProvider = { useKey }).validateKey(useKey)
+            "agnes" -> AgnesProvider(apiKeyProvider = { useKey }, region = agnesRegion).validateKey(useKey)
             DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { useKey }).validateKey(useKey)
             else -> Result.failure(ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}"))
         }
@@ -124,7 +134,7 @@ object DefaultTextModelRouter : TextModelRouter {
         val entry = resolveId(modelId)
             ?: throw ProviderError.ValidationError("未知的文本模型: $modelId")
         return when (entry.providerId) {
-            "agnes" -> AgnesProvider(apiKeyProvider = { store.loadKey("agnes") })
+            "agnes" -> AgnesProvider(apiKeyProvider = { store.loadKey("agnes") }, region = agnesRegion)
             DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { store.loadKey(DeepSeekProvider.PROVIDER_ID) })
             else -> throw ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}")
         }
@@ -139,6 +149,9 @@ class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModel
     @Volatile private var activeModelId = DEFAULT_ACTIVE_TEXT_MODEL
     private val keys = mutableMapOf<String, String>()
     private val verified = mutableSetOf<String>()
+    /** v1.8.8：Agnes 站点内存缓存（KeyVault.load 为 suspend，非 suspend 读取走缓存；
+     * 持久值由 AppGraph.init 经 keyVault 预热到 DefaultTextModelRouter.agnesRegion） */
+    @Volatile private var agnesRegionCache = AgnesRegion.INTERNATIONAL
 
     override fun loadActiveModel(): String = activeModelId
 
@@ -170,5 +183,12 @@ class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModel
     override fun isVerified(providerId: String): Boolean = verified.contains(providerId)
     override suspend fun markVerified(providerId: String, ok: Boolean) {
         if (ok) verified.add(providerId) else verified.remove(providerId)
+    }
+
+    override fun loadAgnesRegion(): AgnesRegion = agnesRegionCache
+
+    override suspend fun saveAgnesRegion(region: AgnesRegion) {
+        agnesRegionCache = region
+        runCatching { keyVault?.save(PREF_AGNES_REGION, "", region.name) }
     }
 }

@@ -36,6 +36,13 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /**
+ * Agnes 服务站点（网关地域）。
+ * - INTERNATIONAL：官方国际站 apihub.agnes-ai.com（默认）
+ * - CHINA：中国站 api.agnes-ai.cn（国内可达，覆盖文本/视频/图像全部官方网关）
+ */
+enum class AgnesRegion { INTERNATIONAL, CHINA }
+
+/**
  * AgnesVideoAdapter —— Agnes/PavoAPI 三通道适配器（语义对齐 agnes_client.py v0.9.4+）。
  *
  * 实战继承要点（架构§4）：
@@ -63,9 +70,18 @@ class AgnesProvider(
     private val videoModelOverride: String? = null,
     /** 自定义图像模型 id，覆盖默认 agnes-image-2.1-flash */
     private val imageModelOverride: String? = null,
+    /** v1.8.8：服务站点。CHINA 时全部网关走中国站（覆盖 baseUrlOverride 之外的官方端点） */
+    private val region: AgnesRegion = AgnesRegion.INTERNATIONAL,
 ) : VideoProvider, TextProvider, ImageProvider {
 
-    private val effectiveBaseUrl: String get() = baseUrlOverride?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: BASE_URL
+    private val effectiveBaseUrl: String get() = when {
+        // 显式自定义模型优先（自定义供应商不走官方 Agnes 地域）
+        baseUrlOverride != null -> baseUrlOverride.trimEnd('/').takeIf { it.isNotBlank() } ?: BASE_URL
+        region == AgnesRegion.CHINA -> BASE_URL_CN
+        else -> BASE_URL
+    }
+    /** 测试可见：当前生效的网关 base（便于校验 region / 自定义 override 解析） */
+    internal val resolvedBaseUrl: String get() = effectiveBaseUrl
     private val effectiveVideoModel: String get() = videoModelOverride?.trim()?.takeIf { it.isNotBlank() } ?: MODEL_VIDEO
     private val effectiveImageModel: String get() = imageModelOverride?.trim()?.takeIf { it.isNotBlank() } ?: MODEL_IMAGE
 
@@ -81,6 +97,9 @@ class AgnesProvider(
     companion object {
         const val BASE_URL = "https://apihub.agnes-ai.com/v1"
         const val VIDEO_RESULT_URL = "https://apihub.agnes-ai.com/agnesapi" // ?video_id=...
+        /** v1.8.8：中国站网关（官方国内镜像，覆盖文本/视频/图像全部官方端点） */
+        const val BASE_URL_CN = "https://api.agnes-ai.cn/v1"
+        const val VIDEO_RESULT_URL_CN = "https://api.agnes-ai.cn/agnesapi" // ?video_id=...
         const val MODEL_TEXT = "agnes-2.5-flash"
         const val MODEL_TEXT_MID = "agnes-2.0-flash"     // 256K 上下文
         const val MODEL_TEXT_LIGHT = "agnes-1.5-flash"   // 256K，低延迟
@@ -333,10 +352,10 @@ class AgnesProvider(
 
     override suspend fun pollResult(providerTaskId: String): PollResult {
         // 自定义供应商走 OpenAI 兼容惯例 GET {base}/videos/{id}；Agnes 走官方推荐端点
-        val out = if (baseUrlOverride != null) {
-            getJson("$effectiveBaseUrl/videos/$providerTaskId")
-        } else {
-            getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId")
+        val out = when {
+            baseUrlOverride != null -> getJson("$effectiveBaseUrl/videos/$providerTaskId")
+            region == AgnesRegion.CHINA -> getJson("$VIDEO_RESULT_URL_CN?video_id=$providerTaskId")
+            else -> getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId")
         }
         val status = out["status"]?.jsonPrimitive?.content ?: "unknown"
         return when (status) {

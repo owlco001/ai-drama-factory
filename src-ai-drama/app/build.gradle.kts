@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 67
-        versionName = "1.8.7"  // v1.8.7: 统一 FilterChip 选中态(DramaFilterChip) + SettingsPage 复制反馈接 Snackbar
+        versionCode = 68
+        versionName = "1.8.8"  // v1.8.8: 增加 Agnes 中国站支持(region，覆盖文本/视频/图像全部通道)
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
