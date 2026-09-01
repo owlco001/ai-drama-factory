@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.width
 import com.dramafactory.app.ui.components.HeroButton
+import com.dramafactory.app.ui.components.LoadingRow
 import com.dramafactory.app.ui.components.StatusCard
 import com.dramafactory.app.ui.components.StatusMessage
 import com.dramafactory.app.ui.components.statusErr
@@ -555,13 +556,7 @@ fun AiPipelinePage(
         if (vm.hasStarted || vm.finishedEpId != null) {
             if (running) {
                 androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                Text("流水线运行中…", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary)
-                }
+                LoadingRow("流水线运行中：提取资产 → 生成图像 → 审计 → 分镜 → 渲染")
             }
             PipelineProgressSection(vm = vm, onBack = onBack, onNavigate = onNavigate)
         }

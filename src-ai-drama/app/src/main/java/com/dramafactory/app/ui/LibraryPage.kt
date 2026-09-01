@@ -22,6 +22,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.PageHeader
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.EmptyState
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -61,10 +66,12 @@ fun LibraryPage() {
         PageHeader(title = "成片库", subtitle = "已合成剧集 · 可播放与分享")
 
         if (episodes.value.isEmpty()) {
-            Card(Modifier.fillMaxWidth()) {
-                Text("暂无剧集。完成渲染后成片会出现在这里。", Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.outline)
-            }
+            EmptyState(
+                icon = { Icon(painterResource(R.drawable.ic_video_library), contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) },
+                title = "还没有成片",
+                subtitle = "渲染并合成完成后，成片会出现在这里，可直接播放或分享。",
+            )
             return@Column
         }
 

@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -506,24 +507,14 @@ fun AssetsPage(
                     }
                 }
             } else if (filteredAssets.isEmpty()) {
-                // v1.7.14：空状态插画
+                // v1.8.3：改用统一 EmptyState 组件（保留插画主视觉）
                 item(span = { GridItemSpan(2) }) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Image(
-                            painter = painterResource(R.drawable.ui_empty_assets),
-                            contentDescription = "资产为空",
-                            modifier = Modifier.size(180.dp)
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text("还没有资产", style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("上传图片或让 AI 从剧本提取角色/场景/道具",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    EmptyState(
+                        illustration = painterResource(R.drawable.ui_empty_assets),
+                        illustrationDesc = "资产为空",
+                        title = "还没有资产",
+                        subtitle = "上传图片或让 AI 从剧本提取角色/场景/道具",
+                    )
                 }
             } else {
                 // 两列资产网格

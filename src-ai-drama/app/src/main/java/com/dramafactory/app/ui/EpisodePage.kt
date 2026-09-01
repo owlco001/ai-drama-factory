@@ -18,6 +18,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.EmptyState
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -48,10 +53,12 @@ fun EpisodePage(
         Text("剧集 · ${projectName ?: projectId}", style = MaterialTheme.typography.headlineSmall)
 
         if (episodes.value.isEmpty()) {
-            Card(Modifier.fillMaxWidth()) {
-                Text("本项目还没有剧集。点「新增剧集」开始制作。",
-                    Modifier.padding(16.dp), color = MaterialTheme.colorScheme.outline)
-            }
+            EmptyState(
+                icon = { Icon(painterResource(R.drawable.ic_movie), contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) },
+                title = "还没有剧集",
+                subtitle = "点下方「新增剧集」开始制作，AI 会从剧本拆解镜头并生成成片。",
+            )
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (ep in episodes.value) {

@@ -26,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.EmptyState
+import com.dramafactory.app.ui.components.LoadingRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -158,6 +160,9 @@ fun StoryboardPage(
                 enabled = !st.generating,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (st.generating) {
+                LoadingRow("正在拆解镜头并生成视觉指令，通常需要十几秒…")
+            }
         }
         if (st.shots.isNotEmpty()) {
             item {
@@ -202,10 +207,12 @@ fun StoryboardPage(
         }
         if (!st.generating && st.shots.isEmpty()) {
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("本集暂无分镜。导入剧本后点上方「AI 生成分镜」，由大模型自动拆解镜头并生成视觉指令。",
-                        Modifier.padding(16.dp), color = MaterialTheme.colorScheme.outline)
-                }
+                EmptyState(
+                    icon = { Icon(painterResource(R.drawable.ic_movie), contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) },
+                    title = "还没有分镜",
+                    subtitle = "导入剧本后点上方「AI 生成分镜」，大模型会自动拆解镜头并生成视觉指令。",
+                )
             }
         }
         items(st.shots, key = { it.shot_id }) { shot ->

@@ -29,6 +29,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -139,6 +142,16 @@ fun QueuePage(
         // 「无限最大高度」测量 —— foundation 1.4+ 不再抛异常，但会退化为一次性全量排版
         // （丢掉复用）且超出屏幕部分滚不到。给它剩余空间才能正常懒加载 + 滚动。
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (st.shotStates.isEmpty()) {
+                item {
+                    EmptyState(
+                        icon = { Icon(painterResource(R.drawable.ic_videocam), contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) },
+                        title = "队列是空的",
+                        subtitle = "先到分镜页生成镜头，再点「开始渲染」把它们送进渲染队列。",
+                    )
+                }
+            }
             for ((shotId, stateName) in st.shotStates) {
                 item(key = shotId) {
                     Card(Modifier.fillMaxWidth()) {

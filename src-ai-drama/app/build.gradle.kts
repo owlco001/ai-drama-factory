@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 62
-        versionName = "1.8.2"  // v1.8.2: 文本通道默认模型修正为 Agnes + 资产提取协程异常兜底（修崩溃与单测污染）
+        versionCode = 63
+        versionName = "1.8.3"  // v1.8.3: 空状态/加载态组件化 + 全局最小触摸目标 48dp
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

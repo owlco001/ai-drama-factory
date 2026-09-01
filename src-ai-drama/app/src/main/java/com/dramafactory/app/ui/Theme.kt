@@ -2,7 +2,10 @@ package com.dramafactory.app.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.dp
 import com.dramafactory.app.ui.theme.DramaColor
 import com.dramafactory.app.ui.theme.DramaShapes
 import com.dramafactory.app.ui.theme.DramaTypography
@@ -58,10 +61,17 @@ fun DramaFactoryTheme(
     darkTheme: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = DarkScheme,          // 本规格以暗色为主，浅色暂不优化
-        typography = DramaTypography,
-        shapes = DramaShapes,
-        content = content,
-    )
+    // v1.8.3：全局最小可交互尺寸提到 48dp（Material3 默认 48，但 Button 的
+    // 实际高度会被内容压到 40dp，小按钮手指点不准）。在这里统一提一次，
+    // 全 App 的 Button / IconButton / Checkbox / Switch 都跟着受益。
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalMinimumInteractiveComponentSize provides 48.dp,
+    ) {
+        MaterialTheme(
+            colorScheme = DarkScheme,      // 本规格以暗色为主，浅色暂不优化
+            typography = DramaTypography,
+            shapes = DramaShapes,
+            content = content,
+        )
+    }
 }

@@ -29,6 +29,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import com.dramafactory.app.R
+import com.dramafactory.app.ui.components.EmptyState
 import androidx.compose.ui.Alignment
 import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material.icons.Icons
@@ -145,6 +148,16 @@ fun ProjectsPage(
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
                 }
+            }
+        }
+        if (st.projects.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) },
+                    title = "还没有项目",
+                    subtitle = "填个名字、贴一段小说或剧本，AI 会帮你拆成资产、分镜和成片。",
+                )
             }
         }
         items(st.projects, key = { it.projectId }) { p ->
