@@ -21,9 +21,21 @@ import kotlinx.coroutines.withContext
 class SettingsLogic(
     private val videoProvider: VideoProvider,
     private val keyVault: KeyVault,
-    private val configId: String,
+    configId: String,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    /**
+     * v1.8.9：Agnes Key 按 region 分池（中国站与国际站不共用 Key）。
+     * 默认=构造传入（国际站 agnes-video）；切换 Agnes 站点后由 SettingsViewModel 更新为
+     * agnesScopedConfigId(CONFIG_VIDEO, region) 并触发 refresh() 刷新掩码。
+     */
+    var scopedConfigId: String = configId
+        private set
+
+    /** v1.8.9：region 切换后更新 Key 池目标 configId */
+    fun updateConfigId(newConfigId: String) {
+        scopedConfigId = newConfigId
+    }
 
     /** 页面状态 */
     data class UiState(
@@ -50,9 +62,9 @@ class SettingsLogic(
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> get() = _state
 
-    /** 进入页面时刷新已存Key掩码 */
+    /** 进入页面时刷新已存Key掩码（v1.8.9：按当前 region 分池的 configId 读取） */
     suspend fun refresh() {
-        val masked = runCatching { keyVault.masked(configId) }
+        val masked = runCatching { keyVault.masked(scopedConfigId) }
             .getOrNull()?.takeIf { it != "<empty>" }
         _state.value = _state.value.copy(maskedSaved = masked, saved = false)
     }
@@ -143,7 +155,7 @@ class SettingsLogic(
         if (key.isEmpty()) return false
         val tested = (_state.value.testResult as? TestResult.Success) != null
         if (!tested && !forceWithoutTest) return false
-        withContext(io) { keyVault.save(configId, videoProvider.id, key) }
+        withContext(io) { keyVault.save(scopedConfigId, videoProvider.id, key) }
         _state.value = _state.value.copy(keyInput = "", saved = true)
         refresh()
         return true
@@ -151,7 +163,7 @@ class SettingsLogic(
 
     /** 删除已存Key（换Key前清理） */
     suspend fun deleteKey() {
-        withContext(io) { keyVault.delete(configId) }
+        withContext(io) { keyVault.delete(scopedConfigId) }
         _state.value = _state.value.copy(maskedSaved = null, testResult = null)
     }
 }

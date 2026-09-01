@@ -49,6 +49,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun SettingsPage(vm: SettingsViewModel = viewModel()) {
     val st by vm.state.collectAsState()
+    // v1.8.9：Agnes 站点状态提升到页面级——站点卡片切换、文本块掩码刷新共用同一状态源
+    var agnesRegion by remember { mutableStateOf(DefaultTextModelRouter.agnesRegion) }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -155,43 +157,46 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                 // CompositionLocal 必须在 @Composable 作用域取值，再于 onClick 内复用该控制器
                 val snackbar = LocalDramaSnackbar.current
                 Text("Agnes 站点", style = MaterialTheme.typography.titleMedium)
-                Text("选择网关地域：中国站为国内镜像（api.agnes-ai.cn），覆盖文本/视频/图像全部接口；切换即时生效（视频/图像无需重启）。",
+                Text("选择网关地域：中国站为国内镜像（api.agnes-ai.cn）。两站 API Key 相互独立、分开保存，切换后请确认已配置当前站点的 Key；切换即时生效（视频/图像无需重启）。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                var region by remember { mutableStateOf(DefaultTextModelRouter.agnesRegion) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DramaFilterChip(
-                        selected = region == AgnesRegion.INTERNATIONAL,
+                        selected = agnesRegion == AgnesRegion.INTERNATIONAL,
                         onClick = {
-                            if (region != AgnesRegion.INTERNATIONAL) {
-                                region = AgnesRegion.INTERNATIONAL
+                            if (agnesRegion != AgnesRegion.INTERNATIONAL) {
+                                agnesRegion = AgnesRegion.INTERNATIONAL
                                 // 主线程同步置位 + 热重建，避免与 video/image provider 读取竞态
                                 DefaultTextModelRouter.agnesRegion = AgnesRegion.INTERNATIONAL
                                 com.dramafactory.app.AppGraph.applyAgnesRegion()
+                                vm.onAgnesRegionChanged(AgnesRegion.INTERNATIONAL)
+                                vm.refreshImageKey()
                                 kotlinx.coroutines.GlobalScope.launch {
                                     DefaultTextModelRouter.store.saveAgnesRegion(AgnesRegion.INTERNATIONAL)
                                 }
-                                snackbar.show("已切换到 Agnes 国际站")
+                                snackbar.show("已切换到 Agnes 国际站（请确认已配置国际站 Key）")
                             }
                         },
                         label = { Text("国际站") }
                     )
                     DramaFilterChip(
-                        selected = region == AgnesRegion.CHINA,
+                        selected = agnesRegion == AgnesRegion.CHINA,
                         onClick = {
-                            if (region != AgnesRegion.CHINA) {
-                                region = AgnesRegion.CHINA
+                            if (agnesRegion != AgnesRegion.CHINA) {
+                                agnesRegion = AgnesRegion.CHINA
                                 DefaultTextModelRouter.agnesRegion = AgnesRegion.CHINA
                                 com.dramafactory.app.AppGraph.applyAgnesRegion()
+                                vm.onAgnesRegionChanged(AgnesRegion.CHINA)
+                                vm.refreshImageKey()
                                 kotlinx.coroutines.GlobalScope.launch {
                                     DefaultTextModelRouter.store.saveAgnesRegion(AgnesRegion.CHINA)
                                 }
-                                snackbar.show("已切换到 Agnes 中国站")
+                                snackbar.show("已切换到 Agnes 中国站（请确认已配置中国站 Key）")
                             }
                         },
                         label = { Text("中国站") }
                     )
                 }
-                Text("当前：${if (region == AgnesRegion.CHINA) "中国站 api.agnes-ai.cn/v1" else "国际站 apihub.agnes-ai.com/v1"}",
+                Text("当前：${if (agnesRegion == AgnesRegion.CHINA) "中国站 api.agnes-ai.cn/v1" else "国际站 apihub.agnes-ai.com/v1"}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
@@ -203,7 +208,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         ImageModelBlock(vm)
 
         // ---- 文本模型选择（T014 v1.4.0 · Q4：文本/视频 Key 各自独立保存）----
-        TextModelSettingsBlock()
+        TextModelSettingsBlock(agnesRegion)
 
         // ---- ROM保活指引入口（Q7）----
         DramaCard(Modifier.fillMaxWidth()) {
@@ -260,7 +265,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
  * - 保存前先 validate，防止坏 Key 覆盖好 Key。
  */
 @Composable
-fun TextModelSettingsBlock() {
+fun TextModelSettingsBlock(agnesRegion: AgnesRegion) {
     val scope = kotlinx.coroutines.GlobalScope
     val router = remember { DefaultTextModelRouter }
     var activeModelId by remember { mutableStateOf(router.activeTextModelId()) }
@@ -273,8 +278,8 @@ fun TextModelSettingsBlock() {
     val entries = remember(activeModelId, masked, testResult) { router.registeredTextModels() }
     val activeEntry = entries.firstOrNull { it.providerId == activeModelId }
 
-    // 切换模型时刷新当前掩码
-    LaunchedEffect(activeModelId) {
+    // 切换模型 / 切换 Agnes 站点时刷新当前掩码（v1.8.9：文本 Key 按 region 分池）
+    LaunchedEffect(activeModelId, agnesRegion) {
         masked = router.registeredTextModels().firstOrNull { it.providerId == activeModelId }?.keyMasked
         saved = false
         testResult = null
@@ -303,8 +308,7 @@ fun TextModelSettingsBlock() {
                     })
                     Column(Modifier.weight(1f)) {
                         Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                        val shownBase = if (entry.providerId == "agnes" &&
-                            DefaultTextModelRouter.agnesRegion == AgnesRegion.CHINA)
+                        val shownBase = if (entry.providerId == "agnes" && agnesRegion == AgnesRegion.CHINA)
                             com.dramafactory.core.provider.AgnesProvider.BASE_URL_CN else entry.baseUrl
                         Text("模型：${entry.modelId} · Base：$shownBase",
                             style = MaterialTheme.typography.bodySmall,

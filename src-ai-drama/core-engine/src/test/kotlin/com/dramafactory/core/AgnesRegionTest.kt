@@ -6,6 +6,7 @@ import com.dramafactory.core.provider.DefaultTextModelRouter
 import com.dramafactory.core.provider.InMemoryTextModelStore
 import com.dramafactory.core.provider.PREF_AGNES_REGION
 import com.dramafactory.core.provider.TextProvider
+import com.dramafactory.core.provider.agnesScopedConfigId
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,5 +61,43 @@ class AgnesRegionTest {
         val tp: TextProvider = DefaultTextModelRouter.resolve("agnes")
         assertTrue(tp is AgnesProvider, "resolve(agnes) 应返回 AgnesProvider")
         DefaultTextModelRouter.agnesRegion = AgnesRegion.INTERNATIONAL
+    }
+
+    // ===== v1.8.9：Agnes Key 按 region 分池（中国站与国际站不共用 API Key） =====
+
+    @Test
+    fun `agnesScopedConfigId 国际站原样返回所有 configId`() {
+        val ids = listOf("agnes", "agnes-video", "agnes-image", "text-agnes", "custom-video", "deepseek")
+        ids.forEach { assertEquals(it, agnesScopedConfigId(it, AgnesRegion.INTERNATIONAL), "国际站不应改写: $it") }
+    }
+
+    @Test
+    fun `agnesScopedConfigId 中国站仅改写 agnes 系 configId`() {
+        assertEquals("agnes-cn", agnesScopedConfigId("agnes", AgnesRegion.CHINA))
+        assertEquals("agnes-cn-video", agnesScopedConfigId("agnes-video", AgnesRegion.CHINA))
+        assertEquals("agnes-cn-image", agnesScopedConfigId("agnes-image", AgnesRegion.CHINA))
+        assertEquals("text-agnes-cn", agnesScopedConfigId("text-agnes", AgnesRegion.CHINA))
+        // 非 agnes 系不动（custom / deepseek 等保持独立池）
+        assertEquals("custom-video", agnesScopedConfigId("custom-video", AgnesRegion.CHINA))
+        assertEquals("deepseek", agnesScopedConfigId("deepseek", AgnesRegion.CHINA))
+    }
+
+    @Test
+    fun `store 中国站与国际站 Key 不互通（无跨池回退）`() = runTest {
+        val store = InMemoryTextModelStore()
+        // 中国站写入 Key
+        store.saveAgnesRegion(AgnesRegion.CHINA)
+        store.saveKey("agnes", "CN-KEY")
+        assertEquals("CN-KEY", store.loadKey("agnes"), "中国站应读到自身 Key")
+
+        // 切回国际站：必须读不到中国站 Key（否则会拿中国站 Key 打国际站接口 → 401）
+        store.saveAgnesRegion(AgnesRegion.INTERNATIONAL)
+        assertTrue(store.loadKey("agnes").isEmpty(), "国际站不应回退读到中国站 Key")
+
+        // 国际站独立写入，不影响中国站池
+        store.saveKey("agnes", "INTL-KEY")
+        assertEquals("INTL-KEY", store.loadKey("agnes"))
+        store.saveAgnesRegion(AgnesRegion.CHINA)
+        assertEquals("CN-KEY", store.loadKey("agnes"), "切回中国站应恢复原 Key，互不覆盖")
     }
 }

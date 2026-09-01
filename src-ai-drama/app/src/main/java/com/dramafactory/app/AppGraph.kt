@@ -46,19 +46,36 @@ object AppGraph {
     private var agnesVideoModelOverride: String? = null
     private var agnesImageModelOverride: String? = null
 
-    /** v1.8.8：按当前 region + 已配置 override 重建 video/image Agnes provider。 */
+    /** v1.8.8：按当前 region + 已配置 override 重建 video/image Agnes provider。
+     * v1.8.9：Key 按 region 分池（中国站读 agnes-cn-* 候选），并补回 custom-* 候选
+     * （v1.8.8 合并构建逻辑时曾丢失，custom 模式 Key 兜底受影响）。 */
     private fun rebuildAgnes() {
+        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
         agnes = com.dramafactory.core.provider.AgnesProvider(
             apiKeyProvider = {
-                listOf(CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes")
-                    .firstNotNullOfOrNull { keyVault.load(it).takeIf { k -> k.isNotBlank() } }
+                listOf("custom-video", "custom-image", CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes")
+                    .firstNotNullOfOrNull { c ->
+                        keyVault.load(com.dramafactory.core.provider.agnesScopedConfigId(c, region))
+                            .takeIf { k -> k.isNotBlank() }
+                    }
                     .orEmpty()
             },
             baseUrlOverride = agnesBaseUrlOverride,
             videoModelOverride = agnesVideoModelOverride,
             imageModelOverride = agnesImageModelOverride,
-            region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
+            region = region,
         )
+    }
+
+    /** v1.8.9：当前 region 池下是否已配置任一 Agnes Key（LLM 检测/审计闸门的 llmReady 判据） */
+    suspend fun agnesKeyReady(): Boolean {
+        if (!::keyVault.isInitialized) return false
+        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        return listOf(CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes").any { c ->
+            runCatching {
+                keyVault.load(com.dramafactory.core.provider.agnesScopedConfigId(c, region))
+            }.getOrNull()?.isNotBlank() == true
+        }
     }
 
     /** v1.8.8：设置页切换 Agnes 站点后调用，热重建 video/image provider（保留自定义模型 override）。 */
@@ -383,9 +400,7 @@ object AppGraph {
                     val epId = "${projectId}_ep1"
                     // ★F3 修复：按剧本自动推断时代红线（LLM 优先，规则兜底），替换原写死 "han"。
                     // 第十三轮 EraDetector 与人工模式（ViewModels:370-374）同策略。
-                    val llmReady = runCatching {
-                        !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
-                    }.getOrDefault(false)
+                    val llmReady = agnesKeyReady()
                     currentEraKey = runCatching {
                         com.dramafactory.core.quality.EraDetector.detect(scriptText, llmReady) { req ->
                             agnes.chat(req)
@@ -451,9 +466,7 @@ object AppGraph {
                     // 异常会变为 Result.failure，由编排器 AUDIT 阶段按「未过」处理（WARN 标红放行）。
                     runCatching {
                         val remoteUrl = runCatching { dao.assetRemoteUrl(asset.assetId) }.getOrNull()
-                        val llmReady = runCatching {
-                            !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
-                        }.getOrDefault(false)
+                        val llmReady = agnesKeyReady()
                         if (remoteUrl.isNullOrBlank() || !llmReady) {
                             return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_skipped_no_image_or_key")
                         }

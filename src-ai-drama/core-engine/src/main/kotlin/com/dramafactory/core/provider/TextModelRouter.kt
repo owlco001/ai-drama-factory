@@ -16,6 +16,20 @@ const val PREF_ACTIVE_TEXT_MODEL = "text-active-model"
 /** v1.8.8：Agnes 服务站点偏好（agnes-region，值= AgnesRegion.name：INTERNATIONAL / CHINA） */
 const val PREF_AGNES_REGION = "agnes-region"
 
+/**
+ * v1.8.9：Agnes Key 按 region 分池——中国站与国际站 **不共用 API Key**。
+ * 中国站的 configId 在 "agnes" 段后插 "-cn"：
+ *   text-agnes → text-agnes-cn；agnes → agnes-cn；agnes-video → agnes-cn-video；agnes-image → agnes-cn-image。
+ * 非 agnes 系（custom-video 等）与 INTERNATIONAL 原样返回。不做跨池回退（国际站 Key 在中国站必然 401）。
+ */
+fun agnesScopedConfigId(configId: String, region: AgnesRegion): String =
+    if (region != AgnesRegion.CHINA) configId
+    else when {
+        configId.startsWith("text-agnes") -> "text-agnes-cn" + configId.removePrefix("text-agnes")
+        configId.startsWith("agnes") -> "agnes-cn" + configId.removePrefix("agnes")
+        else -> configId
+    }
+
 /** 已注册文本模型条目（T014 §2.3） */
 data class TextModelEntry(
     val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
@@ -169,21 +183,27 @@ class InMemoryTextModelStore(private var keyVault: KeyVault? = null) : TextModel
     }
 
     override suspend fun loadKey(providerId: String): String =
-        keys[providerId] ?: keyVault?.load("text-$providerId").orEmpty()
+        keys[memKey(providerId)]
+            ?: keyVault?.load(agnesScopedConfigId("text-$providerId", agnesRegionCache)).orEmpty()
 
     override suspend fun saveKey(providerId: String, key: String) {
-        keys[providerId] = key
-        keyVault?.save("text-$providerId", providerId, key)
+        keys[memKey(providerId)] = key
+        keyVault?.save(agnesScopedConfigId("text-$providerId", agnesRegionCache), providerId, key)
     }
 
     override fun masked(providerId: String): String? =
-        keys[providerId]?.let { AgnesProvider.maskKey(it) }
-            ?: keyVault?.masked("text-$providerId")?.takeIf { it != "<empty>" }
+        keys[memKey(providerId)]?.let { AgnesProvider.maskKey(it) }
+            ?: keyVault?.masked(agnesScopedConfigId("text-$providerId", agnesRegionCache))?.takeIf { it != "<empty>" }
 
-    override fun isVerified(providerId: String): Boolean = verified.contains(providerId)
+    override fun isVerified(providerId: String): Boolean = verified.contains(memKey(providerId))
     override suspend fun markVerified(providerId: String, ok: Boolean) {
-        if (ok) verified.add(providerId) else verified.remove(providerId)
+        val k = memKey(providerId)
+        if (ok) verified.add(k) else verified.remove(k)
     }
+
+    /** v1.8.9：内存态键随 region 分池（中国站 agnes→agnes-cn），与 KeyVault configId 同一规则 */
+    private fun memKey(providerId: String): String =
+        if (providerId == "agnes") agnesScopedConfigId(providerId, agnesRegionCache) else providerId
 
     override fun loadAgnesRegion(): AgnesRegion = agnesRegionCache
 

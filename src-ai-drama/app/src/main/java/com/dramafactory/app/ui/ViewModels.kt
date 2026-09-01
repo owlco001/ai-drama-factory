@@ -59,6 +59,13 @@ class SettingsViewModel : ViewModel() {
     fun refresh() = viewModelScope.launch { withContext(Dispatchers.IO) { logic.refresh() } }
     fun onKeyChanged(text: String) = logic.onKeyChanged(text)
 
+    /** v1.8.9：Agnes 站点切换后，视频 Key 池目标切到对应 region 的 configId 并刷新掩码 */
+    fun onAgnesRegionChanged(region: com.dramafactory.core.provider.AgnesRegion) {
+        logic.updateConfigId(
+            com.dramafactory.core.provider.agnesScopedConfigId(AppGraph.CONFIG_VIDEO, region))
+        refresh()
+    }
+
     /** 「测试连通」按钮：调Agnes validateKey显示成功/失败 */
     fun testConnection() = viewModelScope.launch { logic.testConnection() }
 
@@ -126,17 +133,29 @@ class SettingsViewModel : ViewModel() {
 
     fun refreshImageKey() = viewModelScope.launch {
         val m = withContext(Dispatchers.IO) {
-            runCatching { AppGraph.keyVault.masked(AppGraph.CONFIG_IMAGE) }
-                .getOrNull()?.takeIf { it != "<empty>" }
+            runCatching {
+                AppGraph.keyVault.masked(
+                    com.dramafactory.core.provider.agnesScopedConfigId(
+                        AppGraph.CONFIG_IMAGE,
+                        com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
+                    )
+                )
+            }.getOrNull()?.takeIf { it != "<empty>" }
         }
         _imageMasked.value = m
     }
 
-    /** 保存 Agnes 图像专用 Key（独立于视频通道；此前 CONFIG_IMAGE 无任何 UI 入口） */
+    /** 保存 Agnes 图像专用 Key（独立于视频通道；v1.8.9 起按 region 分池） */
     fun saveImageKey(key: String) = viewModelScope.launch {
         if (key.trim().isEmpty()) return@launch
         withContext(Dispatchers.IO) {
-            runCatching { AppGraph.keyVault.save(AppGraph.CONFIG_IMAGE, "agnes", key.trim()) }
+            runCatching {
+                AppGraph.keyVault.save(
+                    com.dramafactory.core.provider.agnesScopedConfigId(
+                        AppGraph.CONFIG_IMAGE,
+                        com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
+                    ), "agnes", key.trim())
+            }
         }
         refreshImageKey()
     }
@@ -523,9 +542,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             // ★第十三轮：按剧本自动推断时代红线（LLM优先，规则兜底）
             val scriptForEra = row?.script_json
             if (!scriptForEra.isNullOrBlank()) {
-                val llmReady = runCatching {
-                    AppGraph.isInitialized && !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
-                }.getOrDefault(false)
+                val llmReady = AppGraph.isInitialized && AppGraph.agnesKeyReady()
                 val det = runCatching {
                     com.dramafactory.core.quality.EraDetector.detect(scriptForEra, llmReady) { req ->
                         AppGraph.text.chat(req)
@@ -575,7 +592,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         var seq = 0
         val idGen = { "sa_${System.currentTimeMillis()}_${seq++}" }
         // LLM 提取仅在引擎就绪时启用（测试/未配置key环境直接走正则兜底，不发起网络）
-        val llmReady = runCatching { AppGraph.isInitialized && !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank() }.getOrDefault(false)
+        val llmReady = AppGraph.isInitialized && AppGraph.agnesKeyReady()
         val llm = if (llmReady) runCatching {
             com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req ->
                 AppGraph.text.chat(req)
