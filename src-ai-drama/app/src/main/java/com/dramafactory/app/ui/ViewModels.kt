@@ -77,6 +77,38 @@ class SettingsViewModel : ViewModel() {
     /** 忽略当前新版本提示（仅本次会话隐藏，下次进页仍会重新检查） */
     fun dismissUpdate() = logic.dismissUpdate()
 
+    // ---- 在线下载安装（v1.9.4 方案B）----
+    private val apkUpdater: com.dramafactory.app.update.ApkUpdater by lazy {
+        com.dramafactory.app.update.ApkUpdater(
+            httpClient = com.dramafactory.core.provider.SharedHttp.client,
+            appContext = AppGraph.appContext(),
+            authority = "${AppGraph.appContext()?.packageName ?: "com.dramafactory.app"}.fileprovider",
+        )
+    }
+
+    /**
+     * 下载 APK 并调起系统安装器（Gitee 直链）。
+     * 全程走 backgroundScope（IO）：下载进度写入 logic 状态机，UI 显示进度条；
+     * 完成后自动调起安装 Intent（用户需点「安装」确认——Android 不允许静默安装）。
+     */
+    fun downloadAndInstall(url: String) = AppGraph.backgroundScope.launch {
+        logic.onDownloadStart()
+        var doneFile: java.io.File? = null
+        apkUpdater.download(url).collect { ev ->
+            when (ev) {
+                is com.dramafactory.app.update.ApkUpdater.DownloadEvent.Progress ->
+                    logic.onDownloadProgress(ev.bytes, ev.total)
+                is com.dramafactory.app.update.ApkUpdater.DownloadEvent.Done -> {
+                    doneFile = ev.apkFile
+                    logic.onDownloadDone()
+                }
+                is com.dramafactory.app.update.ApkUpdater.DownloadEvent.Error ->
+                    logic.onDownloadError(ev.message)
+            }
+        }
+        doneFile?.let { apkUpdater.install(it) }
+    }
+
     private fun maskKey(key: String): String =
         if (key.length <= 6) "***" else key.take(3) + "***" + key.takeLast(3)
 

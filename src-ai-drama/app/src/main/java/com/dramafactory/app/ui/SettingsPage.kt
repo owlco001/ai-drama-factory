@@ -38,6 +38,7 @@ import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import com.dramafactory.app.ui.components.InlineStatus
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -64,13 +65,19 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
     ) {
         PageHeader(title = "设置", subtitle = "模型供应商 · Key 加密存储 · 渲染参数")
 
-        // ---- 更新通道（v1.9.3）：发现新版本高亮提示 + 主动检查入口 ----
+        // ---- 更新通道（v1.9.3 / v1.9.4）：发现新版本高亮提示 + 应用内下载安装 + 主动检查 ----
         UpdateChannelCard(
             checking = st.updateChecking,
             available = st.updateAvailable,
             latest = st.updateLatest,
             error = st.updateError,
+            downloading = st.downloading,
+            downloadBytes = st.downloadBytes,
+            downloadTotal = st.downloadTotal,
+            downloadError = st.downloadError,
+            downloadDone = st.downloadDone,
             onCheck = { vm.checkUpdate() },
+            onDownloadAndInstall = { url -> vm.downloadAndInstall(url) },
             onOpenDownload = { url ->
                 runCatching {
                     ctx.startActivity(android.content.Intent(
@@ -653,7 +660,10 @@ private fun PreviewSettingsIdle() {
 /**
  * 更新提示卡片：在设置页顶部常驻。
  * - 正在检查：转圈 + 「正在检查更新…」
- * - 发现新版本：高亮（primary 色）标题 + 「前往下载 vX.Y.Z」按钮（跳 Gitee）+ 可选更新说明 + 忽略按钮
+ * - 发现新版本：高亮提示 + 「下载并更新 vX.Y.Z」按钮（应用内下载 APK 并调起系统安装器，
+ *   自动处理 Gitee 给文件名追加的 .zip 后缀）+ 可选更新说明 + 忽略按钮
+ * - 下载中：进度条（已下载/总量）
+ * - 下载完成：提示「正在打开安装器…」
  * - 已是最新：绿色对勾 + 「已是最新」
  * - 失败：警告图标 + 错误原因 + 「重试」
  *
@@ -665,7 +675,13 @@ fun UpdateChannelCard(
     available: com.dramafactory.app.ui.SettingsLogic.UpdateInfo?,
     latest: Boolean,
     error: String?,
+    downloading: Boolean = false,
+    downloadBytes: Long = 0,
+    downloadTotal: Long? = null,
+    downloadError: String? = null,
+    downloadDone: Boolean = false,
     onCheck: () -> Unit,
+    onDownloadAndInstall: (String) -> Unit,
     onOpenDownload: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -677,9 +693,16 @@ fun UpdateChannelCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("更新通道", style = MaterialTheme.typography.titleMedium)
-                if (!checking) {
+                if (!checking && !downloading) {
                     TextButton(onClick = onCheck) { Text("检查更新", style = MaterialTheme.typography.labelMedium) }
-                } else {
+                } else if (downloading) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CircularProgressIndicator(Modifier.size(14.dp))
+                        Text("下载中…", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
+                } else if (checking) {
                     Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         CircularProgressIndicator(Modifier.size(14.dp))
@@ -691,6 +714,39 @@ fun UpdateChannelCard(
 
             when {
                 checking -> Unit   // 标题行已展示进度
+                downloading -> {
+                    val total = downloadTotal
+                    val pct = if (total != null && total > 0) (downloadBytes * 100 / total) else null
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearProgressIndicator(
+                            progress = if (total != null && total > 0) (downloadBytes.toFloat() / total) else 0f,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            buildString {
+                                append("下载中 ${(downloadBytes / 1024 / 1024)}MB")
+                                if (total != null) append(" / ${(total / 1024 / 1024)}MB")
+                                pct?.let { append("（$it%）") }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+                downloadDone -> InlineStatus(
+                    Icons.Default.CheckCircle, "下载完成，正在打开安装器…",
+                    MaterialTheme.colorScheme.primary)
+                downloadError != null -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InlineStatus(Icons.Default.Warning, "下载失败：$downloadError",
+                            MaterialTheme.colorScheme.error)
+                        if (available != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { onDownloadAndInstall(available.downloadUrl) }) { Text("重试下载") }
+                                TextButton(onClick = { onOpenDownload(available.downloadUrl) }) { Text("手动下载") }
+                            }
+                        }
+                    }
+                }
                 available != null -> {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         InlineStatus(
@@ -705,9 +761,10 @@ fun UpdateChannelCard(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = { onOpenDownload(available.downloadUrl) }) {
-                                Text("前往下载 v${available.versionName}")
+                            Button(onClick = { onDownloadAndInstall(available.downloadUrl) }) {
+                                Text("下载并更新 v${available.versionName}")
                             }
+                            TextButton(onClick = { onOpenDownload(available.downloadUrl) }) { Text("手动下载") }
                             TextButton(onClick = onDismiss) { Text("忽略") }
                         }
                     }
