@@ -3,6 +3,8 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="clips" path="clips/" />
     <cache-path name="finals" path="." />
+    <!-- v1.9.4 在线更新：下载的 APK 落 cacheDir/updates，经 FileProvider 暴露给系统安装器 -->
+    <cache-path name="updates" path="updates/" />
     <!-- 第六轮：相机拍摄图片/视频输出目录（TakePicture/TakeVideo 经FileProvider取Uri） -->
     <cache-path name="capture" path="capture/" />
     <!-- 相册/下载等持久媒体（本地上传预览用） -->

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 73
-        versionName = "1.9.3"  // v1.9.3: 新增「更新通道」——设置页检查 Gitee Release 更新 + 自动检测新版提示
+        versionCode = 74
+        versionName = "1.9.4"  // v1.9.4: 在线更新方案B——应用内下载APK(去.zip后缀)+调起系统安装器；固定签名可覆盖安装
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -37,6 +37,33 @@ android {
         freeCompilerArgs += listOf("-opt-in=androidx.compose.material3.ExperimentalMaterial3Api")
     }
     packaging { resources.excludes += "META-INF/*" }
+
+    // v1.9.4：固定签名 keystore（提交到仓库），保证所有发布包同签名 → 可覆盖安装。
+    // 否则默认 debug 签名每次构建不同，用户已装的旧包会因「签名冲突」无法覆盖更新。
+    val KEYSTORE_DIR = "keystore"
+    val KEYSTORE_FILE = "drama-release.jks"
+    val KEY_ALIAS = "drama"
+    val STORE_PWD = "dramatv123"
+    val KEY_PWD = "dramatv123"
+    signingConfigs {
+        create("releaseSigned") {
+            storeFile = file("$KEYSTORE_DIR/$KEYSTORE_FILE")
+            storePassword = STORE_PWD
+            keyAlias = KEY_ALIAS
+            keyPassword = KEY_PWD
+        }
+    }
+    // debug 也用固定签名（与发布同 keystore），使 assembleDebug 产出可覆盖安装的包。
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("releaseSigned")
+            isDebuggable = true
+        }
+        release {
+            signingConfig = signingConfigs.getByName("releaseSigned")
+            isMinifyEnabled = false
+        }
+    }
 
     testOptions {
         unitTests.isReturnDefaultValues = true

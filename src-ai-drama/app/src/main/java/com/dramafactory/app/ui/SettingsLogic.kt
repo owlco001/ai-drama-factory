@@ -57,11 +57,17 @@ class SettingsLogic(
         val testing: Boolean = false,
         val testResult: TestResult? = null,
         val saved: Boolean = false,             // 保存成功一次性提示
-        // ---- 更新通道（v1.9.3）----
+        // ---- 更新通道（v1.9.3 / v1.9.4）----
         val updateChecking: Boolean = false,    // 正在检查更新
         val updateAvailable: UpdateInfo? = null,// 非空=发现新版本（持续提示，直至用户忽略或已更新）
         val updateLatest: Boolean = false,      // 已是最新（点击检查后的一次性确认）
         val updateError: String? = null,        // 检查失败原因
+        // ---- 在线下载安装（v1.9.4 方案B）----
+        val downloading: Boolean = false,       // 正在下载 APK
+        val downloadBytes: Long = 0,            // 已下载字节
+        val downloadTotal: Long? = null,        // 总字节（可为空）
+        val downloadError: String? = null,      // 下载失败原因
+        val downloadDone: Boolean = false,       // 下载完成待安装
     )
 
     /** 更新通道：发现的新版本信息 */
@@ -223,5 +229,35 @@ class SettingsLogic(
     /** 用户忽略当前新版本提示（下次进入仍会重新检查；仅本次会话内隐藏） */
     fun dismissUpdate() {
         _state.value = _state.value.copy(updateAvailable = null, updateLatest = false, updateError = null)
+    }
+
+    // ==================== 在线下载安装（v1.9.4 方案B）====================
+
+    /** 下载进度回调：更新字节数与总量（仅下载中时生效） */
+    fun onDownloadProgress(bytes: Long, total: Long?) {
+        if (!_state.value.downloading) return
+        _state.value = _state.value.copy(downloadBytes = bytes, downloadTotal = total)
+    }
+
+    /** 下载开始 */
+    fun onDownloadStart() {
+        _state.value = _state.value.copy(downloading = true, downloadBytes = 0, downloadTotal = null,
+            downloadError = null, downloadDone = false)
+    }
+
+    /** 下载完成（等待系统安装器确认） */
+    fun onDownloadDone() {
+        _state.value = _state.value.copy(downloading = false, downloadDone = true)
+    }
+
+    /** 下载失败 */
+    fun onDownloadError(message: String) {
+        _state.value = _state.value.copy(downloading = false, downloadError = message)
+    }
+
+    /** 重置下载状态（用户关闭安装界面或重试） */
+    fun resetDownload() {
+        _state.value = _state.value.copy(downloading = false, downloadBytes = 0, downloadTotal = null,
+            downloadError = null, downloadDone = false)
     }
 }
