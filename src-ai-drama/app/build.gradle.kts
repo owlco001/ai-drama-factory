@@ -38,13 +38,24 @@ android {
     }
     packaging { resources.excludes += "META-INF/*" }
 
-    // v1.9.4：固定签名 keystore（提交到仓库），保证所有发布包同签名 → 可覆盖安装。
+    // 固定签名 keystore：保证所有发布包同签名 → 可覆盖安装。
     // 否则默认 debug 签名每次构建不同，用户已装的旧包会因「签名冲突」无法覆盖更新。
+    //
+    // 安全：store/key 密码与 alias 一律从 gitignored 的 local.properties 读取，
+    // 缺失时回退到环境变量；绝不硬编码、绝不入库（旧 keystore 曾因入库 + 裸密码
+    // 导致签名身份泄露，已被轮换废弃）。local.properties 需自行备份（密码管理器）。
+    val keyProps = java.util.Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    fun secret(name: String): String =
+        (keyProps.getProperty(name) ?: System.getenv(name))
+            ?: error("缺少签名密钥配置：$name（请在 local.properties 或环境变量中设置，切勿提交到仓库）")
     val KEYSTORE_DIR = "keystore"
     val KEYSTORE_FILE = "drama-release.jks"
-    val KEY_ALIAS = "drama"
-    val STORE_PWD = "dramatv123"
-    val KEY_PWD = "dramatv123"
+    val KEY_ALIAS = secret("AI_DRAMA_KEY_ALIAS")
+    val STORE_PWD = secret("AI_DRAMA_STORE_PASSWORD")
+    val KEY_PWD = secret("AI_DRAMA_KEY_PASSWORD")
     signingConfigs {
         create("releaseSigned") {
             storeFile = file("$KEYSTORE_DIR/$KEYSTORE_FILE")

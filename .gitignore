@@ -5,4 +5,8 @@ build/
 local.properties
 *.apk
 *.keystore
+# 签名密钥：绝不入库（旧 keystore 曾因 *.jks 未被忽略而泄露，已被轮换废弃）
+*.jks
+app/keystore/
+src-ai-drama/app/keystore/
 __pycache__/
