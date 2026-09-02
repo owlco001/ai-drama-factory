@@ -26,6 +26,8 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         val videoUris: Map<String, String> = emptyMap(),
         /** v1.7.17：assetId → 显示名，供分镜卡片展示「本镜引用了哪些资产」 */
         val assetNames: Map<String, String> = emptyMap(),
+        /** v1.9.2：assetId → 缩略图 URI（remote_url 或本地 image_uri），分镜详情弹窗展示引用资产 */
+        val assetThumbs: Map<String, String> = emptyMap(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -43,13 +45,20 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             .filter { it.state == "COMPLETED" && !it.localFileUri.isNullOrBlank() }
             .associate { it.shotId to it.localFileUri!! }
         // v1.7.17：构建 assetId → 显示名，让分镜页能直接看出每镜引用了哪些资产
-        val names = runCatching {
+        // v1.9.2：同时构建 assetId → 缩略图 URI，分镜详情弹窗展示引用资产长相
+        val assetRows = runCatching {
             withContext(Dispatchers.IO) {
                 val pid = episodeId.substringBeforeLast("_ep")
-                AppGraph.dao.assetsAllOf(pid).associate { it.asset_id to AssetCatalog.displayName(it.prompt) }
+                AppGraph.dao.assetsAllOf(pid)
             }
-        }.getOrDefault(emptyMap())
-        _state.value = _state.value.copy(shots = rows, videoUris = vids, assetNames = names)
+        }.getOrDefault(emptyList())
+        val names = assetRows.associate { it.asset_id to AssetCatalog.displayName(it.prompt) }
+        val thumbs = assetRows.mapNotNull { e ->
+            val uri = e.remote_url ?: e.image_uri
+            if (uri.isNullOrBlank()) null else e.asset_id to uri
+        }.toMap()
+        _state.value = _state.value.copy(shots = rows, videoUris = vids,
+            assetNames = names, assetThumbs = thumbs)
     }
 
     /** AI 一键生成分镜（LLM 不可用时提示） */

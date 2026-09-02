@@ -46,6 +46,7 @@ class Round6LocalUploadI2iTest {
 
         override suspend fun upsertProject(p: com.dramafactory.app.data.ProjectEntity) {}
         override suspend fun listProjects() = emptyList<com.dramafactory.app.data.ProjectEntity>()
+        override suspend fun project(id: String): com.dramafactory.app.data.ProjectEntity? = null
         override suspend fun deleteProject(id: String) {}
         override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) { assets.removeIf { it.asset_id == a.asset_id }; assets.add(a) }
         override suspend fun assetsOf(projectId: String, kind: String) = assets.filter { it.project_id == projectId && it.kind == kind }

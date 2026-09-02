@@ -5,9 +5,11 @@ import com.dramafactory.core.provider.DefaultTextModelRouter
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -58,25 +60,63 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
     ) {
         PageHeader(title = "设置", subtitle = "模型供应商 · Key 加密存储 · 渲染参数")
 
-        // ---- 供应商选择（第四轮：多模型选择器）----
+        // ---- 供应商选择（第四轮：多模型选择器；v1.9.2：逐家「测试」按钮）----
         DramaCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("视频模型供应商", style = MaterialTheme.typography.titleMedium)
                 Text("当前：${st.providerLabel}", style = MaterialTheme.typography.bodyMedium)
+                // v1.9.2：逐家测试状态（providerId → 测试结果 / 测试中集合）
+                val providerTestResults = remember {
+                    mutableStateOf<Map<String, SettingsLogic.TestResult>>(emptyMap())
+                }
+                val providerTestingIds = remember { mutableStateOf<Set<String>>(emptySet()) }
                 for (p in ProviderRegistry.ALL) {
                     val selected = st.selectedProviderId == p.id
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = selected, onClick = { vm.selectProvider(p.id) })
-                        Column(Modifier.weight(1f)) {
-                            Text(p.label, style = MaterialTheme.typography.bodyMedium)
-                            Text(if (p.status == ProviderRegistry.Status.AVAILABLE) p.note
-                                 else "待接入 · 选择后暂不可渲染",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline)
+                    Column {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = selected, onClick = { vm.selectProvider(p.id) })
+                            Column(Modifier.weight(1f)) {
+                                Text(p.label, style = MaterialTheme.typography.bodyMedium)
+                                Text(if (p.status == ProviderRegistry.Status.AVAILABLE) p.note
+                                     else "待接入 · 选择后暂不可渲染",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline)
+                            }
+                            // v1.9.2：逐家「测试」——验证该家连通性（用已存 Key 或当前输入 Key）
+                            val testing = p.id in providerTestingIds.value
+                            OutlinedButton(
+                                onClick = {
+                                    providerTestingIds.value = providerTestingIds.value + p.id
+                                    vm.testProvider(p.id) { r ->
+                                        providerTestingIds.value = providerTestingIds.value - p.id
+                                        providerTestResults.value =
+                                            providerTestResults.value + (p.id to r)
+                                    }
+                                },
+                                enabled = !testing,
+                                modifier = Modifier.height(30.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp),
+                                shape = MaterialTheme.shapes.extraSmall,
+                            ) {
+                                Text(if (testing) "测试中…" else "测试",
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        // 行内测试结果（成功延迟 / 失败原因）
+                        when (val r = providerTestResults.value[p.id]) {
+                            is SettingsLogic.TestResult.Success -> InlineStatus(
+                                Icons.Default.CheckCircle, "连通成功 · 延迟${r.latencyMs}ms",
+                                MaterialTheme.colorScheme.primary,
+                                Modifier.padding(start = 38.dp, top = 2.dp))
+                            is SettingsLogic.TestResult.Failure -> InlineStatus(
+                                Icons.Default.Warning, r.message,
+                                MaterialTheme.colorScheme.error,
+                                Modifier.padding(start = 38.dp, top = 2.dp))
+                            null -> {}
                         }
                     }
                 }

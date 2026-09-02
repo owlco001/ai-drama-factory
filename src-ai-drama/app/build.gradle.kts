@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 71
-        versionName = "1.9.1"  // v1.9.1: 图像通道路由化——激活 Agnes 走原生 image 端点，激活其他家退化其 image2video 首帧
+        versionCode = 72
+        versionName = "1.9.2"  // v1.9.2: 资产卡生成/重生成按钮 + 模型逐家测试 + AI助手模型切换 + 副标题随剧集 + 后台处理 + 分镜详情
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

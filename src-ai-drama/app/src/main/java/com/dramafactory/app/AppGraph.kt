@@ -119,6 +119,20 @@ object AppGraph {
     lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
     lateinit var movieLibraryDao: MovieLibraryDao; internal set
 
+    /**
+     * v1.9.2：App 生命周期级的后台协程作用域（SupervisorJob + IO）。
+     * 资产生成 / AI 助手调用等"模型处理"任务挂在这里，切换标签或离开页面时页面 VM 被回收
+     * 也不打断生图——任务仍会跑完并落库（Room），回来重读即可看到结果。
+     * 区别于 viewModelScope：后者随页面 VM 销毁而取消，此前切走就丢在途生成。
+     */
+    val backgroundScope: kotlinx.coroutines.CoroutineScope by lazy {
+        kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO +
+                kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+                    android.util.Log.e("AppGraph", "background task failed", e)
+                })
+    }
+
     /** T014：端上成片合成器（MovieAssembler，app 模块初始化，注入 ffmpeg-kit-full 8.1.7 community 维护版） */
     var movieAssembler: MovieAssembler = EmptyMovieAssembler; internal set
 
@@ -644,6 +658,7 @@ object AppGraph {
     private class BrokenDramaDao : com.dramafactory.app.data.DramaDao {
         override suspend fun upsertProject(p: com.dramafactory.app.data.ProjectEntity) {}
         override suspend fun listProjects(): List<com.dramafactory.app.data.ProjectEntity> = emptyList()
+        override suspend fun project(id: String): com.dramafactory.app.data.ProjectEntity? = null
         override suspend fun deleteProject(id: String) {}
         override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) {}
         override suspend fun assetsOf(projectId: String, kind: String): List<com.dramafactory.app.data.AssetEntity> = emptyList()

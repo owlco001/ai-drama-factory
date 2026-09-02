@@ -96,6 +96,27 @@ class AiAssistantViewModel : ViewModel() {
     private var agent: AiAgent? = null
     private var _building = false
 
+    /**
+     * v1.9.2：AI 助手内直接切换文本模型（面板头部下拉）。
+     * 落盘激活模型（与设置页同一持久化通道）→ 丢弃旧 agent（下次 say 按新模型重建）→
+     * 气泡确认。切换即时生效，无需重启对话。
+     */
+    fun switchTextModel(providerId: String) = viewModelScope.launch {
+        val entry = runCatching { AppGraph.textModelRouter.registeredTextModels() }
+            .getOrDefault(emptyList()).firstOrNull { it.providerId == providerId }
+        val r = runCatching { AppGraph.textModelRouter.setActiveTextModel(providerId) }
+        if (r.isSuccess) {
+            agent = null   // 旧 agent 绑定旧 provider/model，置空后 ensureAgent 按新激活重建
+            _history.value = _history.value + DialogueTurn(
+                DialogueTurn.Side.AI,
+                "已切换文本模型：${entry?.label ?: providerId}。下一条消息起由它接管。")
+        } else {
+            _history.value = _history.value + DialogueTurn(
+                DialogueTurn.Side.AI,
+                "切换失败：${r.exceptionOrNull()?.message ?: "未知错误"}")
+        }
+    }
+
     init {
         _history.value = listOf(
             DialogueTurn(DialogueTurn.Side.AI,
@@ -492,9 +513,54 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         Text("AI 助手", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.weight(1f))
+                        // ---- v1.9.2：文本模型切换（下拉菜单，与设置页同一持久化通道）----
+                        val router = remember { runCatching { AppGraph.textModelRouter }.getOrNull() }
+                        val entries = remember { router?.registeredTextModels().orEmpty() }
+                        var activeModel by remember {
+                            mutableStateOf(router?.activeTextModelId() ?: "agnes")
+                        }
+                        var modelMenu by remember { mutableStateOf(false) }
+                        if (router != null && entries.isNotEmpty()) {
+                            Box {
+                                AssistChip(
+                                    onClick = { modelMenu = true },
+                                    label = {
+                                        Text(
+                                            entries.firstOrNull { it.providerId == activeModel }?.label ?: activeModel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "切换模型",
+                                            modifier = Modifier.size(14.dp))
+                                    },
+                                    modifier = Modifier.heightIn(max = 32.dp),
+                                )
+                                DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                                    for (e in entries) {
+                                        DropdownMenuItem(
+                                            text = { Text(e.label, style = MaterialTheme.typography.bodyMedium) },
+                                            onClick = {
+                                                modelMenu = false
+                                                if (e.providerId != activeModel) {
+                                                    activeModel = e.providerId
+                                                    vm.switchTextModel(e.providerId)
+                                                }
+                                            },
+                                            trailingIcon = if (e.providerId == activeModel) {
+                                                { Icon(Icons.Default.Check, contentDescription = "当前",
+                                                    modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         val proj = vm.currentProjectId
                         Text(if (proj != null) "项目:$proj" else "未选项目",
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(start = 6.dp))
                         IconButton(onClick = { expanded = false }) {
                             Icon(Icons.Default.Close, contentDescription = "关闭")
                         }

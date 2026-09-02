@@ -1,6 +1,7 @@
 package com.dramafactory.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +61,17 @@ private fun StatusChip(icon: ImageVector, text: String, tint: Color) {
     }
 }
 
+/** v1.9.2：详情弹窗的「标签 + 内容」行（只读展示） */
+@Composable
+private fun DetailLine(label: String, value: String, tint: Color? = null) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline)
+        Text(value, style = MaterialTheme.typography.bodyMedium,
+            color = tint ?: MaterialTheme.colorScheme.onSurface)
+    }
+}
+
 /**
  * 分镜编辑页（第十二轮：可操作化）：
  * - AI编剧+导演一键生成分镜；每镜展示序号/时长/校验位/动作/视觉指令/台词/旁白/承接
@@ -87,6 +103,8 @@ fun StoryboardPage(
             withContext(Dispatchers.IO) { com.dramafactory.app.AppGraph.dao.episode(episodeId)?.script_json }
         }.getOrNull()
     }
+    // v1.9.2：分镜详情（点击卡片查看全部内容 + 引用资产）；编辑仍走「编辑」按钮
+    var viewingShotId by remember { mutableStateOf<String?>(null) }
     var editingShotId by remember { mutableStateOf<String?>(null) }
     var confirmDeleteShotId by remember { mutableStateOf<String?>(null) }
     var queuedCount by remember { mutableStateOf<Int?>(null) }
@@ -216,7 +234,7 @@ fun StoryboardPage(
         }
         items(st.shots, key = { it.shot_id }) { shot ->
             DramaCard(
-                onClick = { editingShotId = shot.shot_id },
+                onClick = { viewingShotId = shot.shot_id },   // v1.9.2：点卡=查看详情
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -306,6 +324,100 @@ fun StoryboardPage(
                 }
             }
         }
+    }
+
+    // ---- v1.9.2：单镜详情对话框（点击卡片查看全部内容 + 引用资产缩略图）----
+    val viewingShot = viewingShotId?.let { id -> st.shots.firstOrNull { it.shot_id == id } }
+    if (viewingShot != null) {
+        AlertDialog(
+            onDismissRequest = { viewingShotId = null },
+            title = { Text("镜头 #${viewingShot.shot_no} · ${viewingShot.duration_seconds.toInt()}秒") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    when {
+                        viewingShot.sb_check == "pass" -> StatusChip(
+                            Icons.Default.CheckCircle, "校验通过", MaterialTheme.colorScheme.primary)
+                        viewingShot.sb_check == "pending" -> StatusChip(
+                            Icons.Default.DateRange, "待生成", MaterialTheme.colorScheme.outline)
+                        else -> StatusChip(
+                            Icons.Default.Warning,
+                            viewingShot.sb_check.removePrefix("error:"),
+                            MaterialTheme.colorScheme.error)
+                    }
+                    viewingShot.action?.let { DetailLine("动作", it) }
+                    viewingShot.visual_prompt?.let {
+                        DetailLine("视觉指令", it, MaterialTheme.colorScheme.secondary) }
+                    viewingShot.dialogue?.let { DetailLine("台词", "「$it」") }
+                    viewingShot.narration?.let { DetailLine("旁白", it) }
+                    viewingShot.carry_over?.let {
+                        DetailLine("承接", it, MaterialTheme.colorScheme.outline) }
+
+                    Text("引用资产", style = MaterialTheme.typography.titleSmall)
+                    val refs = AssetCatalog.parseRefIds(viewingShot.first_asset_ids)
+                    if (refs.isEmpty()) {
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            Text("未引用资产：渲染将回退项目级前4张",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error)
+                        }
+                    } else {
+                        for (refId in refs) {
+                            val name = st.assetNames[refId] ?: refId
+                            val thumb = st.assetThumbs[refId]
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                if (thumb != null) {
+                                    AsyncImage(
+                                        model = thumb, contentDescription = name,
+                                        modifier = Modifier.size(46.dp)
+                                            .clip(MaterialTheme.shapes.extraSmall),
+                                        contentScale = ContentScale.Crop)
+                                } else {
+                                    Box(
+                                        Modifier.size(46.dp)
+                                            .clip(MaterialTheme.shapes.extraSmall)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                                    ) {
+                                        Icon(painterResource(R.drawable.ic_image), contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(22.dp))
+                                    }
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(name, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        if (thumb != null) "已生图 · 渲染时注入锁脸"
+                                        else "尚无图 · 渲染时可能失锁",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (thumb != null) MaterialTheme.colorScheme.outline
+                                                else MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    editingShotId = viewingShot.shot_id
+                    viewingShotId = null
+                }) { Text("编辑") }
+            },
+            dismissButton = { OutlinedButton(onClick = { viewingShotId = null }) { Text("关闭") } },
+        )
     }
 
     // ---- 单镜编辑对话框（LazyColumn 外，composable 上下文）----

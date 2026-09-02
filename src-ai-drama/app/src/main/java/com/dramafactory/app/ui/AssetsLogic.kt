@@ -3,6 +3,7 @@ package com.dramafactory.app.ui
 import com.dramafactory.app.AppGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * 资产库页ViewModel逻辑——与Android解耦，JVM可单测。
@@ -147,7 +148,9 @@ class AssetsLogic {
             val key = "${e.kind.name}:${e.name}"
             if (key in existing) continue
             existing += key
-            _assets.value += AssetCard(assetId = idGen(), kind = e.kind, prompt = e.name)
+            // v1.9.2：改用 StateFlow CAS 原子更新——init 预载已在 IO 线程并发写列表，
+            // `.value +=` 是非原子读-改-写，与 Main 线程的 addAsset 并发时会丢卡。
+            _assets.update { it + AssetCard(assetId = idGen(), kind = e.kind, prompt = e.name) }
             added++
         }
         return added
@@ -207,7 +210,7 @@ class AssetsLogic {
     /** 新增资产（输入prompt后点「添加」） */
     fun addAsset(assetId: String, kind: Kind, prompt: String) {
         if (prompt.isBlank()) return
-        _assets.value += AssetCard(assetId = assetId, kind = kind, prompt = prompt.trim())
+        _assets.update { it + AssetCard(assetId = assetId, kind = kind, prompt = prompt.trim()) }
     }
 
     /**
@@ -223,14 +226,16 @@ class AssetsLogic {
     ): String {
         val uri = imageUri ?: videoUri
         if (uri.isNullOrBlank()) return ""   // 无URI不上传
-        _assets.value += AssetCard(
-            assetId = assetId,
-            kind = Kind.LOCAL,
-            prompt = prompt.trim().ifBlank { (if (videoUri != null) "本地视频" else "本地图片") },
-            source = "local",
-            imageUri = imageUri,
-            videoUri = videoUri,
-        )
+        _assets.update {
+            it + AssetCard(
+                assetId = assetId,
+                kind = Kind.LOCAL,
+                prompt = prompt.trim().ifBlank { (if (videoUri != null) "本地视频" else "本地图片") },
+                source = "local",
+                imageUri = imageUri,
+                videoUri = videoUri,
+            )
+        }
         return assetId
     }
 
@@ -252,10 +257,12 @@ class AssetsLogic {
             "prop" -> Kind.PROP
             else -> Kind.LOCAL
         }
-        _assets.value += AssetCard(
-            assetId = assetId, kind = kind, prompt = prompt,
-            remoteUrl = remoteUrl, reviewState = reviewState.ifBlank { "none" },
-            parentId = parentId, poseRole = poseRole)
+        _assets.update {
+            it + AssetCard(
+                assetId = assetId, kind = kind, prompt = prompt,
+                remoteUrl = remoteUrl, reviewState = reviewState.ifBlank { "none" },
+                parentId = parentId, poseRole = poseRole)
+        }
     }
 
     /** 第十一轮：编辑资产描述；返回false=找不到该卡或内容未变 */
@@ -291,10 +298,12 @@ class AssetsLogic {
             val subId = idGen()
             val subPrompt = com.dramafactory.core.quality.AssetPromptBuilder
                 .finalReferencePrompt(preset, parent.prompt, shot)
-            _assets.value += AssetCard(
-                assetId = subId, kind = Kind.CHARACTER,
-                prompt = subPrompt, parentId = characterId, poseRole = shot.key,
-            )
+            _assets.update {
+                it + AssetCard(
+                    assetId = subId, kind = Kind.CHARACTER,
+                    prompt = subPrompt, parentId = characterId, poseRole = shot.key,
+                )
+            }
             added++
         }
         return added

@@ -92,6 +92,13 @@ import kotlinx.coroutines.launch
 private enum class CaptureKind { IMAGE, VIDEO }
 
 /**
+ * v1.9.2：时代红线卡默认隐藏（用户要求）。
+ * 红线约束仍在生成链路内生效（EraDetector + AssetPromptBuilder，见 AssetsViewModel.generateHandler），
+ * 只是资产页不再展示该配置卡；需要恢复人工放行入口时改回 true 即可。
+ */
+private const val SHOW_ERA_REDLINE = false
+
+/**
  * 资产库页（S3/S4）：角色/场景/道具分组卡片流；资产生成按钮（Text/Image Provider）；
  * 评审勾选（保留✓/重生成↻，F04）。全部「保留」后可进入渲染（评审闸门放行）。
  * 第六轮新增：本地上传（拍摄/相册图/相册视频）、图生图参考图、本地资产预览。
@@ -243,6 +250,8 @@ fun AssetsPage(
     val eraAllowed by vm?.allowedCrossEra?.collectAsState() ?: remember { mutableStateOf(emptyList<String>()) }
     val eraLabel by vm?.eraLabel?.collectAsState() ?: remember { mutableStateOf("西汉末年至新莽时期（默认）") }
     val extractMsg by vm?.extractMessage?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
+    // v1.9.2：副标题随剧集动态变化（项目名 + 第几集），不再写死
+    val subtitle by vm?.subtitle?.collectAsState() ?: remember { mutableStateOf("资产库") }
     val assets = assetsState?.value ?: emptyList()
     val filteredAssets = remember(assets, kind) {
         if (kind == null) assets else assets.filter { it.kind == kind }
@@ -258,7 +267,7 @@ fun AssetsPage(
         ) {
             // ---- 页面标题（设置入口统一在顶部 TopAppBar 齿轮）----
             item(span = { GridItemSpan(2) }) {
-                PageHeader(title = "资产库", subtitle = "莽途·墨痕初现 · 第 1 集")
+                PageHeader(title = "资产库", subtitle = subtitle)
             }
 
             // ---- 分类筛选 chips ----
@@ -337,8 +346,8 @@ fun AssetsPage(
                 }
             }
 
-            // ---- 时代红线 ----
-            item(span = { GridItemSpan(2) }) {
+            // ---- 时代红线（v1.9.2 默认隐藏：约束仍走生成链路，仅不展示配置卡）----
+            if (SHOW_ERA_REDLINE) item(span = { GridItemSpan(2) }) {
                 DramaCard(
                     modifier = Modifier.fillMaxWidth(),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -503,6 +512,8 @@ fun AssetsPage(
                         },
                         onOpenEditor = { editingAssetId = card.assetId },
                         onRegen = { vm.generate(card.assetId) },
+                        onKeep = { vm.review(card.assetId, true) },
+                        onStopGenerate = { vm.stopGenerate(card.assetId) },
                         onBuildReferenceSheet = if (card.kind == AssetsLogic.Kind.CHARACTER && card.parentId == null) {
                             { vm.buildCharacterReferenceSheet(card.assetId) }
                         } else null
@@ -645,6 +656,10 @@ private fun GridAssetCard(
     onToggleSelect: () -> Unit,
     onOpenEditor: () -> Unit,
     onRegen: () -> Unit,
+    /** v1.9.2：评审「保留」显式回调（此前"保留"按钮误触发生成） */
+    onKeep: () -> Unit = {},
+    /** v1.9.2：生成中「停止」回调 */
+    onStopGenerate: () -> Unit = {},
     onBuildReferenceSheet: (() -> Unit)? = null,
 ) {
     val borderColor = if (card.reviewState == "regen" || card.auditState == "rejected") {
@@ -725,34 +740,70 @@ private fun GridAssetCard(
                         else -> StatusBadge("待生成", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
-                    // 操作按钮（评审 + 重生成/生成参考图）
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // 保留 / 重生成 切换（小按钮）
-                        val kept = card.reviewState == "keep"
-                        val regen = card.reviewState == "regen"
+                    // 评审「保留」切换（v1.9.2：与生成动作分离，点击只做评审落库）
+                    val kept = card.reviewState == "keep"
+                    OutlinedButton(
+                        onClick = onKeep,
+                        modifier = Modifier.height(28.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
+                        border = BorderStroke(1.dp, if (kept) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (kept) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            contentColor = if (kept) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text(if (kept) "已保留" else "保留", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                // ---- v1.9.2：显式生成/重生成主按钮（未生图→「生成」；已生图→「重生成」；生成中→停止）----
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val hasImage = card.remoteUrl != null || card.imageUri != null || card.videoUri != null
+                    if (card.generating) {
                         OutlinedButton(
-                            onClick = { if (kept) onOpenEditor() else onRegen() },
-                            modifier = Modifier.height(28.dp),
+                            onClick = onStopGenerate,
+                            modifier = Modifier.weight(1f).height(32.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = MaterialTheme.shapes.extraSmall,
-                            border = BorderStroke(1.dp, if (kept) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (kept) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                contentColor = if (kept) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         ) {
-                            Text(if (kept) "已选" else if (regen) "重生成" else "保留", style = MaterialTheme.typography.labelSmall)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("生成中 · 点击停止", style = MaterialTheme.typography.labelSmall)
                         }
-                        // 角色母卡 → 生成参考图套装（4 张独立图，不拼图）
-                        if (onBuildReferenceSheet != null) {
-                            OutlinedButton(
-                                onClick = onBuildReferenceSheet,
-                                modifier = Modifier.height(28.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                shape = MaterialTheme.shapes.extraSmall,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            ) { Text("参考图", style = MaterialTheme.typography.labelSmall) }
+                    } else {
+                        Button(
+                            onClick = onRegen,
+                            modifier = Modifier.weight(1f).height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            shape = MaterialTheme.shapes.extraSmall,
+                        ) {
+                            Icon(
+                                if (hasImage) Icons.Default.Refresh else Icons.Default.Add,
+                                contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (hasImage) "重生成" else "生成",
+                                style = MaterialTheme.typography.labelMedium)
                         }
+                    }
+                    // 角色母卡 → 生成参考图套装（4 张独立图，不拼图）
+                    if (onBuildReferenceSheet != null) {
+                        OutlinedButton(
+                            onClick = onBuildReferenceSheet,
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            shape = MaterialTheme.shapes.extraSmall,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) { Text("参考图", style = MaterialTheme.typography.labelSmall) }
                     }
                 }
             }

@@ -160,6 +160,7 @@ data class AssetQualityRow(
 interface DramaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertProject(p: ProjectEntity)
     @Query("SELECT * FROM projects ORDER BY created_at DESC") suspend fun listProjects(): List<ProjectEntity>
+    @Query("SELECT * FROM projects WHERE project_id=:id") suspend fun project(id: String): ProjectEntity?
     @Query("DELETE FROM projects WHERE project_id=:id") suspend fun deleteProject(id: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAsset(a: AssetEntity)

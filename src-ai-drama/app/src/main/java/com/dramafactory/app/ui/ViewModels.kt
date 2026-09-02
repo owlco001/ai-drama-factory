@@ -73,6 +73,39 @@ class SettingsViewModel : ViewModel() {
     /** 「测试连通」按钮：调Agnes validateKey显示成功/失败 */
     fun testConnection() = viewModelScope.launch { logic.testConnection() }
 
+    /**
+     * v1.9.2：供应商列表逐家「测试」——直接验证该家连通性，不要求先选中该供应商。
+     * Key 来源：该家为当前选中且输入框有新 Key → 用新 Key；否则用该家在 KeyVault 已存的 Key。
+     */
+    fun testProvider(providerId: String, onResult: (SettingsLogic.TestResult) -> Unit) = viewModelScope.launch {
+        val r = withContext(Dispatchers.IO) {
+            val label = ProviderRegistry.byId(providerId)?.label ?: providerId
+            val typed = if (logic.state.value.selectedProviderId == providerId)
+                logic.state.value.keyInput.trim().takeIf { it.isNotBlank() } else null
+            val stored = runCatching {
+                AppGraph.keyVault.load(AppGraph.videoConfigIdFor(providerId))
+            }.getOrNull().orEmpty()
+            val key = typed ?: stored
+            when {
+                key.isBlank() -> SettingsLogic.TestResult.Failure("尚未配置 $label 的 Key（先保存或切到它输入）")
+                else -> {
+                    val provider = AppGraph.resolveVideoProviderFor(providerId, overrideKey = key)
+                    val result = runCatching { provider.validateKey(key).getOrThrow() }
+                    when {
+                        result.isSuccess -> {
+                            val info = result.getOrThrow()
+                            if (info.ok) SettingsLogic.TestResult.Success(info.latencyMs)
+                            else SettingsLogic.TestResult.Failure(info.detail.ifEmpty { "连通失败" })
+                        }
+                        else -> SettingsLogic.TestResult.Failure(
+                            result.exceptionOrNull()?.message ?: "未知错误")
+                    }
+                }
+            }
+        }
+        onResult(r)
+    }
+
     /** 保存到KeyVault（EncryptedSharedPreferences） */
     fun saveKey() = viewModelScope.launch {
         val ok = withContext(Dispatchers.IO) { logic.saveKey(forceWithoutTest = false) }
@@ -523,8 +556,27 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     private val _extractMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val extractMessage: kotlinx.coroutines.flow.StateFlow<String?> get() = _extractMessage
 
+    /**
+     * v1.9.2：资产库页副标题——按「当前剧集」动态变化（项目名 + 第几集），
+     * 不再写死"莽途·墨痕初现 · 第 1 集"。切集后 AssetsPage 重建 VM 即拿到新副标题。
+     */
+    private val _subtitle = kotlinx.coroutines.flow.MutableStateFlow("资产库")
+    val subtitle: kotlinx.coroutines.flow.StateFlow<String> get() = _subtitle
+
     init {
-        viewModelScope.launch {
+        // v1.9.2 修复（UncaughtExceptionsBeforeTest 根因）：预载协程原先挂 viewModelScope
+        // （Main dispatcher）。JVM 单测里 runTest 结束即 resetMain，若此时协程仍停在
+        // withContext(IO) 挂起点上，恢复回 Main 会抛 CoroutinesInternalError——协程机制级
+        // 致命错误，CoroutineExceptionHandler 兜不住，会泄漏为全局未捕获异常并污染下一个
+        // runTest。预载全程只做 DB 读 + StateFlow 更新（线程安全，见 AssetsLogic 的
+        // _assets.update CAS），挂 backgroundScope(IO) 即可，全程不依赖 Main dispatcher。
+        AppGraph.backgroundScope.launch {
+            // v1.9.2：副标题按剧集动态推导（项目名 + 第几集）
+            val epNo = episodeId.substringAfterLast("_ep").toIntOrNull() ?: 1
+            val pName = runCatching { withContext(Dispatchers.IO) {
+                AppGraph.dao.project(projectId)?.name
+            } }.getOrNull()?.takeIf { it.isNotBlank() }
+            _subtitle.value = (pName ?: "短剧项目") + " · 第 ${epNo} 集"
             // 读取本项目第一集的剧本与stage_flags（剧本导入时由ProjectsViewModel写入）
             val row = runCatching { withContext(Dispatchers.IO) {
                 AppGraph.dao.episode(episodeId) ?: AppGraph.dao.episode("${episodeId}_ep1")
@@ -627,14 +679,14 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
         _extractMessage.value = (if (llm.usedLlm) "大模型" else "规则") + "提取了${count}张资产卡，正在生成图像…"
-        // 对新增且未生成的卡片触发生成并落库
+        // 对新增且未生成的卡片触发生成并落库（v1.9.2：生成挂后台scope，切走也不丢）
         for (card in logic.assets.value.filter { it.remoteUrl == null && it.assetId.startsWith("sa_") }) {
             withContext(Dispatchers.IO) {
                 AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
                     asset_id = card.assetId, project_id = projectId, kind = card.kind.name.lowercase(),
                     prompt = card.prompt, updated_at = System.currentTimeMillis()))
             }
-            logic.generate(card.assetId)
+            AppGraph.backgroundScope.launch { logic.generate(card.assetId) }
         }
     }
 
@@ -652,7 +704,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 asset_id = assetId, project_id = projectId, kind = kind.name.lowercase(),
                 prompt = prompt.trim(), updated_at = System.currentTimeMillis()))
         }
-        logic.generate(assetId)   // 添加即触发生成
+        AppGraph.backgroundScope.launch { logic.generate(assetId) }   // 添加即触发生成（后台）
     }
 
     fun remove(assetId: String) = viewModelScope.launch {
@@ -671,7 +723,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             for (id in ids) runCatching { AppGraph.dao.deleteAsset(id) }
         }
     }
-    fun generate(assetId: String) = viewModelScope.launch { logic.generate(assetId) }
+    /** v1.9.2：资产生成挂 AppGraph.backgroundScope——切走标签/离开页面也不打断，跑完即落库 */
+    fun generate(assetId: String) = AppGraph.backgroundScope.launch { logic.generate(assetId) }
     fun review(assetId: String, keep: Boolean) = viewModelScope.launch { logic.review(assetId, keep) }
     fun reviewAllPassed() = logic.reviewAllPassed()
 
@@ -698,7 +751,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                         parent_id = child.parentId, pose_role = child.poseRole,
                         prompt = child.prompt, updated_at = System.currentTimeMillis()))
                 }
-                logic.generate(child.assetId)
+                AppGraph.backgroundScope.launch { logic.generate(child.assetId) }
             }
         }
     }
