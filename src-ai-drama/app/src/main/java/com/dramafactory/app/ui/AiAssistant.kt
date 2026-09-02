@@ -34,6 +34,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
 import com.dramafactory.app.R
+import com.dramafactory.core.model.ProviderError
 import com.dramafactory.core.orchestrate.AiAgent
 import com.dramafactory.core.orchestrate.ActionIntent
 import com.dramafactory.core.orchestrate.DialogueTurn
@@ -446,7 +447,16 @@ class AiAssistantViewModel : ViewModel() {
                 _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, notice)
             } }
                 .onSuccess { _history.value = a.history }
-                .onFailure { e -> _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 调用模型失败：${e.javaClass.simpleName}：${e.message?.take(300) ?: ""}") }
+                .onFailure { e ->
+                    // 这是 say() 自身抛出的兜底路径；正常模型异常已被 say() 捕获并返回友好文案
+                    val friendly = when (e) {
+                        is ProviderError.TransientError -> if (e.retryable) "AI 服务暂时繁忙，请稍后再试。" else "AI 服务暂时不可用。"
+                        is ProviderError.QuotaError -> "API 调用配额已用完，请稍后再试。"
+                        is ProviderError.AuthError -> "API Key 无效或已过期，请去设置页检查。"
+                        else -> "调用模型失败：${e.message?.take(120) ?: ""}"
+                    }
+                    _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ $friendly")
+                }
             isThinking = false
         }
     }

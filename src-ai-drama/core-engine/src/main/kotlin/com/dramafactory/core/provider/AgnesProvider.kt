@@ -143,6 +143,10 @@ class AgnesProvider(
         const val SUBMIT_MAX_ATTEMPTS = 3
         const val HTTP_MAX_RETRIES = 3
         const val INITIAL_BACKOFF_MS = 2_000L
+        // AI 助手对话的 /chat/completions 上游偶发 503，重试需要更耐心：
+        // 5 次 × 指数退避 3s 起步 ≈ 3+6+12+24 = 45s 总等待上限。
+        const val CHAT_MAX_RETRIES = 5
+        const val CHAT_INITIAL_BACKOFF_MS = 3_000L
 
         // pavo _mask_key 语义移植：前3后3
         fun maskKey(k: String): String =
@@ -172,10 +176,15 @@ class AgnesProvider(
     // 注意：429 在此层立即抛 QuotaError，绝不HTTP层快重试——
     //       视频提交的长退避在外层循环处理。
     // ------------------------------------------------------------------
-    private suspend fun postJson(path: String, body: JsonObject): JsonObject {
-        var backoff = INITIAL_BACKOFF_MS
+    private suspend fun postJson(
+        path: String,
+        body: JsonObject,
+        maxRetries: Int = HTTP_MAX_RETRIES,
+        initialBackoffMs: Long = INITIAL_BACKOFF_MS,
+    ): JsonObject {
+        var backoff = initialBackoffMs
         var lastErr: Exception? = null
-        for (attempt in 0 until HTTP_MAX_RETRIES) {
+        for (attempt in 0 until maxRetries) {
             try {
                 val resp = client.post("$effectiveBaseUrl$path") {
                     contentType(ContentType.Application.Json)
@@ -204,8 +213,8 @@ class AgnesProvider(
                 lastErr = e
                 val reason = "${e.javaClass.simpleName}: ${e.message?.take(120) ?: ""}"
                 // core-engine 不能依赖 app 模块的 CrashLog，只 println（Android logcat 可见）
-                println("AgnesProvider postJson[$path] attempt=${attempt + 1}/$HTTP_MAX_RETRIES $reason")
-                if (attempt == HTTP_MAX_RETRIES - 1) break
+                println("AgnesProvider postJson[$path] attempt=${attempt + 1}/$maxRetries $reason")
+                if (attempt == maxRetries - 1) break
                 sleeper(backoff); backoff *= 2
             }
         }
@@ -213,7 +222,7 @@ class AgnesProvider(
         val errInfo = if (lastErr != null) {
             "${lastErr!!.javaClass.simpleName}: ${lastErr!!.message?.take(120) ?: ""}"
         } else "no error captured"
-        throw ProviderError.TransientError("giving up on $path after $HTTP_MAX_RETRIES attempts: $errInfo")
+        throw ProviderError.TransientError("giving up on $path after $maxRetries attempts: $errInfo")
     }
 
     private suspend fun getJson(url: String): JsonObject {
@@ -409,7 +418,13 @@ class AgnesProvider(
                 put("chat_template_kwargs", buildJsonObject { put("enable_thinking", false) })
             }
         }
-        val out = postJson("/chat/completions", body)
+        // AI 助手对话单独用更耐心的重试策略，缓解上游 503 抖动
+        val out = postJson(
+            "/chat/completions",
+            body,
+            maxRetries = CHAT_MAX_RETRIES,
+            initialBackoffMs = CHAT_INITIAL_BACKOFF_MS,
+        )
         val content = out["choices"]?.jsonArray?.firstOrNull()
             ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content
             ?: throw ProviderError.ValidationError("unexpected chat response: ${out.toString().take(400)}")

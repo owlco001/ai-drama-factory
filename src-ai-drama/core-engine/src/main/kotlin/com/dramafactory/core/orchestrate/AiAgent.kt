@@ -3,6 +3,7 @@ package com.dramafactory.core.orchestrate
 import com.dramafactory.core.model.ChatMessage
 import com.dramafactory.core.model.ChatRequest
 import com.dramafactory.core.model.ChatResponse
+import com.dramafactory.core.model.ProviderError
 import com.dramafactory.core.provider.TextProvider
 
 /**
@@ -106,7 +107,19 @@ class AiAgent(
             )
         } catch (t: Throwable) {
             logger("AiAgent chat failed: ${t.message}")
-            ChatResponse(content = "（AI 调用失败：${t.javaClass.simpleName}：${t.message?.take(80)}）", raw = "")
+            // 把技术异常转成人话，避免用户看到裸 TransientError/giving up 堆栈
+            val friendly = when (t) {
+                is ProviderError.TransientError -> {
+                    val detail = t.message?.take(80)?.let { " ($it)" } ?: ""
+                    if (t.retryable) "AI 服务暂时繁忙，请稍后再试。$detail"
+                    else "AI 服务暂时不可用。$detail"
+                }
+                is ProviderError.QuotaError -> "API 调用配额已用完，请稍后再试。"
+                is ProviderError.AuthError -> "API Key 无效或已过期，请去设置页检查文本模型 Key。"
+                is ProviderError.ValidationError -> "请求参数有误：${t.message?.take(80)}"
+                else -> "AI 调用失败：${t.javaClass.simpleName}：${t.message?.take(80)}"
+            }
+            ChatResponse(content = "⚠️ $friendly", raw = "")
         }
         val raw = resp.content.ifBlank { "（AI 没有回复，请重试）" }
         lastAiText = raw
