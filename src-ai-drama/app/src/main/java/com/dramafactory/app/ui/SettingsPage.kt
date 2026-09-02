@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +19,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
@@ -53,12 +55,30 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
     val st by vm.state.collectAsState()
     // v1.8.9：Agnes 站点状态提升到页面级——站点卡片切换、文本块掩码刷新共用同一状态源
     var agnesRegion by remember { mutableStateOf(DefaultTextModelRouter.agnesRegion) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val snackbar = LocalDramaSnackbar.current
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         PageHeader(title = "设置", subtitle = "模型供应商 · Key 加密存储 · 渲染参数")
+
+        // ---- 更新通道（v1.9.3）：发现新版本高亮提示 + 主动检查入口 ----
+        UpdateChannelCard(
+            checking = st.updateChecking,
+            available = st.updateAvailable,
+            latest = st.updateLatest,
+            error = st.updateError,
+            onCheck = { vm.checkUpdate() },
+            onOpenDownload = { url ->
+                runCatching {
+                    ctx.startActivity(android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                }.onFailure { snackbar.show("无法打开链接，请手动前往 Gitee 下载") }
+            },
+            onDismiss = { vm.dismissUpdate() },
+        )
 
         // ---- 供应商选择（第四轮：多模型选择器；v1.9.2：逐家「测试」按钮）----
         DramaCard(Modifier.fillMaxWidth()) {
@@ -623,6 +643,88 @@ private fun PreviewSettingsIdle() {
                         Button(onClick = {}) { Text("保存到安全存储") }
                     }
                 }
+            }
+        }
+    }
+}
+
+// ---------- 更新通道（v1.9.3）----------
+
+/**
+ * 更新提示卡片：在设置页顶部常驻。
+ * - 正在检查：转圈 + 「正在检查更新…」
+ * - 发现新版本：高亮（primary 色）标题 + 「前往下载 vX.Y.Z」按钮（跳 Gitee）+ 可选更新说明 + 忽略按钮
+ * - 已是最新：绿色对勾 + 「已是最新」
+ * - 失败：警告图标 + 错误原因 + 「重试」
+ *
+ * available 非空时持续提示（logic 层不自动清除），跨页面返回不消失，直至用户点「忽略」或升级。
+ */
+@Composable
+fun UpdateChannelCard(
+    checking: Boolean,
+    available: com.dramafactory.app.ui.SettingsLogic.UpdateInfo?,
+    latest: Boolean,
+    error: String?,
+    onCheck: () -> Unit,
+    onOpenDownload: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    DramaCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("更新通道", style = MaterialTheme.typography.titleMedium)
+                if (!checking) {
+                    TextButton(onClick = onCheck) { Text("检查更新", style = MaterialTheme.typography.labelMedium) }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CircularProgressIndicator(Modifier.size(14.dp))
+                        Text("正在检查…", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+
+            when {
+                checking -> Unit   // 标题行已展示进度
+                available != null -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InlineStatus(
+                            Icons.Default.Warning,
+                            "发现新版本 v${available.versionName}，建议更新",
+                            MaterialTheme.colorScheme.primary,
+                        )
+                        available.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+                            Text(notes.lines().take(4).joinToString("\n"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Button(onClick = { onOpenDownload(available.downloadUrl) }) {
+                                Text("前往下载 v${available.versionName}")
+                            }
+                            TextButton(onClick = onDismiss) { Text("忽略") }
+                        }
+                    }
+                }
+                latest -> InlineStatus(
+                    Icons.Default.CheckCircle, "已是最新版本",
+                    MaterialTheme.colorScheme.primary)
+                error != null -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InlineStatus(Icons.Default.Warning, "检查更新失败：$error",
+                            MaterialTheme.colorScheme.error)
+                        Button(onClick = onCheck) { Text("重试") }
+                    }
+                }
+                else -> Text("点击右上角「检查更新」获取最新版本",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline)
             }
         }
     }

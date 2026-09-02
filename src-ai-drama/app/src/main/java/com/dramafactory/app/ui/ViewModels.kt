@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
+import com.dramafactory.app.update.UpdateChecker
 import com.dramafactory.core.quality.AssetAuditor
 import com.dramafactory.core.quality.StylePreset
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +54,28 @@ class SettingsViewModel : ViewModel() {
             AppGraph.refreshConfiguredProviders()
         }
         loadVideoParams()
+        // v1.9.3：进入设置页即静默检查一次更新（后台 scope，跨页面/离页不中断）
+        checkUpdate()
     }
+
+    // ---- 更新通道（v1.9.3）----
+    // Gitee Release 作为唯一数据源；注入当前 versionName（BuildConfig）与共享 HttpClient。
+    private val updateChecker: com.dramafactory.app.update.UpdateChecker by lazy {
+        com.dramafactory.app.update.UpdateChecker(
+            httpClient = com.dramafactory.core.provider.SharedHttp.client,
+            currentVersionName = try {
+                com.dramafactory.app.BuildConfig.VERSION_NAME
+            } catch (_: Throwable) { "0.0.0" },
+        )
+    }
+
+    /** 手动/自动检查更新：挂后台 scope（IO），结果写入 logic 状态机 */
+    fun checkUpdate() = AppGraph.backgroundScope.launch {
+        logic.checkUpdate { updateChecker.check() }
+    }
+
+    /** 忽略当前新版本提示（仅本次会话隐藏，下次进页仍会重新检查） */
+    fun dismissUpdate() = logic.dismissUpdate()
 
     private fun maskKey(key: String): String =
         if (key.length <= 6) "***" else key.take(3) + "***" + key.takeLast(3)

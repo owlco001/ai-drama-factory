@@ -14,12 +14,15 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 72
-        versionName = "1.9.2"  // v1.9.2: 资产卡生成/重生成按钮 + 模型逐家测试 + AI助手模型切换 + 副标题随剧集 + 后台处理 + 分镜详情
+        versionCode = 73
+        versionName = "1.9.3"  // v1.9.3: 新增「更新通道」——设置页检查 Gitee Release 更新 + 自动检测新版提示
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true   // 更新通道：读取 BuildConfig.VERSION_CODE 比对远程版本
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions {
         jvmTarget = "17"

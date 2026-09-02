@@ -57,6 +57,19 @@ class SettingsLogic(
         val testing: Boolean = false,
         val testResult: TestResult? = null,
         val saved: Boolean = false,             // 保存成功一次性提示
+        // ---- 更新通道（v1.9.3）----
+        val updateChecking: Boolean = false,    // 正在检查更新
+        val updateAvailable: UpdateInfo? = null,// 非空=发现新版本（持续提示，直至用户忽略或已更新）
+        val updateLatest: Boolean = false,      // 已是最新（点击检查后的一次性确认）
+        val updateError: String? = null,        // 检查失败原因
+    )
+
+    /** 更新通道：发现的新版本信息 */
+    data class UpdateInfo(
+        val versionName: String,
+        val versionCode: Int,
+        val downloadUrl: String,
+        val notes: String? = null,
     )
 
     sealed interface TestResult {
@@ -179,5 +192,36 @@ class SettingsLogic(
     suspend fun deleteKey() {
         withContext(io) { keyVault.delete(scopedConfigId) }
         _state.value = _state.value.copy(maskedSaved = null, testResult = null)
+    }
+
+    // ==================== 更新通道（v1.9.3）====================
+
+    /**
+     * 检查更新：拉取远程最新 release 并与当前版本比对。
+     * - 有新版本 → 置 updateAvailable（持续提示，跨页面返回不消失）；
+     * - 已是最新 → 置 updateLatest（一次性确认提示）；
+     * - 失败 → 置 updateError。
+     * 调用前清空旧状态，避免上一次结果残留。
+     *
+     * @param checker 注入式检查器（生产用 UpdateChecker；单测用假实现）
+     */
+    suspend fun checkUpdate(checker: suspend () -> com.dramafactory.app.update.UpdateResult) {
+        _state.value = _state.value.copy(
+            updateChecking = true, updateAvailable = null, updateLatest = false, updateError = null)
+        val r = withContext(io) { checker() }
+        _state.value = when (r) {
+            is com.dramafactory.app.update.UpdateResult.Latest ->
+                _state.value.copy(updateChecking = false, updateLatest = true)
+            is com.dramafactory.app.update.UpdateResult.UpdateAvailable ->
+                _state.value.copy(updateChecking = false,
+                    updateAvailable = UpdateInfo(r.versionName, r.versionCode, r.downloadUrl, r.notes))
+            is com.dramafactory.app.update.UpdateResult.Error ->
+                _state.value.copy(updateChecking = false, updateError = r.message)
+        }
+    }
+
+    /** 用户忽略当前新版本提示（下次进入仍会重新检查；仅本次会话内隐藏） */
+    fun dismissUpdate() {
+        _state.value = _state.value.copy(updateAvailable = null, updateLatest = false, updateError = null)
     }
 }
