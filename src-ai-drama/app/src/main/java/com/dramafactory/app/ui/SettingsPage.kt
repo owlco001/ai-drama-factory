@@ -490,7 +490,7 @@ fun ImageModelBlock(vm: SettingsViewModel) {
     DramaCard(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("图像模型（资产图 / 封面图）", style = MaterialTheme.typography.titleMedium)
-            Text("图像与视频是独立 Key 通道。没配过时图像生成会回退用视频通道的 Key。",
+            Text("资产图/封面图由图像通道生成。视频模型选 Agnes 时直接走 Agnes 图像端点；选其他家时若已配 Agnes Key 仍走 Agnes，否则退化用该家的视频首帧（较慢）。此处可单独配 Agnes 图像 Key。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
             Text("Agnes 图像 Key", style = MaterialTheme.typography.titleSmall)

@@ -30,6 +30,10 @@ class ScriptAssetExtractionTest {
     private val dispatcher = StandardTestDispatcher()
 
     @Before fun setUp() {
+        // v1.9.1：纯 JVM 单测沙箱没有 Android 主 looper；前置未 setMain 的测试类会污染全局
+        // Main dispatcher 状态（"Module with the Main dispatcher had failed to initialize"），
+        // 导致本类偶发失败。先 resetMain 清掉污染，再用 Unconfined 测试调度器重建 Main。
+        try { Dispatchers.resetMain() } catch (_: Throwable) {}
         Dispatchers.setMain(dispatcher)
         // v1.9.0：AssetsViewModel 构造即取 AppGraph.text（=agnes）组装 describer，
         // 纯 JVM 测试没有 Application.init 流程 → lateinit 崩溃（历史 flaky 根因）。
@@ -40,6 +44,14 @@ class ScriptAssetExtractionTest {
             com.dramafactory.app.AppGraph.agnes =
                 com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { "sk-offline-test" })
         }
+        // v1.9.1：AppGraph.image 现路由到 ImageProviderRouter（未 init 会 lateinit 崩溃）。
+        // 这里补一个离线初始化，保证 image 通道在纯 JVM 测试下可用。
+        com.dramafactory.core.provider.ImageProviderRouter.init(
+            videoRouter = com.dramafactory.core.provider.VideoProviderRouter,
+            agnesProvider = { com.dramafactory.app.AppGraph.agnes },
+            agnesKeyReady = { true },
+            frameExtractor = { "data:image/png;base64," },
+        )
     }
     @After fun tearDown() { Dispatchers.resetMain() }
 

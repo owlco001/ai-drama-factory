@@ -1,6 +1,9 @@
 package com.dramafactory.app
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
@@ -39,7 +42,27 @@ object AppGraph {
     /** v1.9.0：视频通道按激活供应商动态路由（Kling/即梦/Runway/Luma/Pika/agnes/custom） */
     val video get() = VideoProviderRouter.resolve()
     val text get() = agnes
-    val image get() = agnes
+    /** v1.9.1：图像通道按激活视频供应商路由（Agnes 原生 / 其他家退化为 image2video 首帧） */
+    val image get() = com.dramafactory.core.provider.ImageProviderRouter.resolve()
+
+    /**
+     * v1.9.1：video URL → 首帧 PNG data URI（供图像通道退化路径用）。
+     * 退化路径仅在「激活非 Agnes 视频供应商且无 Agnes Key」时触发，截帧属兜底能力，
+     * 失败不致命（由调用方按图像生成失败提示用户）。
+     */
+    private suspend fun extractFirstFrameAsDataUri(url: String): String = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(url)
+            val bmp = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?: throw com.dramafactory.core.model.ProviderError.TransientError("取首帧失败：$url")
+            val out = java.io.ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+            "data:image/png;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
     lateinit var budgetGuard: DefaultBudgetGuard; private set
 
     // v1.8.8：自定义模型 override（由 refreshConfiguredProviders 写入），rebuildAgnes() 复用，
@@ -381,6 +404,13 @@ object AppGraph {
                 regionProvider = { com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion },
                 agnesProviderProvider = { agnes },
             )
+            // v1.9.1：图像通道路由——激活 Agnes 走原生 image 端点，激活其他家退化为 image2video 首帧
+            com.dramafactory.core.provider.ImageProviderRouter.init(
+                videoRouter = VideoProviderRouter,
+                agnesProvider = { agnes },
+                agnesKeyReady = { agnesKeyReady() },
+                frameExtractor = { url -> extractFirstFrameAsDataUri(url) },
+            )
             // v1.7.18：按 provider_configs 里已保存的自定义模型重建 provider（"添加后能用"）。
             // 设置页保存自定义模型只落库 + KeyVault，此前运行时从不读表 → 自定义配置形同虚设。
             // 必须在 initialized=true 之后跑（refreshConfiguredProviders 内部早退保护），
@@ -469,7 +499,7 @@ object AppGraph {
                             val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
                             // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
                             val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
-                                provider = agnes, kind = asset.kind,
+                                provider = image, kind = asset.kind,
                                 basePrompt = asset.prompt, preset = preset)
                             // 落盘：生成成功回填资产图的 remote_url
                             runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 70
-        versionName = "1.9.0"  // v1.9.0: 补齐五家视频供应商(可灵/即梦/Runway/Luma/Pika)专属适配器 + 视频通道路由
+        versionCode = 71
+        versionName = "1.9.1"  // v1.9.1: 图像通道路由化——激活 Agnes 走原生 image 端点，激活其他家退化其 image2video 首帧
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
