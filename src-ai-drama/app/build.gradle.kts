@@ -44,12 +44,23 @@ android {
     // 安全：store/key 密码与 alias 一律从 gitignored 的 local.properties 读取，
     // 缺失时回退到环境变量；绝不硬编码、绝不入库（旧 keystore 曾因入库 + 裸密码
     // 导致签名身份泄露，已被轮换废弃）。local.properties 需自行备份（密码管理器）。
-    val keyProps = java.util.Properties().apply {
+    // 手动解析 gitignored 的 local.properties（纯 Kotlin 标准库，规避 DSL 中 java.util.* 不可见问题）
+    val keyProps = mutableMapOf<String, String>().apply {
         val f = rootProject.file("local.properties")
-        if (f.exists()) f.inputStream().use { load(it) }
+        if (f.exists()) {
+            f.readLines().forEach { raw ->
+                val line = raw.trim()
+                if (line.isNotEmpty() && !line.startsWith("#") && line.contains("=")) {
+                    val eq = line.indexOf('=')
+                    val k = line.substring(0, eq).trim()
+                    val v = line.substring(eq + 1).trim()
+                    if (k.isNotEmpty()) put(k, v)
+                }
+            }
+        }
     }
     fun secret(name: String): String =
-        (keyProps.getProperty(name) ?: System.getenv(name))
+        (keyProps[name] ?: System.getenv(name))
             ?: error("缺少签名密钥配置：$name（请在 local.properties 或环境变量中设置，切勿提交到仓库）")
     val KEYSTORE_DIR = "keystore"
     val KEYSTORE_FILE = "drama-release.jks"
