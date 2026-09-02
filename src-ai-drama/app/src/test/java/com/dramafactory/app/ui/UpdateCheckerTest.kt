@@ -94,6 +94,35 @@ class UpdateCheckerTest {
         assertTrue(r is UpdateResult.Error)
     }
 
+    // Gitee releases/latest 现实结构：除 APK 外还会附带自动生成的源码归档（.zip / .tar.gz），
+    // 且顺序不保证——本例刻意把源码归档排在 APK 之前，验证下载 URL 仍能锁定 .apk 附件。
+    private val releaseJsonWithSourceArchiveFirst = """
+        {
+          "tag_name": "v1.9.4",
+          "body": "notes",
+          "assets": [
+            { "name": "v1.9.4.zip", "browser_download_url": "https://gitee.com/owlco001/ai-drama-factory/archive/refs/tags/v1.9.4.zip" },
+            { "name": "v1.9.4.tar.gz", "browser_download_url": "https://gitee.com/owlco001/ai-drama-factory/archive/refs/tags/v1.9.4.tar.gz" },
+            { "name": "ai-drama-factory-v1.9.4-debug.apk", "browser_download_url": "https://gitee.com/owlco001/ai-drama-factory/releases/download/v1.9.4/ai-drama-factory-v1.9.4-debug.apk" }
+          ]
+        }
+    """.trimIndent()
+
+    @Test
+    fun `下载URL锁定apk附件 即使源码归档排在前面`() = runTest {
+        val client = jsonClient(200, releaseJsonWithSourceArchiveFirst)
+        val checker = UpdateChecker(client, currentVersionName = "1.9.3")
+        val r = checker.check()
+        assertTrue(r is UpdateResult.UpdateAvailable, "应识别为新版本，实际=$r")
+        r as UpdateResult.UpdateAvailable
+        assertEquals(
+            "https://gitee.com/owlco001/ai-drama-factory/releases/download/v1.9.4/ai-drama-factory-v1.9.4-debug.apk",
+            r.downloadUrl,
+            "下载 URL 必须指向 .apk 附件，而非源码归档"
+        )
+        assertTrue(r.downloadUrl.endsWith(".apk"), "下载 URL 应以 .apk 结尾，实际=${r.downloadUrl}")
+    }
+
     @Test
     fun `parseVersionCodeFromTag 多种格式`() {
         val checker = UpdateChecker(HttpClient(MockEngine { respond("{}") }), currentVersionName = "0.0.0")

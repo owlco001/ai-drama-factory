@@ -67,10 +67,19 @@ class UpdateChecker(
             val tag = root["tag_name"]?.jsonPrimitive?.content ?: return@runCatching UpdateResult.Error("缺少 tag_name")
             val versionName = tag.trim().trimStart('v', 'V')
             val notes = root["body"]?.jsonPrimitive?.content?.trim()?.takeIf { it.isNotBlank() }
-            val downloadUrl = (root["assets"]?.jsonArray
-                ?.firstOrNull()
+            val assetsArr = root["assets"]?.jsonArray
+            // Gitee 会附带自动生成的源码归档（vX.Y.Z.zip / .tar.gz），下载 URL 必须锁定 .apk 附件，
+            // 而非取 assets 首个元素——顺序不保证，取错会变成下载源码包。
+            val apkAsset = assetsArr?.firstOrNull { elem ->
+                elem.jsonObject["name"]?.jsonPrimitive?.content
+                    ?.endsWith(".apk", ignoreCase = true) == true
+            }
+            val downloadUrl = apkAsset
                 ?.jsonObject?.get("browser_download_url")
-                ?.jsonPrimitive?.content)
+                ?.jsonPrimitive?.content
+                ?: assetsArr?.firstOrNull()
+                    ?.jsonObject?.get("browser_download_url")
+                    ?.jsonPrimitive?.content
                 ?: "$releaseUrl/$tag"
             val remoteCode = parseVersionCodeFromTag(tag)
                 ?: return@runCatching UpdateResult.Error("无法解析版本号：$tag")
