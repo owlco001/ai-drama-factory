@@ -220,8 +220,8 @@ private fun HomeModelConfigCard(onOpenSettings: () -> Unit) {
 
     LaunchedEffect(Unit) {
         hasText = runCatching { com.dramafactory.app.AppGraph.hasAnyTextKey() }.getOrDefault(false)
-        hasVideo = runCatching { !com.dramafactory.app.AppGraph.keyVault.load(com.dramafactory.app.AppGraph.CONFIG_VIDEO).isNullOrBlank() }.getOrDefault(false)
-        hasImage = runCatching { !com.dramafactory.app.AppGraph.keyVault.load(com.dramafactory.app.AppGraph.CONFIG_IMAGE).isNullOrBlank() }.getOrDefault(false)
+        hasVideo = runCatching { com.dramafactory.app.AppGraph.hasVideoKey() }.getOrDefault(false)
+        hasImage = runCatching { com.dramafactory.app.AppGraph.hasImageKey() }.getOrDefault(false)
         checked = true
     }
     if (!checked) return

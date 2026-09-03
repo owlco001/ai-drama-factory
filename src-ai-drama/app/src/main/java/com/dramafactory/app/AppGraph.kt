@@ -17,9 +17,11 @@ import com.dramafactory.core.assemble.androidFfmpegKitExecutor
 import com.dramafactory.core.model.ChatRequest
 import com.dramafactory.core.pipeline.DefaultBudgetGuard
 import com.dramafactory.core.provider.AgnesProvider
+import com.dramafactory.core.provider.AgnesRegion
 import com.dramafactory.core.provider.CheckpointStore
 import com.dramafactory.core.provider.KeyVault
 import com.dramafactory.core.provider.VideoProviderRouter
+import com.dramafactory.core.provider.agnesScopedConfigId
 import com.dramafactory.core.orchestrate.DefaultAiOrchestrator
 import com.dramafactory.core.orchestrate.PipelineStage5
 import java.io.File
@@ -101,6 +103,43 @@ object AppGraph {
                 keyVault.load(com.dramafactory.core.provider.agnesScopedConfigId(c, region))
             }.getOrNull()?.isNotBlank() == true
         }
+    }
+
+    /** v1.9.7：当前激活视频供应商是否已配置有效 Key（与运行时 resolve 同源，含 region scoping） */
+    suspend fun hasVideoKey(): Boolean {
+        if (!::keyVault.isInitialized) return false
+        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        val active = VideoProviderRouter.activeVideoProviderId()
+        val candidates = mutableListOf(VideoProviderRouter.configIdFor(active, region))
+        // Agnes / custom 运行时还会兜底 custom-video
+        if (active == "agnes" || active == "custom") candidates.add("custom-video")
+        return candidates.any { cfgId ->
+            runCatching { keyVault.load(cfgId) }.getOrNull()?.isNotBlank() == true
+        }
+    }
+
+    /** v1.9.7：图像通道是否具备可用 Key（Agnes/custom 走 Agnes 原生生图；其他家兼容退化路径） */
+    suspend fun hasImageKey(): Boolean {
+        if (!::keyVault.isInitialized) return false
+        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        val active = VideoProviderRouter.activeVideoProviderId()
+        if (active == "agnes" || active == "custom") {
+            // Agnes provider 生图时 apiKeyProvider 会按 custom-image/agnes-image/agnes-video/agnes-text/agnes 顺序兜底
+            return listOf(
+                "custom-image",
+                agnesScopedConfigId(CONFIG_IMAGE, region),
+                agnesScopedConfigId(CONFIG_VIDEO, region),
+                agnesScopedConfigId(CONFIG_TEXT, region),
+                agnesScopedConfigId("agnes", region),
+                "custom-video",
+            ).any { cfgId ->
+                runCatching { keyVault.load(cfgId) }.getOrNull()?.isNotBlank() == true
+            }
+        }
+        // 其他家：有 Agnes 任意 key 优先走原生生图；否则需该家 video key 做 image2video 退化
+        if (agnesKeyReady()) return true
+        return runCatching { keyVault.load(VideoProviderRouter.configIdFor(active, region)) }
+            .getOrNull()?.isNotBlank() == true
     }
 
     /** v1.9.0：视频供应商 configId（按 region 分池，供设置页保存/读取 Key 用） */
@@ -763,17 +802,20 @@ object AppGraph {
 
 // ---- 文本 Provider 解析（文件级纯函数，便于 JVM 单测，不触发 object AppGraph 的 init）----
 
-/** 某 provider 在 keyVault 中可能落库的 configId 候选（多前缀兜底，历史兼容） */
-private fun textKeyConfigIds(providerId: String): List<String> = when (providerId) {
-    "deepseek" -> listOf("text-deepseek", "deepseek", "deepseek-chat")
-    else -> listOf("text-agnes", "agnes", "agnes-text")
+/** 某 provider 在 keyVault 中可能落库的 configId 候选（多前缀兜底，历史兼容；Agnes 按 region 分池） */
+private fun textKeyConfigIds(providerId: String, region: AgnesRegion): List<String> {
+    val base = when (providerId) {
+        "deepseek" -> listOf("text-deepseek", "deepseek", "deepseek-chat")
+        else -> listOf("text-agnes", "agnes", "agnes-text")
+    }
+    return base.map { agnesScopedConfigId(it, region) }
 }
 
 /** 按 providerId 构造带 key 的 TextProvider（空 key 即上层应引导去设置页的空跑态） */
 private fun buildTextProvider(
     providerId: String,
     key: String,
-    region: com.dramafactory.core.provider.AgnesRegion,
+    region: AgnesRegion,
 ): com.dramafactory.core.provider.TextProvider =
     when (providerId) {
         "deepseek" -> com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
@@ -790,19 +832,18 @@ private fun buildTextProvider(
 internal suspend fun resolveTextProviderFor(
     active: String,
     keyLoader: suspend (String) -> String?,
-    region: com.dramafactory.core.provider.AgnesRegion =
-        com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
+    region: AgnesRegion = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
 ): com.dramafactory.core.provider.TextProvider {
     val isDeepseek = active.startsWith("deepseek", ignoreCase = true)
     val primary = if (isDeepseek) "deepseek" else "agnes"
     val fallback = if (isDeepseek) "agnes" else "deepseek"
 
     // 1) 优先激活 provider 的 key
-    val primaryKey = textKeyConfigIds(primary).firstNotNullOfOrNull { keyLoader(it) }
+    val primaryKey = textKeyConfigIds(primary, region).firstNotNullOfOrNull { keyLoader(it) }
     if (primaryKey != null) return buildTextProvider(primary, primaryKey, region)
 
     // 2) 激活 provider 无 key → 另一 provider 有 key 则临时优雅回退
-    val fbKey = textKeyConfigIds(fallback).firstNotNullOfOrNull { keyLoader(it) }
+    val fbKey = textKeyConfigIds(fallback, region).firstNotNullOfOrNull { keyLoader(it) }
     if (fbKey != null) return buildTextProvider(fallback, fbKey, region)
 
     // 3) 都无 key → 空跑激活 provider，由上层提示去设置页配置

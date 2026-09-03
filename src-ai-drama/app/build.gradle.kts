@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 76
-        versionName = "1.9.6"  // v1.9.6: 修复 AI 助手前置检查误判未配置 Key（中国站 Agnes 误判）
+        versionCode = 77
+        versionName = "1.9.7"  // v1.9.7: 修复 region 分池后文本/视频/图像 Key 查询未做中国站 scoping
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

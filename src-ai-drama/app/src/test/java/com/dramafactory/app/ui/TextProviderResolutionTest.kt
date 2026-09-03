@@ -2,6 +2,7 @@ package com.dramafactory.app.ui
 
 import com.dramafactory.app.resolveTextProviderFor
 import com.dramafactory.core.provider.AgnesProvider
+import com.dramafactory.core.provider.AgnesRegion
 import com.dramafactory.core.provider.DeepSeekProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -74,5 +75,40 @@ class TextProviderResolutionTest {
     fun 无Key_空跑激活Provider_引导去设置() = runTest {
         assertTrue(resolveTextProviderFor("agnes", loader(emptyMap())) is AgnesProvider)
         assertTrue(resolveTextProviderFor("deepseek", loader(emptyMap())) is DeepSeekProvider)
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 激活Agnes_中国站_Key仅存textAgnesCn_返回AgnesProvider带该Key() = runTest {
+        val p = resolveTextProviderFor(
+            "agnes",
+            loader(mapOf("text-agnes-cn" to "sk-agnes-cn")),
+            region = AgnesRegion.CHINA,
+        ) as AgnesProvider
+        assertEquals("sk-agnes-cn", p.apiKeyProvider())
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 激活Agnes_中国站_仅国际站Key_不跨池回退() = runTest {
+        // 国际站 Key 在中国站必然 401，应空跑而非误用
+        val p = resolveTextProviderFor(
+            "agnes",
+            loader(mapOf("text-agnes" to "sk-agnes-intl")),
+            region = AgnesRegion.CHINA,
+        ) as AgnesProvider
+        assertEquals("", p.apiKeyProvider())
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 激活DeepSeek_中国站_KeyConfigId不变() = runTest {
+        // DeepSeek 不走 Agnes region 分池，configId 保持 text-deepseek
+        val p = resolveTextProviderFor(
+            "deepseek",
+            loader(mapOf("text-deepseek" to "sk-ds-cn")),
+            region = AgnesRegion.CHINA,
+        ) as DeepSeekProvider
+        assertEquals("sk-ds-cn", p.apiKeyProvider())
     }
 }
