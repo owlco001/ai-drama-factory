@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 74
-        versionName = "1.9.4"  // v1.9.4: 在线更新方案B——应用内下载APK(去.zip后缀)+调起系统安装器；固定签名可覆盖安装
+        versionCode = 75
+        versionName = "1.9.5"  // v1.9.5: 修复文本模型路由（AI助手误将providerId当模型名致聊天失败）；v1.9.4 在线更新方案B+签名密钥轮换
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
