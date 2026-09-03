@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 75
-        versionName = "1.9.5"  // v1.9.5: 修复文本模型路由（AI助手误将providerId当模型名致聊天失败）；v1.9.4 在线更新方案B+签名密钥轮换
+        versionCode = 76
+        versionName = "1.9.6"  // v1.9.6: 修复 AI 助手前置检查误判未配置 Key（中国站 Agnes 误判）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
