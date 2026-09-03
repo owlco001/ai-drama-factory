@@ -45,6 +45,8 @@ class AssetsLogic {
         val rejectReason: String? = null,
         /** G2 缺陷词（JSON 列表字符串），非空即 DEFECT_DETECTED 直接拒 */
         val defectsJson: String? = null,
+        /** 生成失败信息（非空=本卡片最近一次生成失败，UI 红字展示，替代「无反应」静默吞错） */
+        val errorMessage: String? = null,
     )
 
     private val _assets = MutableStateFlow<List<AssetCard>>(emptyList())
@@ -367,7 +369,7 @@ class AssetsLogic {
 
     suspend fun generate(assetId: String) {
         cancelled.remove(assetId)
-        update(assetId) { it.copy(generating = true) }
+        update(assetId) { it.copy(generating = true, errorMessage = null) }
         val card = _assets.value.firstOrNull { it.assetId == assetId } ?: return
         val result = runCatching { generateHandler(card) }.getOrElse { Result.failure(it) }
         if (assetId in cancelled) {   // 用户已停止：丢弃结果，绝不落盘
@@ -375,9 +377,23 @@ class AssetsLogic {
             update(assetId) { it.copy(generating = false) }
             return
         }
+        val ex = result.exceptionOrNull()
+        if (ex != null) {
+            // v1.9.8：失败不再静默吞掉——落诊断日志 + 写回卡片 errorMessage，UI 红字展示，
+            // 用户可直接看到「401/400/超时」等真实原因，而非「点击生成无反应」。
+            val msg = buildString {
+                append(ex.message?.takeIf { it.isNotBlank() } ?: ex.javaClass.simpleName)
+            }.take(240)
+            println("AssetsLogic.generate($assetId) FAILED: ${ex.javaClass.simpleName}: ${ex.message}")
+            ex.printStackTrace()
+            update(assetId) {
+                it.copy(generating = false, errorMessage = msg)
+            }
+            return
+        }
         update(assetId) {
             when {
-                result.isSuccess -> it.copy(remoteUrl = result.getOrThrow(), generating = false)
+                result.isSuccess -> it.copy(remoteUrl = result.getOrThrow(), generating = false, errorMessage = null)
                 else -> it.copy(generating = false)   // 失败：URL保持旧值，UI按!success显示重试
             }
         }

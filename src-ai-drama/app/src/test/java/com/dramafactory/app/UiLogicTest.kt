@@ -124,9 +124,11 @@ class UiLogicTest {
         logic.addAsset("a1", AssetsLogic.Kind.PROP, "怀表")
         logic.generate("a1")
         assertFalse(logic.assets.value[0].generating)          // 失败后转圈复位
+        assertEquals("网络错误", logic.assets.value[0].errorMessage)  // v1.9.8：失败信息可见（不再静默吞错）
         fail = false
         logic.generate("a1")
         assertEquals("u", logic.assets.value[0].remoteUrl)
+        assertTrue(logic.assets.value[0].errorMessage == null)         // 成功清空错误提示
     }
 
     // ---------- QueueLogic ----------

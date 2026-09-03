@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 77
-        versionName = "1.9.7"  // v1.9.7: 修复 region 分池后文本/视频/图像 Key 查询未做中国站 scoping
+        versionCode = 78
+        versionName = "1.9.8"  // v1.9.8: 图片生成失败不再静默吞错——卡片红字展示真实错误（401/400/超时等）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

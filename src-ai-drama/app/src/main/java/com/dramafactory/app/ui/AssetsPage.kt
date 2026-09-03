@@ -726,6 +726,12 @@ private fun GridAssetCard(
                 Text(gridStatusLine(card), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                card.errorMessage?.let {
+                    Text("⚠ $it", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp))
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
