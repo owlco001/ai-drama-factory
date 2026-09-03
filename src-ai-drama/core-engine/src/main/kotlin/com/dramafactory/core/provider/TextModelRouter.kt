@@ -55,6 +55,8 @@ interface TextModelRouter {
     suspend fun saveKey(modelId: String, key: String): Result<Unit>
     suspend fun validate(modelId: String, key: String? = null): Result<ConnectionInfo>
     suspend fun resolve(modelId: String): TextProvider
+    /** 是否存在任意已注册文本模型的有效 Key（走 store 的 region 化 cfgId 规则，与 saveKey/loadKey 同源）。 */
+    suspend fun hasAnyKey(): Boolean
 }
 
 /** 底层存储：活跃模型 + 每 provider 的 Key + 验证状态 */
@@ -128,6 +130,11 @@ object DefaultTextModelRouter : TextModelRouter {
         store.saveKey(entry.providerId, key)
         store.markVerified(entry.providerId, false)
     }
+
+    override suspend fun hasAnyKey(): Boolean =
+        registeredTextModels().any { entry ->
+            runCatching { store.loadKey(entry.providerId) }.getOrNull()?.isNotBlank() == true
+        }
 
     override suspend fun validate(modelId: String, key: String?): Result<ConnectionInfo> {
         val entry = resolveId(modelId)

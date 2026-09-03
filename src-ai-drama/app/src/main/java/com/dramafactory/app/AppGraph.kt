@@ -277,10 +277,9 @@ object AppGraph {
 
     /** 是否任一文本模型候选 configId 有非空 key（用于 AI 助手前置提示） */
     internal suspend fun hasAnyTextKey(): Boolean {
-        // DeepSeek 优先（用户明确：APP 文字模型用 DeepSeek），其次 Agnes。
-        val candidates = listOf("text-deepseek", "deepseek", "deepseek-chat", "text-agnes", "agnes", "agnes-text")
-        // v1.6.6 修：AndroidKeyVault.load 找不到时抛 NoSuchElementException，必须 runCatching 兜。
-        return candidates.any { c -> runCatching { keyVault.load(c) }.getOrNull()?.isNotBlank() == true }
+        // v1.9.6：改走 TextModelRouter 的 hasAnyKey，与设置页 saveKey/loadKey 用同一套 region 化 cfgId，
+        // 修复中国站 Agnes 保存的 Key 在 text-agnes-cn，而死列表只查 text-agnes 导致误判未配置的 bug。
+        return runCatching { textModelRouter.hasAnyKey() }.getOrDefault(false)
     }
 
     /**

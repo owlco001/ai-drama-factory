@@ -211,4 +211,37 @@ class TextModelRouterTest {
         store.hydrateActive()
         assertEquals("agnes", store.loadActiveModel())
     }
+
+    // ---------- hasAnyKey：与设置页保存/读取同源（v1.9.6 修复中国站 Agnes 误判未配置） ----------
+
+    @Test
+    fun hasAnyKey_中国站Agnes保存后应认为已配置() = runTest {
+        val vault = InMemoryKeyVault()
+        val store = InMemoryTextModelStore(keyVault = vault)
+        DefaultTextModelRouter.store = store
+        DefaultTextModelRouter.agnesRegion = com.dramafactory.core.provider.AgnesRegion.CHINA
+        try {
+            DefaultTextModelRouter.saveKey("agnes", "sk-agnes-cn")
+            assertTrue(DefaultTextModelRouter.hasAnyKey())
+        } finally {
+            DefaultTextModelRouter.agnesRegion = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL
+        }
+    }
+
+    @Test
+    fun hasAnyKey_国际站Agnes保存后应认为已配置() = runTest {
+        val vault = InMemoryKeyVault()
+        val store = InMemoryTextModelStore(keyVault = vault)
+        DefaultTextModelRouter.store = store
+        DefaultTextModelRouter.agnesRegion = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL
+        DefaultTextModelRouter.saveKey("agnes", "sk-agnes")
+        assertTrue(DefaultTextModelRouter.hasAnyKey())
+    }
+
+    @Test
+    fun hasAnyKey_无Key时应返回false() = runTest {
+        val store = InMemoryTextModelStore(keyVault = InMemoryKeyVault())
+        DefaultTextModelRouter.store = store
+        assertFalse(DefaultTextModelRouter.hasAnyKey())
+    }
 }
