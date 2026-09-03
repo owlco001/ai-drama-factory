@@ -80,10 +80,13 @@ object AppGraph {
         val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
         agnes = com.dramafactory.core.provider.AgnesProvider(
             apiKeyProvider = {
+                // v1.9.9：KeyVault.load 在 key 不存在时抛 NoSuchElementException，必须吞掉并继续
+                // fallback，否则 custom 模式未配 key 时永远到不了后面的 Agnes 候选。
                 listOf("custom-video", "custom-image", CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes")
                     .firstNotNullOfOrNull { c ->
-                        keyVault.load(com.dramafactory.core.provider.agnesScopedConfigId(c, region))
-                            .takeIf { k -> k.isNotBlank() }
+                        runCatching {
+                            keyVault.load(com.dramafactory.core.provider.agnesScopedConfigId(c, region))
+                        }.getOrNull()?.takeIf { k -> k.isNotBlank() }
                     }
                     .orEmpty()
             },
@@ -105,41 +108,50 @@ object AppGraph {
         }
     }
 
-    /** v1.9.7：当前激活视频供应商是否已配置有效 Key（与运行时 resolve 同源，含 region scoping） */
+    /** v1.9.9：当前激活视频供应商是否已配置有效 Key（与 AgnesProvider 运行时 apiKeyProvider 同源） */
     suspend fun hasVideoKey(): Boolean {
         if (!::keyVault.isInitialized) return false
         val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
         val active = VideoProviderRouter.activeVideoProviderId()
-        val candidates = mutableListOf(VideoProviderRouter.configIdFor(active, region))
-        // Agnes / custom 运行时还会兜底 custom-video
-        if (active == "agnes" || active == "custom") candidates.add("custom-video")
+        val candidates = if (active == "agnes" || active == "custom") {
+            // 与 rebuildAgnes 的 apiKeyProvider 完全一致：custom-* → agnes-*
+            listOf(
+                "custom-video",
+                "custom-image",
+                agnesScopedConfigId(CONFIG_VIDEO, region),
+                agnesScopedConfigId(CONFIG_IMAGE, region),
+                agnesScopedConfigId(CONFIG_TEXT, region),
+                agnesScopedConfigId("agnes", region),
+            )
+        } else {
+            listOf(VideoProviderRouter.configIdFor(active, region))
+        }
         return candidates.any { cfgId ->
             runCatching { keyVault.load(cfgId) }.getOrNull()?.isNotBlank() == true
         }
     }
 
-    /** v1.9.7：图像通道是否具备可用 Key（Agnes/custom 走 Agnes 原生生图；其他家兼容退化路径） */
+    /** v1.9.9：图像通道是否具备可用 Key（与 AgnesProvider 运行时 apiKeyProvider 同源） */
     suspend fun hasImageKey(): Boolean {
         if (!::keyVault.isInitialized) return false
         val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
         val active = VideoProviderRouter.activeVideoProviderId()
-        if (active == "agnes" || active == "custom") {
-            // Agnes provider 生图时 apiKeyProvider 会按 custom-image/agnes-image/agnes-video/agnes-text/agnes 顺序兜底
-            return listOf(
+        val candidates = if (active == "agnes" || active == "custom") {
+            // 与 rebuildAgnes 的 apiKeyProvider 一致，但图像通道优先 custom-image/agnes-image
+            listOf(
                 "custom-image",
+                "custom-video",
                 agnesScopedConfigId(CONFIG_IMAGE, region),
                 agnesScopedConfigId(CONFIG_VIDEO, region),
                 agnesScopedConfigId(CONFIG_TEXT, region),
                 agnesScopedConfigId("agnes", region),
-                "custom-video",
-            ).any { cfgId ->
-                runCatching { keyVault.load(cfgId) }.getOrNull()?.isNotBlank() == true
-            }
+            )
+        } else {
+            listOf(VideoProviderRouter.configIdFor(active, region))
         }
-        // 其他家：有 Agnes 任意 key 优先走原生生图；否则需该家 video key 做 image2video 退化
-        if (agnesKeyReady()) return true
-        return runCatching { keyVault.load(VideoProviderRouter.configIdFor(active, region)) }
-            .getOrNull()?.isNotBlank() == true
+        return candidates.any { cfgId ->
+            runCatching { keyVault.load(cfgId) }.getOrNull()?.isNotBlank() == true
+        }
     }
 
     /** v1.9.0：视频供应商 configId（按 region 分池，供设置页保存/读取 Key 用） */

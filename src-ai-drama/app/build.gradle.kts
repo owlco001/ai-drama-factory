@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 78
-        versionName = "1.9.8"  // v1.9.8: 图片生成失败不再静默吞错——卡片红字展示真实错误（401/400/超时等）
+        versionCode = 79
+        versionName = "1.9.9"  // v1.9.9: 修复 custom 模式未配 key 时 Agnes key 无法 fallback 导致图片生成报 no key for config custom-video
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

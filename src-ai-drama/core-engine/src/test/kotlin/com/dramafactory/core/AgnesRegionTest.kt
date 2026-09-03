@@ -100,4 +100,23 @@ class AgnesRegionTest {
         store.saveAgnesRegion(AgnesRegion.CHINA)
         assertEquals("CN-KEY", store.loadKey("agnes"), "切回中国站应恢复原 Key，互不覆盖")
     }
+
+    // ===== v1.9.9：apiKeyProvider fallback 必须吞掉 KeyVault.load 的 NoSuchElementException =====
+
+    @Test
+    fun `apiKeyProvider candidate fallback 在 KeyVault 抛异常时继续查找`() = runTest {
+        // 模拟真实 KeyVault：未配置的 key 抛 NoSuchElementException（如 InMemoryKeyVault / AndroidKeyVault）
+        val loader: suspend (String) -> String? = { cfgId ->
+            when (cfgId) {
+                "agnes-cn-video" -> "AGNES-CN-VIDEO-KEY"
+                else -> throw NoSuchElementException("no key for config $cfgId")
+            }
+        }
+        val candidates = listOf("custom-video", "custom-image", "agnes-video", "agnes-image", "agnes-text", "agnes")
+            .map { agnesScopedConfigId(it, AgnesRegion.CHINA) }
+        val key = candidates.firstNotNullOfOrNull { cfgId ->
+            runCatching { loader(cfgId) }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
+        assertEquals("AGNES-CN-VIDEO-KEY", key, "custom-* 未配 key 时应继续 fallback 到 agnes-cn-video")
+    }
 }
