@@ -440,6 +440,15 @@ object AppGraph {
             // 保证 initialized=true 之前内存已是持久值，避免任何 UI 首帧读到默认 agnes 再跳变。
             kotlinx.coroutines.runBlocking {
                 runCatching { textModelStore.hydrateActive() }
+                // v1.9.5 修复：Agnes 站点此前只预热了 DefaultTextModelRouter.agnesRegion，
+                // store 内部 region 缓存恒为构造默认值 INTERNATIONAL。冷启动后若持久值为中国站，
+                // 走 router.resolve() 的路径会出现「provider 打中国站 URL，Key 却从国际站池
+                // text-agnes 读取」的错配 → 鉴权失败。这里将已预热的 router 值同步进 store，
+                // 保证两处副本一致（设置页手动切换时本就会同时更新两者，仅冷启动路径缺失）。
+                runCatching {
+                    textModelStore.saveAgnesRegion(
+                        com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion)
+                }
             }
 
             try {

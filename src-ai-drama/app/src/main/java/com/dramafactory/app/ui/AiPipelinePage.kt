@@ -172,9 +172,12 @@ class AiPipelineViewModel : ViewModel() {
         val router = com.dramafactory.app.AppGraph.textModelRouter
         val modelId = router.activeTextModelId()
         val provider = router.resolve(modelId)  // 已在 viewModelScope，挂起安全
+        // v1.9.5 修复：modelId 实为 providerId（agnes / deepseek），不是模型名，
+        // 传进 AiAgent 会作为 ChatRequest.model 发往网关导致请求被拒。
+        // 激活模型已由 resolve(modelId) 选定 provider，模型名交由 provider 自身选型，故传空。
         agent = AiAgent(
             textProvider = provider,
-            modelId = modelId,
+            modelId = "",
             actionHandler = { act, onNotice -> handleAction(act, onNotice) },
         )
         val welcome = DialogueTurn(DialogueTurn.Side.AI,

@@ -130,11 +130,15 @@ class AiAssistantViewModel : ViewModel() {
         _building = true
         runCatching {
             val router = AppGraph.textModelRouter
-            val modelId = router.activeTextModelId()
+            // v1.9.5 修复：activeTextModelId() 返回的是 **providerId**（agnes / deepseek），
+            // 并非模型名。此前把它当 modelId 传给 AiAgent，最终作为 ChatRequest.model 发往网关
+            // （"agnes" 不是合法模型 ID）→ 官方网关拒绝，表现为「测试连通成功但聊天失败」。
+            // 激活模型已由 textProviderFor() 决定走哪个 provider，具体模型名交由 provider 自身
+            // 选型（Agnes 按输入规模自动选模 / DeepSeek 固定 deepseek-chat），故这里传空。
             val provider = AppGraph.textProviderFor()
             agent = AiAgent(
                 textProvider = provider,
-                modelId = modelId,
+                modelId = "",
                 actionHandler = { act, onNotice -> handleAction(act, onNotice) },
                 currentProjectHint = currentProjectId,
             )

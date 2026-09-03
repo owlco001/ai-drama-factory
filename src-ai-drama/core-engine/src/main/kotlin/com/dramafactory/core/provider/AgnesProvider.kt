@@ -391,7 +391,20 @@ class AgnesProvider(
     override suspend fun chat(req: ChatRequest): ChatResponse {
         val body = buildJsonObject {
             // 第十轮：模型自动选择——按输入规模挑最合适的chat模型（官方目录512K/256K/256K）
-            put("model", req.model.ifEmpty { pickTextModel(req) })
+            //
+            // v1.9.5 修复：调用方（AiAgent）曾把 **providerId**（如 "agnes"）当作 modelId 传入，
+            // 而 "agnes" 并非任何官方模型 ID —— 该值非空使自动选模完全失效，官方网关直接拒绝，
+            // 表现为「设置页测试连通成功（validateKey 不传 model，走有效默认值 agnes-2.5-flash），
+            // 但 AI 助手聊天失败」。故官方网关下 model 必须命中官方目录，否则一律回退自动选模；
+            // 自定义 baseUrl（OpenAI 兼容供应商）尊重调用方配置，模型名不受官方目录限制。
+            val officialDir = setOf(MODEL_TEXT, MODEL_TEXT_MID, MODEL_TEXT_LIGHT)
+            val requested = req.model.trim()
+            val model = when {
+                baseUrlOverride != null -> requested.ifEmpty { pickTextModel(req) }
+                requested.isEmpty() || requested !in officialDir -> pickTextModel(req)
+                else -> requested
+            }
+            put("model", model)
             put("messages", buildJsonArray {
                 req.messages.forEach { m ->
                     if (m.imageUrl != null) {
