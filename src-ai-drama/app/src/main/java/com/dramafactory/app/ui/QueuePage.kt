@@ -165,6 +165,13 @@ fun QueuePage(
                                     Text(shotStateLabel(stateName), style = MaterialTheme.typography.bodySmall,
                                         color = shotStateColor(stateName))
                                 }
+                                // v1.9.13：FAILED/BLOCKED/RECONCILE 直接展示原因，省去抓 logcat
+                                val reason = st.shotReasons[shotId]
+                                if (!reason.isNullOrBlank() && stateName in listOf("FAILED", "BLOCKED", "RECONCILE")) {
+                                    Text(reason, style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(top = 2.dp))
+                                }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 // 第六轮：图生视频「设参考图」入口（复用本地上传选图）

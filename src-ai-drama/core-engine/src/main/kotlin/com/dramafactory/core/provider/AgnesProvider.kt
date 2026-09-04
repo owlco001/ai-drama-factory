@@ -374,8 +374,15 @@ class AgnesProvider(
                 PollResult.Completed(url)
             }
             "failed" -> {
-                val err = out["error"]?.jsonObject.toString()
-                PollResult.Failed(err.take(400))
+                // v1.9.14：error 字段可能是字符串也可能是对象，兼容两种形态，避免原因丢失
+                val err = out["error"]
+                val reason = when {
+                    err == null -> "unknown"
+                    err is JsonPrimitive -> err.contentOrNull ?: err.toString()
+                    else -> err.toString()
+                }
+                println("AgnesProvider pollResult failed video_id=$providerTaskId reason=$reason")
+                PollResult.Failed(reason.take(400))
             }
             else -> PollResult.InProgress(out["progress"]?.jsonPrimitive?.intOrNull)
         }

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 83
-        versionName = "1.9.13"  // v1.9.13: 分镜页 API Key 预检查改用 hasVideoKey()（覆盖 custom/agnes 多槽位），修复「设置页已填 key 仍报未配置」
+        versionCode = 84
+        versionName = "1.9.14"  // v1.9.14: 渲染队列暴露失败原因（fail_reason）；pollResult error 字段兼容字符串/对象，修复原因丢失
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -34,6 +34,8 @@ class QueueLogic(
         val usage: BudgetUsage = BudgetUsage(0, 50),
         /** 镜状态机实时刷新：shotId → 状态名 */
         val shotStates: Map<String, String> = emptyMap(),
+        /** 失败/放弃/对账原因：shotId → 原因文本（仅 FAILED/BLOCKED/RECONCILE 有意义） */
+        val shotReasons: Map<String, String?> = emptyMap(),
         /** 待用户确认预算超限（弹窗可见位） */
         val showBudgetConfirm: Boolean = false,
         /** 待人工处置的RECONCILE镜头（对话框数据）：shotId → 原因 */
@@ -47,8 +49,8 @@ class QueueLogic(
     private var watchJob: Job? = null
     /** RECONCILE处置回调：retry=true重置PENDING / false标BLOCKED。由App层注入Room写实现 */
     var onReconcileResolve: suspend (shotId: String, retry: Boolean) -> Unit = { _, _ -> }
-    /** 镜状态读取器：App层注入Room查询（shotId→状态名），供轮询刷新 */
-    var shotStateReader: suspend () -> Map<String, String> = { emptyMap() }
+    /** 镜状态读取器：App层注入Room查询（shotId→(状态名, 原因)），供轮询刷新 */
+    var shotStateReader: suspend () -> Map<String, Pair<String, String?>> = { emptyMap() }
 
     /** 订阅队列快照+预算用量，并启动镜状态轮询（2s一次，页面离开时stopWatching） */
     fun startWatching(scope: CoroutineScope) {
@@ -56,10 +58,12 @@ class QueueLogic(
         watchJob = scope.launch {
             while (true) {
                 val base = _state.value
+                val read = runCatching { shotStateReader() }.getOrDefault(emptyMap())
                 _state.value = base.copy(
                     snapshot = queue.state.value,
                     usage = budgetGuard.usage.value,
-                    shotStates = runCatching { shotStateReader() }.getOrDefault(base.shotStates),
+                    shotStates = read.mapValues { it.value.first },
+                    shotReasons = read.mapValues { it.value.second },
                 )
                 // budget_exceeded暂停且尚未确认 → 触发预算确认弹窗（对齐resume(confirmed)放行位）
                 if (queue.state.value.pausedReason == "budget_exceeded" && !_state.value.showBudgetConfirm) {

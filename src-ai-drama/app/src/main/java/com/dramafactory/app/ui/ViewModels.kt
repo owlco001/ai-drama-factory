@@ -304,10 +304,12 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
                 }
             }
         }
-        // 镜状态实时刷新源：Room render_tasks表
+        // 镜状态实时刷新源：Room render_tasks表（状态 + 失败/放弃/对账原因）
         shotStateReader = {
             withContext(Dispatchers.IO) {
-                AppGraph.dao.renderTasksOfEpOrdered(episodeId).associate { it.shot_id to it.state }
+                AppGraph.dao.renderTasksOfEpOrdered(episodeId).associate {
+                    it.shot_id to (it.state to (it.fail_reason ?: it.blocked_reason))
+                }
             }
         }
         // 第六轮：图生视频关键帧 + 视频参考解析器（从 shots 表读取本镜已设参考）
