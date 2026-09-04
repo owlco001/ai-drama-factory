@@ -90,7 +90,7 @@ object AssetCatalog {
     fun resolveRefUris(
         rows: List<AssetEntity>,
         refIds: List<String>,
-        limit: Int = 4,
+        limit: Int = 5,
     ): List<String> {
         if (refIds.isEmpty()) return emptyList()
         // 已被用户判「重生成」的子卡不参与锁脸（那张图已被否决）

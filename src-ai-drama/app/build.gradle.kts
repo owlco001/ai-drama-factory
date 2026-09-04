@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 85
-        versionName = "1.9.15"  // v1.9.15: 按视频模型裁剪 input image 数量（ti2vid 等仅支持 1 张），修复 400 "supports at most 1 image"
+        versionCode = 86
+        versionName = "1.9.16"  // v1.9.16: 视频提交 model-aware（2.5 reference 模式 + reference_images；ti2vid 单帧；v2.0 维持）；listModels 国际站暴露 2.5/2.5-flash；cn 站禁 2.5
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

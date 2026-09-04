@@ -164,6 +164,16 @@ class AgnesProvider(
             else -> 8   // Agnes 官方 agnes-video-v2.0 及同代模型：首帧+尾帧+参考图兜底
         }
 
+        /**
+         * v1.9.16：Agnes 视频模型家族识别（决定提交 payload 形态）。
+         * 2.5 系列走 reference 模式（首帧 image 字符串 + reference_images 独立数组，最多5张）；
+         * ti2vid 走单帧字符串 image；其余（v2.0 及同代）走 image 数组 + keyframes。
+         */
+        fun isAgnesVideo25(modelId: String): Boolean =
+            modelId.contains("video-2.5", ignoreCase = true) ||
+            modelId.contains("2.5-flash", ignoreCase = true)
+        fun isTi2vid(modelId: String): Boolean = modelId.contains("ti2vid", ignoreCase = true)
+
         /** num_frames 归一到最近的 8n+1，clamp到[1,441]（对齐closest_valid_num_frames） */
         fun closestValidNumFrames(target: Int): Int {
             if (target <= 1) return 1
@@ -293,17 +303,36 @@ class AgnesProvider(
         }
     }
 
-    override fun listModels(): List<ModelSpec> = listOf(
-        ModelSpec(effectiveVideoModel, if (videoModelOverride != null) "自定义视频 ${effectiveVideoModel}" else "Agnes 视频 v2.0").apply { supportsVideoReference = true },
-        ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
-        ModelSpec(MODEL_TEXT_MID, "Agnes 文本 2.0 Flash"),
-        ModelSpec(MODEL_TEXT_LIGHT, "Agnes 文本 1.5 Flash"),
-        ModelSpec(effectiveImageModel, if (imageModelOverride != null) "自定义图像 ${effectiveImageModel}" else "Agnes 图像 2.1 Flash"),
-    )
+    override fun listModels(): List<ModelSpec> {
+        // v1.9.16：按地域暴露不同视频模型——cn 站只有 v2.0 且大概率 403，2.5 仅国际站可用
+        val videoModels = when (region) {
+            AgnesRegion.CHINA -> listOf(
+                MODEL_VIDEO to "Agnes 视频 v2.0（国内站，常403）",
+            )
+            else -> listOf(
+                MODEL_VIDEO to "Agnes 视频 v2.0",
+                "agnes-video-2.5" to "Agnes 视频 2.5（多参考图锁定）",
+                "agnes-video-2.5-flash" to "Agnes 视频 2.5 Flash（5s 720p）",
+            )
+        }
+        return videoModels.map { (id, label) ->
+            ModelSpec(id, label).apply { supportsVideoReference = true }
+        } + listOf(
+            ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
+            ModelSpec(MODEL_TEXT_MID, "Agnes 文本 2.0 Flash"),
+            ModelSpec(MODEL_TEXT_LIGHT, "Agnes 文本 1.5 Flash"),
+            ModelSpec(effectiveImageModel, if (imageModelOverride != null) "自定义图像 ${effectiveImageModel}" else "Agnes 图像 2.1 Flash"),
+        )
+    }
 
     override suspend fun submitVideo(req: VideoSubmitRequest): String {
         // ① 先过120s限速门再干活（首发免等）
         rateGate.awaitSlot()
+
+        // v1.9.16：地域×模型前置校验（省远程 422/403 浪费）
+        // cn 站没有 2.5 模型 id（填了直接 422 模型不存在），也不建议跑 v2.0（大量账号 403）
+        if (region == AgnesRegion.CHINA && isAgnesVideo25(effectiveVideoModel))
+            throw ProviderError.ValidationError("cn 站点不存在 agnes-video-2.5（422 模型不存在）；请切国际站或使用 v2.0")
 
         // 参数前置校验：本地暴露4xx问题，省远程成本（架构§4.4）
         if (req.frameRate < 1f || req.frameRate > 60f)
@@ -320,32 +349,56 @@ class AgnesProvider(
             put("prompt", prompt)
             put("width", w); put("height", h)
             put("num_frames", nf); put("frame_rate", req.frameRate.toDouble())
-            // v1.7.2：套用 pavo 锁脸——组装 image 列表（keyframes/首帧 + 角色/场景资产参考图）
-            val images = mutableListOf<String>()
-            if (req.firstImageUri != null && req.lastImageUri != null) {
-                images.add(req.firstImageUri); images.add(req.lastImageUri)
-            } else if (req.firstImageUri != null) {
-                images.add(req.firstImageUri)
-            } else if (req.referenceImageUri != null) {
-                images.add(req.referenceImageUri)
-            }
-            images.addAll(req.inputImages)
 
-            // v1.9.15：ti2vid 等模型最多只支持 1 张 image（Agnes 报 400
-            // "ti2vid supports at most 1 image"）。做模型级裁剪：
-            // - 保留第一张（优先首帧/参考图），丢弃尾帧与资产参考图；
-            // - 只有 >=2 张时才启用 keyframes 模式。
-            val maxImages = modelMaxInputImages(effectiveVideoModel)
-            val finalImages = images.take(maxImages)
-            if (finalImages.size < images.size) {
-                println("AgnesProvider submitVideo[$effectiveVideoModel] image count ${images.size} > max $maxImages; keeping ${finalImages.size}")
+            // v1.9.16：按模型家族组装不同的图像输入协议
+            when {
+                isAgnesVideo25(effectiveVideoModel) -> {
+                    // 2.5 reference 模式：首帧→image 字符串；资产参考图→reference_images 独立数组（最多5张）；
+                    // 两者放 extra_body，不要混入 image 数组（否则 400）。无参考图时退化为单帧 ti2vid。
+                    val first = req.firstImageUri ?: req.referenceImageUri
+                    val refs = req.inputImages.distinct().take(5)
+                    val extra = buildJsonObject {
+                        if (first != null) put("image", first)
+                        if (refs.isNotEmpty()) {
+                            put("mode", "reference")
+                            put("reference_images", buildJsonArray { refs.forEach { add(JsonPrimitive(it)) } })
+                        } else {
+                            put("mode", "ti2vid")
+                        }
+                    }
+                    put("extra_body", extra)
+                    if (refs.isNotEmpty())
+                        println("AgnesProvider submitVideo[2.5] reference mode: firstFrame=${first != null}, refImages=${refs.size}")
+                }
+                isTi2vid(effectiveVideoModel) -> {
+                    // ti2vid：image 仅字符串（首帧），mode=ti2vid，禁止数组
+                    val first = req.firstImageUri ?: req.referenceImageUri
+                    put("image", first ?: "")
+                    put("mode", "ti2vid")
+                }
+                else -> {
+                    // v2.0 及同代：image 数组（首帧+尾帧+资产参考图），keyframes 模式
+                    val images = mutableListOf<String>()
+                    if (req.firstImageUri != null && req.lastImageUri != null) {
+                        images.add(req.firstImageUri); images.add(req.lastImageUri)
+                    } else if (req.firstImageUri != null) {
+                        images.add(req.firstImageUri)
+                    } else if (req.referenceImageUri != null) {
+                        images.add(req.referenceImageUri)
+                    }
+                    images.addAll(req.inputImages)
+                    val maxImages = modelMaxInputImages(effectiveVideoModel)
+                    val finalImages = images.take(maxImages)
+                    if (finalImages.size < images.size) {
+                        println("AgnesProvider submitVideo[$effectiveVideoModel] image count ${images.size} > max $maxImages; keeping ${finalImages.size}")
+                    }
+                    if (finalImages.isNotEmpty()) {
+                        put("image", buildJsonArray { finalImages.forEach { add(JsonPrimitive(it)) } })
+                        if (finalImages.size >= 2 && req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
+                    }
+                }
             }
-            if (finalImages.isNotEmpty()) {
-                // 用 JsonPrimitive 直接构造：原写法是手拼 "\"$it\"" 再反解析，
-                // URI 里一旦出现引号/反斜杠就会拼出非法 JSON 并抛异常
-                put("image", buildJsonArray { finalImages.forEach { add(JsonPrimitive(it)) } })
-                if (finalImages.size >= 2 && req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
-            }
+
             // 视频参考输入：部分供应商支持，仅当模型标记支持且提供了URI时填入
             req.referenceVideoUri?.let { put("reference_video", it) }
             req.negativePrompt?.let { put("negative_prompt", it) }
