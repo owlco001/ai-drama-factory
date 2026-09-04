@@ -73,9 +73,8 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
         // LLM 前置判断：引擎未就绪/key 未配置不发起网络
-        val llmReady = runCatching {
-            AppGraph.isInitialized && !AppGraph.keyVault.load(AppGraph.CONFIG_VIDEO).isNullOrBlank()
-        }.getOrDefault(false)
+        // v1.9.13：改用 hasVideoKey()，覆盖 custom-video/custom-image/agnes-* 多槽位，与运行时一致。
+        val llmReady = AppGraph.isInitialized && AppGraph.hasVideoKey()
         if (!llmReady) {
             _state.value = _state.value.copy(generating = false,
                 message = "未配置 API Key，无法使用AI生成分镜。请到「设置」页配置后重试。")

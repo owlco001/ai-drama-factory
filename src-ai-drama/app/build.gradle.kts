@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 82
-        versionName = "1.9.12"  // v1.9.12: LLM 扩写视觉描述永久落盘（assets.enriched_prompt 列 + v5→v6 迁移），重启/重进项目不再惰性重扩
+        versionCode = 83
+        versionName = "1.9.13"  // v1.9.13: 分镜页 API Key 预检查改用 hasVideoKey()（覆盖 custom/agnes 多槽位），修复「设置页已填 key 仍报未配置」
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
