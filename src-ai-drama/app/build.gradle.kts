@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 84
-        versionName = "1.9.14"  // v1.9.14: 渲染队列暴露失败原因（fail_reason）；pollResult error 字段兼容字符串/对象，修复原因丢失
+        versionCode = 85
+        versionName = "1.9.15"  // v1.9.15: 按视频模型裁剪 input image 数量（ti2vid 等仅支持 1 张），修复 400 "supports at most 1 image"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

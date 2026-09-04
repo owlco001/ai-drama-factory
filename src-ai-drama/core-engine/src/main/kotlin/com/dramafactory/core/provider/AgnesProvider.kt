@@ -152,6 +152,18 @@ class AgnesProvider(
         fun maskKey(k: String): String =
             when { k.isEmpty() -> "<empty>"; k.length <= 8 -> "***"; else -> "${k.take(3)}***${k.takeLast(3)}" }
 
+        /**
+         * v1.9.15：不同视频模型对 image 输入张数的上限不同。
+         * Agnes 官方 agnes-video-v2.0 支持 keyframes（2张）+ 参考图；
+         * ti2vid / 部分第三方模型只支持 1 张 image。按 model id 白名单控制。
+         */
+        fun modelMaxInputImages(modelId: String): Int = when {
+            modelId.contains("ti2vid", ignoreCase = true) -> 1
+            modelId.contains("i2v", ignoreCase = true) -> 1
+            modelId.contains("cogvideox", ignoreCase = true) -> 1
+            else -> 8   // Agnes 官方 agnes-video-v2.0 及同代模型：首帧+尾帧+参考图兜底
+        }
+
         /** num_frames 归一到最近的 8n+1，clamp到[1,441]（对齐closest_valid_num_frames） */
         fun closestValidNumFrames(target: Int): Int {
             if (target <= 1) return 1
@@ -318,11 +330,21 @@ class AgnesProvider(
                 images.add(req.referenceImageUri)
             }
             images.addAll(req.inputImages)
-            if (images.isNotEmpty()) {
+
+            // v1.9.15：ti2vid 等模型最多只支持 1 张 image（Agnes 报 400
+            // "ti2vid supports at most 1 image"）。做模型级裁剪：
+            // - 保留第一张（优先首帧/参考图），丢弃尾帧与资产参考图；
+            // - 只有 >=2 张时才启用 keyframes 模式。
+            val maxImages = modelMaxInputImages(effectiveVideoModel)
+            val finalImages = images.take(maxImages)
+            if (finalImages.size < images.size) {
+                println("AgnesProvider submitVideo[$effectiveVideoModel] image count ${images.size} > max $maxImages; keeping ${finalImages.size}")
+            }
+            if (finalImages.isNotEmpty()) {
                 // 用 JsonPrimitive 直接构造：原写法是手拼 "\"$it\"" 再反解析，
                 // URI 里一旦出现引号/反斜杠就会拼出非法 JSON 并抛异常
-                put("image", buildJsonArray { images.forEach { add(JsonPrimitive(it)) } })
-                if (req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
+                put("image", buildJsonArray { finalImages.forEach { add(JsonPrimitive(it)) } })
+                if (finalImages.size >= 2 && req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
             }
             // 视频参考输入：部分供应商支持，仅当模型标记支持且提供了URI时填入
             req.referenceVideoUri?.let { put("reference_video", it) }
