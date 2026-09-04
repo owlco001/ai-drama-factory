@@ -22,7 +22,7 @@ import kotlinx.coroutines.sync.withLock
         // T014：成片库表（v5，finished_films）
         FinishedFilmEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class DramaDatabase : RoomDatabase() {
@@ -40,10 +40,11 @@ abstract class DramaDatabase : RoomDatabase() {
                 // 第九轮：v2→v3 新增 QualityEngine 列（assets 质量闸门 + episodes 按剧集放行）。
                 // 第十轮：v3→v4 shots 新增 visual_prompt + duration_seconds。
                 // T014：v4→v5 新增成片库表 finished_films。
+                // v1.9.12：v5→v6 assets 新增 enriched_prompt 列（LLM 扩写视觉描述永久落盘）。
                 // 移除手写 migration 链：手写 SQL 与 FinishedFilmEntity 期望 schema 不一致会触发
                 // "Migration didn't properly handle: finished_films"，直接只留破坏性重建，
-                // Room 用最新 schema(version=5) 直接建库，旧库不匹配自动删重建（本地库数据本就未落盘）。
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                // Room 用最新 schema(version=6) 直接建库，旧库不匹配自动删重建（本地库数据本就未落盘）。
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigration()  // 无匹配迁移（损坏/未知版本）时删库重建兜底
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build().also { instance = it }
@@ -107,6 +108,15 @@ abstract class DramaDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_ff_episode ON finished_films(episode_id)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_ff_project ON finished_films(project_id)")
+            }
+        }
+
+        /** v1.9.12：v5→v6 —— assets 新增 enriched_prompt 列（LLM 扩写视觉描述永久落盘）。
+         * 可空 TEXT，直接 ALTER TABLE，旧库数据（prompt/remote_url 等）全部保留。 */
+        @SuppressWarnings("unused")
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE assets ADD COLUMN enriched_prompt TEXT")
             }
         }
 

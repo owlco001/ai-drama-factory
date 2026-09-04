@@ -534,6 +534,12 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 runCatching { AppGraph.dao.setAssetRemoteUrl(assetId, url, System.currentTimeMillis()) }
             }
         }
+        // v1.9.12：LLM 扩写视觉描述落盘（assets.enriched_prompt）——ensureEnriched/polish 实时扩写后双写
+        enrichedPersist = { assetId, text ->
+            withContext(Dispatchers.IO) {
+                runCatching { AppGraph.dao.setAssetEnrichedPrompt(assetId, text, System.currentTimeMillis()) }
+            }
+        }
     }
     val assets: StateFlow<List<AssetsLogic.AssetCard>> get() = logic.assets
 
@@ -695,7 +701,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                     parentId = e.parent_id,
                     poseRole = e.pose_role,
                     remoteUrl = e.remote_url,
-                    reviewState = e.review_state)
+                    reviewState = e.review_state,
+                    enrichedPrompt = e.enriched_prompt)
             }
         }
     }
@@ -808,8 +815,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     suspend fun polish(assetId: String): String? = logic.polish(assetId)
     fun review(assetId: String, keep: Boolean) = viewModelScope.launch { logic.review(assetId, keep) }
     fun reviewAllPassed() = logic.reviewAllPassed()
-    /** v1.9.10：编辑弹窗写回 LLM 扩写结果（空文本=清空扩写、回到裸词） */
-    fun setEnrichedPrompt(assetId: String, text: String) = logic.setEnrichedPrompt(assetId, text)
+    /** v1.9.10：编辑弹窗写回 LLM 扩写结果（空文本=清空扩写、回到裸词）。内存+DB 双写（持久化在 AssetsLogic 内）。 */
+    suspend fun setEnrichedPrompt(assetId: String, text: String) = logic.setEnrichedPrompt(assetId, text)
 
     // ==================== 第九轮 QualityEngine 接线 ====================
 
@@ -907,8 +914,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             onDone(internal)
         }
 
-    /** 第十一轮：编辑资产描述并落库；changed=true 时提示重新生成 */
-    fun editAsset(assetId: String, newPrompt: String, onResult: (Boolean) -> Unit) = viewModelScope.launch {
+    /** 第十一轮：编辑资产描述并落库；changed=true 时提示重新生成。onResult 为挂起 lambda（可内部调 setEnrichedPrompt 等） */
+    fun editAsset(assetId: String, newPrompt: String, onResult: suspend (Boolean) -> Unit) = viewModelScope.launch {
         val changed = logic.editAsset(assetId, newPrompt)
         if (changed) {
             withContext(Dispatchers.IO) {

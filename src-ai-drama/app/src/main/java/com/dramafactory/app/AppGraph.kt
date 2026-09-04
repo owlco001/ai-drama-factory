@@ -748,6 +748,7 @@ object AppGraph {
         override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) {}
         override suspend fun updateAssetPrompt(assetId: String, prompt: String, updatedAt: Long) {}
         override suspend fun setAssetRemoteUrl(assetId: String, remoteUrl: String, updatedAt: Long) {}
+        override suspend fun setAssetEnrichedPrompt(assetId: String, enrichedPrompt: String?, updatedAt: Long) {}
         override suspend fun assetRemoteUrl(assetId: String): String? = null
         override suspend fun deleteAsset(assetId: String) {}
         override suspend fun assetQuality(assetId: String): com.dramafactory.app.data.AssetQualityRow? = null

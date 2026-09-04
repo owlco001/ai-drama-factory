@@ -191,6 +191,58 @@ class UiLogicTest {
         assertTrue(logic.assets.value.first().enrichedPrompt == null, "空文本应清空扩写、回到裸词")
     }
 
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_实时扩写触发enrichedPersist落盘非空文本() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.CHARACTER, "王莽")
+        val persisted = mutableListOf<Pair<String, String?>>()
+        logic.enrichedPersist = { id, t -> persisted += id to t }
+        logic.enrichHandler = { Result.success("a han dynasty man in deep robe, plain studio backdrop") }
+        logic.ensureEnriched(logic.assets.value.first())
+        assertEquals<List<Pair<String, String?>>>(
+            listOf("a1" to "a han dynasty man in deep robe, plain studio backdrop"), persisted,
+            "ensureEnriched 扩写成功应触发 enrichedPersist 落盘扩写文本")
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 润色_强制重扩写并触发enrichedPersist() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.CHARACTER, "女主")
+        val persisted = mutableListOf<Pair<String, String?>>()
+        logic.enrichedPersist = { id, t -> persisted += id to t }
+        logic.enrichHandler = { Result.success("a han woman in quju robe, neutral backdrop") }
+        logic.polish("a1")
+        assertEquals<List<Pair<String, String?>>>(listOf("a1" to "a han woman in quju robe, neutral backdrop"), persisted)
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_LLM失败不触发enrichedPersist() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.PROP, "简牍")
+        var calls = 0
+        logic.enrichedPersist = { _, _ -> calls++ }
+        logic.enrichHandler = { Result.failure(RuntimeException("401")) }
+        logic.ensureEnriched(logic.assets.value.first())
+        assertEquals(0, calls, "回退裸词不应落盘")
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_手动清空触发enrichedPersist落盘null() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.PROP, "铜灯")
+        val persisted = mutableListOf<Pair<String, String?>>()
+        logic.enrichedPersist = { id, t -> persisted += id to t }
+        logic.enrichHandler = { Result.success("a bronze lamp, isolated on plain background") }
+        logic.polish("a1")
+        persisted.clear()
+        logic.setEnrichedPrompt("a1", "")
+        assertEquals<List<Pair<String, String?>>>(listOf("a1" to null), persisted, "清空应落盘 null（回到裸词）")
+    }
+
     // ---------- QueueLogic ----------
 
     @kotlinx.coroutines.ExperimentalCoroutinesApi

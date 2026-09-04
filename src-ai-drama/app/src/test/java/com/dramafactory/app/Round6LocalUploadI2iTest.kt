@@ -74,6 +74,11 @@ class Round6LocalUploadI2iTest {
             assets.removeIf { it.asset_id == assetId }
             assets.add(a0.copy(remote_url = remoteUrl, updated_at = updatedAt))
         }
+        override suspend fun setAssetEnrichedPrompt(assetId: String, enrichedPrompt: String?, updatedAt: Long) {
+            val a0 = assets.firstOrNull { it.asset_id == assetId } ?: return
+            assets.removeIf { it.asset_id == assetId }
+            assets.add(a0.copy(enriched_prompt = enrichedPrompt, updated_at = updatedAt))
+        }
         override suspend fun assetRemoteUrl(assetId: String): String? =
             assets.firstOrNull { it.asset_id == assetId }?.remote_url
         override suspend fun deleteAsset(assetId: String) { assets.removeIf { it.asset_id == assetId } }

@@ -1,0 +1,639 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "fc669ff239b1940bd0dd4a77dbfed0d3",
+    "entities": [
+      {
+        "tableName": "projects",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`project_id` TEXT NOT NULL, `name` TEXT NOT NULL, `style_preset` TEXT NOT NULL, `episode_plan` INTEGER NOT NULL, `budget_shots` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`project_id`))",
+        "fields": [
+          {
+            "fieldPath": "project_id",
+            "columnName": "project_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "style_preset",
+            "columnName": "style_preset",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episode_plan",
+            "columnName": "episode_plan",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "budget_shots",
+            "columnName": "budget_shots",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "created_at",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "project_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "assets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`asset_id` TEXT NOT NULL, `project_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `parent_id` TEXT, `pose_role` TEXT, `prompt` TEXT NOT NULL, `file_uri` TEXT, `remote_url` TEXT, `g1_state` TEXT NOT NULL, `g2_score` REAL, `g2_defects` TEXT, `quality_score` REAL, `audit_state` TEXT NOT NULL DEFAULT 'pending', `defects_json` TEXT, `q_reject_reason` TEXT, `g1_error_code` TEXT, `face_ratio` REAL, `review_state` TEXT NOT NULL, `reject_reason` TEXT, `seed` INTEGER, `updated_at` INTEGER NOT NULL, `source` TEXT NOT NULL DEFAULT 'generated', `image_uri` TEXT, `video_uri` TEXT, `reference_image_uri` TEXT, `enriched_prompt` TEXT, PRIMARY KEY(`asset_id`))",
+        "fields": [
+          {
+            "fieldPath": "asset_id",
+            "columnName": "asset_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "project_id",
+            "columnName": "project_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parent_id",
+            "columnName": "parent_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pose_role",
+            "columnName": "pose_role",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "prompt",
+            "columnName": "prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "file_uri",
+            "columnName": "file_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "remote_url",
+            "columnName": "remote_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "g1_state",
+            "columnName": "g1_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "g2_score",
+            "columnName": "g2_score",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "g2_defects",
+            "columnName": "g2_defects",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "quality_score",
+            "columnName": "quality_score",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "audit_state",
+            "columnName": "audit_state",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'pending'"
+          },
+          {
+            "fieldPath": "defects_json",
+            "columnName": "defects_json",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "q_reject_reason",
+            "columnName": "q_reject_reason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "g1_error_code",
+            "columnName": "g1_error_code",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "face_ratio",
+            "columnName": "face_ratio",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "review_state",
+            "columnName": "review_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reject_reason",
+            "columnName": "reject_reason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "seed",
+            "columnName": "seed",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "updated_at",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'generated'"
+          },
+          {
+            "fieldPath": "image_uri",
+            "columnName": "image_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "video_uri",
+            "columnName": "video_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "reference_image_uri",
+            "columnName": "reference_image_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "enriched_prompt",
+            "columnName": "enriched_prompt",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "asset_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "shots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shot_id` TEXT NOT NULL, `episode_id` TEXT NOT NULL, `project_id` TEXT NOT NULL, `shot_no` INTEGER NOT NULL, `dialogue` TEXT, `narration` TEXT, `action` TEXT, `beat_ref` TEXT, `carry_over` TEXT, `first_asset_ids` TEXT NOT NULL, `last_asset_ids` TEXT NOT NULL, `sb_check` TEXT NOT NULL, `first_image_uri` TEXT, `last_image_uri` TEXT, `reference_video_uri` TEXT, `visual_prompt` TEXT, `duration_seconds` REAL NOT NULL DEFAULT 6.0, PRIMARY KEY(`shot_id`))",
+        "fields": [
+          {
+            "fieldPath": "shot_id",
+            "columnName": "shot_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episode_id",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "project_id",
+            "columnName": "project_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shot_no",
+            "columnName": "shot_no",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dialogue",
+            "columnName": "dialogue",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "narration",
+            "columnName": "narration",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "action",
+            "columnName": "action",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "beat_ref",
+            "columnName": "beat_ref",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "carry_over",
+            "columnName": "carry_over",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "first_asset_ids",
+            "columnName": "first_asset_ids",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "last_asset_ids",
+            "columnName": "last_asset_ids",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sb_check",
+            "columnName": "sb_check",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "first_image_uri",
+            "columnName": "first_image_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "last_image_uri",
+            "columnName": "last_image_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "reference_video_uri",
+            "columnName": "reference_video_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "visual_prompt",
+            "columnName": "visual_prompt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "duration_seconds",
+            "columnName": "duration_seconds",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "6.0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shot_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "render_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shot_id` TEXT NOT NULL, `episode_id` TEXT NOT NULL, `state` TEXT NOT NULL, `provider_task_id` TEXT, `attempt` INTEGER NOT NULL, `blocked_reason` TEXT, `fail_reason` TEXT, `local_file_uri` TEXT, `file_size` INTEGER NOT NULL, `submitted_at` INTEGER, `completed_at` INTEGER, PRIMARY KEY(`shot_id`))",
+        "fields": [
+          {
+            "fieldPath": "shot_id",
+            "columnName": "shot_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episode_id",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider_task_id",
+            "columnName": "provider_task_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "attempt",
+            "columnName": "attempt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blocked_reason",
+            "columnName": "blocked_reason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "fail_reason",
+            "columnName": "fail_reason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "local_file_uri",
+            "columnName": "local_file_uri",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "file_size",
+            "columnName": "file_size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "submitted_at",
+            "columnName": "submitted_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "completed_at",
+            "columnName": "completed_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shot_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "provider_configs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`config_id` TEXT NOT NULL, `channel` TEXT NOT NULL, `provider_id` TEXT NOT NULL, `model` TEXT NOT NULL, `key_cipher` BLOB NOT NULL, `key_masked` TEXT NOT NULL, `extra_params` TEXT NOT NULL, `is_verified` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`config_id`))",
+        "fields": [
+          {
+            "fieldPath": "config_id",
+            "columnName": "config_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channel",
+            "columnName": "channel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider_id",
+            "columnName": "provider_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "key_cipher",
+            "columnName": "key_cipher",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "key_masked",
+            "columnName": "key_masked",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extra_params",
+            "columnName": "extra_params",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "is_verified",
+            "columnName": "is_verified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updated_at",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "config_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "episodes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`episode_id` TEXT NOT NULL, `project_id` TEXT NOT NULL, `ep_no` INTEGER NOT NULL, `script_json` TEXT, `storyboard_report` TEXT, `review_passed` INTEGER NOT NULL, `stage_flags` TEXT NOT NULL, `allowed_cross_era` TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(`episode_id`))",
+        "fields": [
+          {
+            "fieldPath": "episode_id",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "project_id",
+            "columnName": "project_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ep_no",
+            "columnName": "ep_no",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "script_json",
+            "columnName": "script_json",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "storyboard_report",
+            "columnName": "storyboard_report",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "review_passed",
+            "columnName": "review_passed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stage_flags",
+            "columnName": "stage_flags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "allowed_cross_era",
+            "columnName": "allowed_cross_era",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "episode_id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "finished_films",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`film_id` TEXT NOT NULL, `episode_id` TEXT NOT NULL, `project_id` TEXT NOT NULL, `file_path` TEXT NOT NULL, `file_size` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`film_id`))",
+        "fields": [
+          {
+            "fieldPath": "film_id",
+            "columnName": "film_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episode_id",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "project_id",
+            "columnName": "project_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filePath",
+            "columnName": "file_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileSize",
+            "columnName": "file_size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "film_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_finished_films_episode_id",
+            "unique": false,
+            "columnNames": [
+              "episode_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_finished_films_episode_id` ON `${TABLE_NAME}` (`episode_id`)"
+          },
+          {
+            "name": "index_finished_films_project_id",
+            "unique": false,
+            "columnNames": [
+              "project_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_finished_films_project_id` ON `${TABLE_NAME}` (`project_id`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fc669ff239b1940bd0dd4a77dbfed0d3')"
+    ]
+  }
+}

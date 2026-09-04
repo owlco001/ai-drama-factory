@@ -64,6 +64,9 @@ data class AssetEntity(
     val video_uri: String? = null,
     /** 图生图参考图URI：生成图像时作为 input_images 上传给图像API */
     val reference_image_uri: String? = null,
+    // ---- v1.9.12：LLM 扩写视觉描述永久落盘（重启/重进项目不再惰性重扩）----
+    /** LLM 扩写后的视觉描述（生图实际用的主体描述）；null=未扩写，生图时惰性实时扩写并回填 */
+    val enriched_prompt: String? = null,
 )
 
 @Entity(tableName = "shots")
@@ -189,6 +192,10 @@ interface DramaDao {
     @Query("DELETE FROM assets WHERE asset_id=:assetId") suspend fun deleteAsset(assetId: String)
     @Query("UPDATE assets SET reference_image_uri=:referenceImageUri, updated_at=:updatedAt WHERE asset_id=:assetId")
     suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long)
+
+    /** v1.9.12：LLM 扩写视觉描述落盘（enriched_prompt 列）。enrichedPrompt=null=清空、回到裸词。 */
+    @Query("UPDATE assets SET enriched_prompt=:enrichedPrompt, updated_at=:updatedAt WHERE asset_id=:assetId")
+    suspend fun setAssetEnrichedPrompt(assetId: String, enrichedPrompt: String?, updatedAt: Long)
 
     // ---- QualityEngine（第九轮）：资产质量闸门落库 ----
     /** G1+G2 审计结果落库（质量评分/状态/缺陷/拒绝原因/错误码/人脸占比/姿态） */

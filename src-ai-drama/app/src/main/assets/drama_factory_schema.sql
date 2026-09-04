@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS assets (
   source       TEXT NOT NULL DEFAULT 'generated',
   image_uri    TEXT,
   video_uri    TEXT,
-  reference_image_uri TEXT
+  reference_image_uri TEXT,
+  enriched_prompt TEXT   -- v1.9.12：LLM 扩写视觉描述（生图实际用的主体描述），可空
 );
 CREATE INDEX IF NOT EXISTS idx_assets_proj ON assets(project_id, kind);
 

@@ -48,8 +48,9 @@ class AssetsLogic {
         /** 生成失败信息（非空=本卡片最近一次生成失败，UI 红字展示，替代「无反应」静默吞错） */
         val errorMessage: String? = null,
         /**
-         * LLM 扩写后的视觉描述（缓存）。为 null 时生图走实时扩写或退回裸 prompt。
-         * 仅内存态：重启后从 DB 重载会复位，下次生图惰性重扩。
+         * LLM 扩写后的视觉描述（缓存 + 已永久落盘 assets.enriched_prompt 列）。
+         * 为 null 时生图走实时扩写或退回裸 prompt；非空则生图直接用，不再重复消耗 token。
+         * v1.9.12 起该值经 enrichedPersist 落 Room，重启/重进项目从 DB 回填，不再惰性重扩。
          */
         val enrichedPrompt: String? = null,
     )
@@ -195,16 +196,27 @@ class AssetsLogic {
         return if (enriched != card.prompt) enriched else null
     }
 
-    /** 直接写回扩写结果（编辑弹窗手动改过并保存时调用）。空文本表示清空扩写、回到裸词。 */
-    fun setEnrichedPrompt(assetId: String, text: String) {
-        update(assetId) { it.copy(enrichedPrompt = text.takeIf { t -> t.isNotBlank() }) }
+    /** 直接写回扩写结果（编辑弹窗手动改过并保存时调用）。空文本表示清空扩写、回到裸词。
+     * 内存 + DB 双写（经 enrichedPersist）；失败仅记日志，不阻断。 */
+    suspend fun setEnrichedPrompt(assetId: String, text: String) {
+        persistEnriched(assetId, text)
     }
+
+    /** v1.9.12：扩写结果落盘回调（App 层注入，写 assets.enriched_prompt 列）。text=null=清空。 */
+    var enrichedPersist: suspend (assetId: String, text: String?) -> Unit = { _, _ -> }
 
     private suspend fun enrichAndStore(card: AssetCard, force: Boolean = false): String {
         val enriched = runCatching { enrichHandler(card) }.getOrNull()?.getOrNull()
         val text = enriched?.takeIf { it.isNotBlank() } ?: card.prompt
-        if (force || text != card.prompt) update(card.assetId) { it.copy(enrichedPrompt = text) }
+        if (force || text != card.prompt) persistEnriched(card.assetId, text)
         return text
+    }
+
+    /** 内存 + DB 双写扩写结果（空文本=清空，回到裸词）。失败仅记日志，不阻断生图。 */
+    private suspend fun persistEnriched(assetId: String, text: String) {
+        val trimmed = text.takeIf { it.isNotBlank() }
+        update(assetId) { it.copy(enrichedPrompt = trimmed) }
+        runCatching { enrichedPersist(assetId, trimmed) }
     }
     /** 评审落库回调：App层注入Room UPDATE assets SET review_state */
     var reviewPersist: suspend (assetId: String, state: String) -> Unit = { _, _ -> }
@@ -240,6 +252,7 @@ class AssetsLogic {
                 referenceImageUri = e.reference_image_uri,
                 parentId = e.parent_id,
                 poseRole = e.pose_role,
+                enrichedPrompt = e.enriched_prompt,
                 // DB 有 media 但内存标记 generating 时，下方合并会纠正；此处先按DB是否有图决定生成态
                 generating = e.remote_url.isNullOrBlank() && e.image_uri.isNullOrBlank() && e.video_uri.isNullOrBlank()
                         && _assets.value.any { it.assetId == e.asset_id && it.generating },
@@ -293,7 +306,8 @@ class AssetsLogic {
      * remoteUrl为空的卡也回填（保留描述与评审态），用户可手动点生成。
      */
     fun restoreGenerated(assetId: String, kindName: String, prompt: String,
-                         parentId: String?, poseRole: String?, remoteUrl: String?, reviewState: String) {
+                         parentId: String?, poseRole: String?, remoteUrl: String?, reviewState: String,
+                         enrichedPrompt: String? = null) {
         if (_assets.value.any { it.assetId == assetId }) return   // 幂等
         val kind = when (kindName.lowercase()) {
             "character" -> Kind.CHARACTER
@@ -305,7 +319,7 @@ class AssetsLogic {
             it + AssetCard(
                 assetId = assetId, kind = kind, prompt = prompt,
                 remoteUrl = remoteUrl, reviewState = reviewState.ifBlank { "none" },
-                parentId = parentId, poseRole = poseRole)
+                parentId = parentId, poseRole = poseRole, enrichedPrompt = enrichedPrompt)
         }
     }
 

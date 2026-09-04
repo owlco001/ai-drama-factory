@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 81
-        versionName = "1.9.11"  // v1.9.11: 角色生成补「双手空置」约束，根治角色手持道具（正向 era + 尾部强指令 + 持握类禁词 + 扩写器拦截）
+        versionCode = 82
+        versionName = "1.9.12"  // v1.9.12: LLM 扩写视觉描述永久落盘（assets.enriched_prompt 列 + v5→v6 迁移），重启/重进项目不再惰性重扩
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
