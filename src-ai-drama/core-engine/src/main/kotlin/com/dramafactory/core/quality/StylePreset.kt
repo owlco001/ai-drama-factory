@@ -56,6 +56,10 @@ data class StylePreset(
         "background scenery", "detailed background", "busy background", "gradient background",
         "room interior", "crowd", "bokeh background", "pedestal", "tabletop", "multiple objects",
         "场景背景", "环境", "风景", "家具", "杂物", "复杂背景", "室外", "室内陈设",
+        // v1.9.11：持握类——角色参考图必须双手空置，不持兵器/简牍/杯盏等
+        "holding", "hand holding", "carrying", "wielding",
+        "weapon in hand", "sword in hand", "scroll in hand", "item in hand", "object in hand",
+        "手持", "拿在手里", "握着", "兵器", "刀剑", "简牍",
     ),
     /**
      * v1.7.17：角色资产专用正向 suffix，替代 [globalPromptSuffix]。
@@ -356,7 +360,7 @@ data class StylePreset(
          * 相较 v1.7.19 版移除了「简牍竹简、青铜/漆木/陶器、自然光与火烛照明」——
          * 在角色卡里提器物与火光，模型就会在人物周围把它们画出来。
          */
-        const val DEFAULT_ERA_POSITIVE_CHARACTER = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），图中人物的服饰形制、发式冠巾、面料质地必须严格符合汉代风貌（深衣、曲裾、直裾、冠巾，麻葛与丝帛）；无电力、无工业、无现代器物。只描绘这一个人本身：不得描绘任何背景、环境、建筑、陈设、器物、火光或其他角色。"
+        const val DEFAULT_ERA_POSITIVE_CHARACTER = "【严格历史时代约束】本剧设定为西汉末年至新莽时期（约公元1世纪），图中人物的服饰形制、发式冠巾、面料质地必须严格符合汉代风貌（深衣、曲裾、直裾、冠巾，麻葛与丝帛）；无电力、无工业、无现代器物。只描绘这一个人本身：不得描绘任何背景、环境、建筑、陈设、器物、火光或其他角色；双手自然垂于身侧且完全空置，不持握任何器物、兵器、刀剑、简牍、书卷、杯盏、杖或其他物件。"
 
         /**
          * v1.7.21 场景专用 era 正向：只约束建筑、陈设与照明，**不再出现「人物」二字**。
@@ -378,7 +382,7 @@ data class StylePreset(
         // ---- v1.7.21：尾部强指令（压在 prompt 最末尾，模型尾部权重最高）----
 
         /** 角色：纯色底 + 画面里只有这一个人。 */
-        const val DEFAULT_CHARACTER_TAIL_ANCHOR = "【画面要求·最高优先级】背景必须是纯白或纯灰的单一纯色，无任何渐变与纹理；画面中只有这一个人，没有地面、墙面、家具、器物、植物、火光或任何环境元素；人物完整居中，头顶与脚下留白。 / BACKGROUND REQUIREMENT (HIGHEST PRIORITY): single flat solid white background, absolutely no environment, no scenery, no floor, no wall, no furniture, no objects, no plants, no firelight, no light patches, no gradient, no texture; only this one character centered in frame with clean margins."
+        const val DEFAULT_CHARACTER_TAIL_ANCHOR = "【画面要求·最高优先级】背景必须是纯白或纯灰的单一纯色，无任何渐变与纹理；画面中只有这一个人，没有地面、墙面、家具、器物、植物、火光或任何环境元素；人物完整居中，头顶与脚下留白；双手完全空置、自然下垂贴于身侧，不得持握任何东西——手中没有兵器、刀剑、匕首、杖、简牍、书卷、杯盏、布帛或任何道具，手里出现任何物件即视为失败。 / BACKGROUND REQUIREMENT (HIGHEST PRIORITY): single flat solid white background, absolutely no environment, no scenery, no floor, no wall, no furniture, no objects, no plants, no firelight, no light patches, no gradient, no texture; only this one character centered in frame with clean margins; BOTH HANDS MUST BE COMPLETELY EMPTY, relaxed and hanging naturally at the sides, holding absolutely nothing, no weapon, no sword, no dagger, no staff, no spear, no bow, no scroll, no bamboo slip, no book, no cup, no fan, no cloth, no item or prop of any kind in either hand, the presence of any object in the hands is a failure."
 
         /** 场景：绝对空场无人（正向在喊人，必须用最高优先级压回去）。 */
         const val DEFAULT_SCENE_TAIL_ANCHOR = "【画面要求·最高优先级】这是一个完全空无一人的空镜：画面中绝对不能出现任何人物、人影、剪影、面孔、手部或任何活体，只有建筑与陈设；出现任何人物即视为失败。 / EMPTY SCENE REQUIREMENT (HIGHEST PRIORITY): absolutely no people, no person, no human figure, no silhouette, no face, no hands, no living being anywhere in frame; only architecture and set dressing; the presence of any human is a failure."
@@ -429,13 +433,24 @@ data class StylePreset(
             "complex background", "detailed background", "outdoor", "tabletop",
             "multiple objects", "pedestal",
         )
-        /** 角色图精简禁词（v1.7.21）：高频时代词 + 棚拍纯色底干扰词。 */
+        /**
+         * 角色图精简禁词（v1.7.21）：高频时代词 + 棚拍纯色底干扰词。
+         *
+         * v1.9.11：补「持握」类。此前只有 props around（**周围**的道具）与 multiple objects，
+         * 唯独没有 holding / hand holding / in hand 系列——模型收到「人物 + 器物」时，
+         * 默认就把器物塞进手里，于是角色卡频出手持刀剑/简牍/杯盏。
+         * 具体清单放在 [DEFAULT_CHARACTER_TAIL_ANCHOR]（尾部权重最高），这里只留高频钩子。
+         */
         val DEFAULT_CHARACTER_CORE_FORBIDDEN = DEFAULT_ERA_NEGATIVE_ASSET + listOf(
             "scene background", "environment", "landscape", "furniture", "props around",
             "complex background", "outdoor", "interior setting", "decorated room",
             "background scenery", "detailed background", "busy background",
             "gradient background", "room interior", "crowd", "bokeh background",
             "pedestal", "tabletop", "multiple objects", "second character",
+            // v1.9.11：持握类（角色卡必须双手空置）。只留动作钩子与最高频的 in-hand 项——
+            // 兵器/简牍/杯盏等具体名目已在 characterTailAnchor 里点名，此处不重复以免禁词膨胀。
+            "holding", "hand holding", "carrying", "wielding",
+            "weapon in hand", "sword in hand", "scroll in hand", "item in hand",
         )
         val DEFAULT_GLOBAL_NEGATIVE = listOf(
             "deformed", "mismatched identity", "different actor", "costume change",

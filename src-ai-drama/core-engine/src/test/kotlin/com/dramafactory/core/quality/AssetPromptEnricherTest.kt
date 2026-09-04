@@ -63,4 +63,39 @@ class AssetPromptEnricherTest {
         assertTrue(instr.contains("塑料") && instr.contains("玻璃幕墙"), "应透传高频禁词")
         assertFalse(instr.contains("vernier caliper"), "不应包含与扩写无关的远距禁词")
     }
+
+    // ---------- v1.9.11：禁止人物扩写出「手持道具」 ----------
+
+    @Test
+    fun instruction_人物扩写明确禁止持握表述() {
+        val instr: String = AssetPromptEnricher.instruction("character", "西汉", emptyList())
+        assertTrue(instr.contains("双手必须空置"), "应要求双手空置")
+        assertTrue(instr.contains("holding") && instr.contains("in hand"), "应点名禁用 holding / in hand 表述")
+    }
+
+    @Test
+    fun enrich_人物扩写含持握表述时回退裸词() = runTest {
+        val holdingChat: suspend (String) -> String =
+            { "A Han dynasty general in deep robe, holding a bronze sword, plain studio backdrop" }
+        val result: String = AssetPromptEnricher.enrich(
+            chat = holdingChat, kind = "character", name = "将军", fallback = "将军")
+        assertEquals("将军", result, "人物扩写含 holding 应被拦截并回退裸词")
+    }
+
+    @Test
+    fun enrich_人物扩写含中文持握词时回退裸词() = runTest {
+        val cnHolding: suspend (String) -> String = { "一位汉代将军，身披甲胄，手持长剑，棚拍纯色背景" }
+        val result: String = AssetPromptEnricher.enrich(
+            chat = cnHolding, kind = "character", name = "将军", fallback = "将军")
+        assertEquals("将军", result, "中文「手持」同样应被拦截")
+    }
+
+    @Test
+    fun enrich_场景扩写不受人物持握拦截影响() = runTest {
+        val sceneChat: suspend (String) -> String =
+            { "A wooden gate tower with rammed-earth walls, overcast sky" }
+        val result: String = AssetPromptEnricher.enrich(
+            chat = sceneChat, kind = "scene", name = "城楼", fallback = "城楼")
+        assertTrue(result.contains("gate tower"), "场景不应受人物持握拦截影响，实际: $result")
+    }
 }

@@ -22,7 +22,8 @@ object AssetPromptEnricher {
     /** 各类型扩写的侧重点（注入系统指令），只描述主体自身 */
     private fun kindFocus(kind: String): String = when (kind.lowercase()) {
         AssetPromptBuilder.KIND_CHARACTER ->
-            "人物：汉代衣冠形制（深衣/曲裾/直裾/冠巾）、发式、面料质地（麻葛/丝帛）、体型年龄神态、单人平视；只考虑这一个人本身"
+            "人物：汉代衣冠形制（深衣/曲裾/直裾/冠巾）、发式、面料质地（麻葛/丝帛）、体型年龄神态、单人平视；" +
+            "只考虑这一个人本身；双手必须空置、自然下垂，不描述任何手持的器物、兵器、刀剑、简牍、书卷、杯盏、杖或道具"
         AssetPromptBuilder.KIND_SCENE ->
             "场景：木构与夯土建筑、空间陈设、道具器物、时辰天光与氛围；这是空场空镜，绝不出现任何人物"
         AssetPromptBuilder.KIND_PROP ->
@@ -42,6 +43,8 @@ object AssetPromptEnricher {
         append("规则：\n")
         append("1. 用 2-4 句以英文为主的描述（可夹中文关键术语），不要 JSON、不要前缀、不要任何解释。\n")
         append("2. 只描述主体自身外观，禁止描写背景、环境、构图、镜头、光线布置（由下游统一追加）。\n")
+        append("   ★若主体是人物：双手必须空置，禁止出现 holding / carrying / wielding / in hand 等持握表述，")
+        append("也不要写兵器、简牍、书卷、杯盏、杖等任何被拿在手里的物件（实物由道具资产单独生成）。\n")
         append("3. 严禁任何现代元素：无电力、无工业、无塑料、无玻璃幕墙、无现代服装与招牌文字。\n")
         if (forbidden.isNotEmpty()) {
             append("4. 避免出现这些概念：${forbidden.take(12).joinToString("、")}。\n")
@@ -78,6 +81,21 @@ object AssetPromptEnricher {
         val userMsg = "${instruction(kind, eraLabel, forbidden)}\n资产名称：$name"
         val raw = runCatching { chat(userMsg) }.getOrNull().orEmpty()
         val cleaned = clean(raw)
-        return if (cleaned.isNotBlank()) cleaned else fallback
+        if (cleaned.isBlank()) return fallback
+        // v1.9.11：人物扩写若仍出现持握表述，直接丢弃回退裸词——
+        // 下游的正向约束救不回已经写进主体描述的「手持某物」，必须从源头掐掉。
+        if (kind.lowercase() == AssetPromptBuilder.KIND_CHARACTER && HELD_ITEM_HINT.containsMatchIn(cleaned)) {
+            return fallback
+        }
+        return cleaned
     }
+
+    /**
+     * v1.9.11：人物扩写结果里的「持握」痕迹（中英）。命中即判定该次扩写不可用，回退裸词。
+     * 与 [instruction] 的软约束互为双保险：软约束管 LLM 不写，这里管写了也进不了生图链路。
+     */
+    private val HELD_ITEM_HINT = Regex(
+        """\b(holding|carrying|wielding|gripping|clutching|in\s+(his|her|their)?\s*hands?)\b""" +
+        """|手持|拿在手里|握着|手持着""",
+        RegexOption.IGNORE_CASE)
 }

@@ -60,4 +60,44 @@ class StudioBackdropTest {
         assertTrue(pos.contains("no environment"))
         assertTrue(pos.contains("isolated subject"))
     }
+
+    // ---------- v1.9.11：角色「手持道具」修复 ----------
+
+    @Test fun `角色 era 正向显式要求双手空置`() {
+        val out = preset.withCharacterStudioConstraints("一位将军")
+        assertTrue(out.contains("双手自然垂于身侧且完全空置"),
+            "角色 era 正向应显式禁止持握器物，实际: $out")
+        assertTrue(out.contains("不持握任何器物"), "应列举具体禁用手持物")
+    }
+
+    @Test fun `角色尾部强指令含空手中英双语且优先级最高`() {
+        val anchor = preset.tailAnchorFor(AssetPromptBuilder.KIND_CHARACTER)
+        assertTrue(anchor.contains("双手完全空置"), "中文空手指令")
+        assertTrue(anchor.contains("BOTH HANDS MUST BE COMPLETELY EMPTY"), "英文空手指令")
+        assertTrue(anchor.contains("no weapon") && anchor.contains("no scroll"), "应点名兵器/简牍")
+        // 尾部强指令压在 prompt 最末尾（模型尾部权重最高）
+        val full = AssetPromptBuilder.finalPrompt(preset, AssetPromptBuilder.KIND_CHARACTER, "一位将军")
+        assertTrue(full.trimEnd().endsWith(anchor.trimEnd()), "空手指令应位于 prompt 最末尾")
+    }
+
+    @Test fun `角色精简禁词含持握类并透传进正向`() {
+        val forbidden = preset.coreForbiddenFor(AssetPromptBuilder.KIND_CHARACTER)
+        assertTrue(forbidden.contains("holding") && forbidden.contains("hand holding"), "应含持握动词")
+        assertTrue(forbidden.contains("weapon in hand") && forbidden.contains("sword in hand"), "应含 in-hand 类")
+        val full = AssetPromptBuilder.finalPrompt(preset, AssetPromptBuilder.KIND_CHARACTER, "一位将军")
+        assertTrue(full.contains("Do NOT include"), "禁词应并入正向 Do NOT include")
+        assertTrue(full.contains("holding"), "持握类为 ASCII，应被透传进最终 prompt")
+    }
+
+    @Test fun `棚拍负向含持握类`() {
+        val neg = preset.studioNegativePromptFor()
+        assertTrue(neg.contains("holding") && neg.contains("hand holding"), "棚拍负向应含持握类")
+        assertTrue(neg.contains("手持"), "棚拍负向应含中文持握词")
+    }
+
+    @Test fun `场景与道具不受角色空手约束污染`() {
+        assertFalse(preset.tailAnchorFor(AssetPromptBuilder.KIND_SCENE).contains("BOTH HANDS"),
+            "空手指令不应泄漏到场景")
+        assertFalse(preset.eraPositiveScene.contains("不持握"), "场景正向不应含空手指令")
+    }
 }

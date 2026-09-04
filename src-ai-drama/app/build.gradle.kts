@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 80
-        versionName = "1.9.10"  // v1.9.10: 资产卡 LLM 提示词扩写（自动+手动「润色」），裸名词→符合时代红线的视觉描述；修正场景 9:16 构图冲突
+        versionCode = 81
+        versionName = "1.9.11"  // v1.9.11: 角色生成补「双手空置」约束，根治角色手持道具（正向 era + 尾部强指令 + 持握类禁词 + 扩写器拦截）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -43,7 +43,11 @@ class AssetPromptBuilderTest {
             assertTrue(redline > 0, "$kind 应有禁词段")
             assertTrue(quality > redline, "$kind 质量负向应在禁词之后")
             assertTrue(anchor > quality, "$kind 尾部强指令必须在质量负向之后（模型尾部权重最高）")
-            assertTrue(anchor > p.length - 400, "$kind 尾部强指令应紧贴 prompt 末尾")
+            // v1.9.11：原断言为「anchor 位于末尾 400 字符内」，但角色尾部强指令加了中英空手指令后
+            // 长度自然超过 400，硬编码距离会误报。改用 endsWith——语义更严格且不受长度影响。
+            val anchorText = preset.tailAnchorFor(kind)
+            assertTrue(p.trimEnd().endsWith(anchorText.trimEnd()),
+                "$kind 尾部强指令必须紧贴 prompt 末尾（以它结尾）")
         }
     }
 
@@ -71,7 +75,9 @@ class AssetPromptBuilderTest {
             val p = AssetPromptBuilder.finalPrompt(preset, kind, "测试")
             val notInclude = p.substringAfter("Do NOT include:", "").substringBefore("Negative prompt (soft):")
             val items = notInclude.trim().trimEnd('.').split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            assertTrue(items.size <= 45, "$kind 禁词应精简（实际 ${items.size} 项）：$items")
+            // v1.9.11：45 → 55。角色补入「持握类」禁词（holding / in hand 等）以治「角色手持道具」，
+            // v1.7.21 反稀释的本意是别把 150+ 完整红线塞进来，55 仍远低于该量级。
+            assertTrue(items.size <= 55, "$kind 禁词应精简（实际 ${items.size} 项）：$items")
             assertFalse(p.contains("refrigerator"), "$kind 不该出现与资产外观无关的时代禁词")
             assertFalse(p.contains("skateboard"))
             assertFalse(p.contains("airplane"))
