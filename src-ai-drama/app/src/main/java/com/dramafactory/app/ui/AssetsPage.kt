@@ -137,6 +137,8 @@ fun AssetsPage(
     var selectionMode by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateOf(setOf<String>()) }
     var confirmBatchDeleteIds by remember { mutableStateOf<List<String>?>(null) }
+    // v1.9.10：正在 LLM 扩写的资产 id 集合（「润色」按钮 spinner 用）
+    val polishingIds = remember { mutableStateOf(setOf<String>()) }
 
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -516,7 +518,18 @@ fun AssetsPage(
                         onStopGenerate = { vm.stopGenerate(card.assetId) },
                         onBuildReferenceSheet = if (card.kind == AssetsLogic.Kind.CHARACTER && card.parentId == null) {
                             { vm.buildCharacterReferenceSheet(card.assetId) }
-                        } else null
+                        } else null,
+                        onPolish = {
+                            val id = card.assetId
+                            scope.launch {
+                                polishingIds.value = polishingIds.value + id
+                                val enriched = vm?.polish(id)
+                                polishingIds.value = polishingIds.value - id
+                                // 扩写成功且产生新内容 → 打开编辑弹窗回填，便于用户确认/微调后再生成
+                                if (enriched != null) editingAssetId = id
+                            }
+                        },
+                        polishing = card.assetId in polishingIds.value
                     )
                 }
             }
@@ -542,6 +555,9 @@ fun AssetsPage(
         }
         if (editorCard != null) {
             var editPrompt by remember(editorCard.assetId) { mutableStateOf(editorCard.prompt) }
+            // v1.9.10：LLM 扩写结果（可编辑）；初始回填卡片已缓存的扩写，否则留空
+            var editEnriched by remember(editorCard.assetId) { mutableStateOf(editorCard.enrichedPrompt ?: "") }
+            var editorPolishing by remember(editorCard.assetId) { mutableStateOf(false) }
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { editingAssetId = null },
                 title = { Text("编辑资产") },
@@ -551,11 +567,38 @@ fun AssetsPage(
                         OutlinedTextField(
                             value = editPrompt,
                             onValueChange = { editPrompt = it },
-                            label = { Text("资产描述") },
+                            label = { Text("资产名称（裸词）") },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 2,
+                            minLines = 1,
+                        )
+                        // v1.9.10：LLM 扩写后的视觉描述——生图实际用的主体描述，可微调
+                        OutlinedTextField(
+                            value = editEnriched,
+                            onValueChange = { editEnriched = it },
+                            label = { Text("视觉描述（LLM 扩写，可改）") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            placeholder = { Text("点「一键润色」用模型把裸词扩写成符合时代红线的视觉描述") },
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val id = editorCard.assetId
+                                    editorPolishing = true
+                                    scope.launch {
+                                        val r = vm?.polish(id)
+                                        editorPolishing = false
+                                        if (r != null) editEnriched = r
+                                    }
+                                },
+                                enabled = !editorPolishing
+                            ) {
+                                if (editorPolishing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Text(if (editorPolishing) "润色中" else "一键润色")
+                            }
                             OutlinedButton(onClick = { refPickForAsset = editorCard.assetId }) {
                                 Text(if (editorCard.referenceImageUri == null) "上传参考图" else "更换参考图")
                             }
@@ -577,10 +620,15 @@ fun AssetsPage(
                 confirmButton = {
                     Button(onClick = {
                         val v = vm
-                        if (v != null) v.editAsset(editorCard.assetId, editPrompt) { changed ->
-                            editingAssetId = null
-                            if (changed) v.generate(editorCard.assetId)  // 描述变了→自动重新生成
+                        if (v != null) {
+                            // editAsset 是异步的（viewModelScope.launch），名称写回后在回调里
+                            // 再写扩写结果并按新描述重新出图，避免与未落地的改名竞争。
+                            v.editAsset(editorCard.assetId, editPrompt) { _ ->
+                                v.setEnrichedPrompt(editorCard.assetId, editEnriched)
+                                v.generate(editorCard.assetId)
+                            }
                         }
+                        editingAssetId = null
                     }) { Text("保存并重新生成") }
                 },
                 dismissButton = {
@@ -661,6 +709,10 @@ private fun GridAssetCard(
     /** v1.9.2：生成中「停止」回调 */
     onStopGenerate: () -> Unit = {},
     onBuildReferenceSheet: (() -> Unit)? = null,
+    /** v1.9.10：手动「润色」回调（用 LLM 扩写视觉描述） */
+    onPolish: () -> Unit = {},
+    /** v1.9.10：该卡是否正在扩写（显示 spinner） */
+    polishing: Boolean = false,
 ) {
     val borderColor = if (card.reviewState == "regen" || card.auditState == "rejected") {
         MaterialTheme.colorScheme.error
@@ -810,6 +862,23 @@ private fun GridAssetCard(
                             shape = MaterialTheme.shapes.extraSmall,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) { Text("参考图", style = MaterialTheme.typography.labelSmall) }
+                    }
+                    // v1.9.10：手动「润色」——用 LLM 把裸名词扩写成视觉描述；扩写中显示转圈
+                    OutlinedButton(
+                        onClick = onPolish,
+                        enabled = !polishing,
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        if (polishing) {
+                            CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(4.dp))
+                            Text("润色中", style = MaterialTheme.typography.labelSmall)
+                        } else {
+                            Text("润色", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }

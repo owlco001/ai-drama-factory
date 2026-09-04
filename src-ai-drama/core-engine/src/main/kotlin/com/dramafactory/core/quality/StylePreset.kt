@@ -137,6 +137,14 @@ data class StylePreset(
     val sceneEmptyPositive: String = DEFAULT_SCENE_EMPTY_POSITIVE,
     val sceneEmptyNegative: List<String> = DEFAULT_SCENE_EMPTY_NEGATIVE,
     /**
+     * v1.9.10：场景专用 suffix（覆盖 globalPromptSuffix）。
+     *
+     * 场景卡尺寸是 1024x768 **横构图**，但 globalPromptSuffix 带 `vertical 9:16 framing`，
+     * 正向在喊竖向构图，与横版空镜冲突、还会诱导模型把画面塞成竖幅特写。
+     * 这里去掉 9:16 与 portrait 向的 shallow depth of field，只保留电影感与空镜氛围。
+     */
+    val sceneSuffix: String = "cinematic, wide establishing shot, atmospheric lighting, professional color grading",
+    /**
      * v1.7.19：道具资产专用 —— 纯色底、孤立单品、产品图式。
      * 此前道具沿用 [globalPromptSuffix]（cinematic / naturalistic lighting / vertical 9:16 framing），
      * 全是环境化语义，逼模型补场景；且道具没有任何纯色底约束，故背景干扰。
@@ -232,7 +240,9 @@ data class StylePreset(
      */
     fun withSceneConstraints(basePrompt: String, allowed: List<String> = emptyList()): String {
         val eraConstrained = withEraConstraints(
-            basePrompt, allowed, eraPositiveOverride = eraPositiveScene)
+            basePrompt, allowed,
+            suffixOverride = sceneSuffix,
+            eraPositiveOverride = eraPositiveScene)
         return buildString {
             // v1.7.21：era 正文以「。」结尾，直接再拼「。empty location…」会出双句号
             append(eraConstrained.trimEnd('。', '.', ' ', '　'))

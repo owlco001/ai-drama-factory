@@ -467,17 +467,16 @@ class ProjectsViewModel : ViewModel() {
 class AssetsViewModel(private val episodeId: String) : ViewModel() {
     private val projectId: String = episodeId.substringBeforeLast("_ep")
 
-    private val logic = AssetsLogic().apply {
+    // 显式类型：generateHandler/enrichHandler 内部需引用本实例，避免 apply 内自引用导致循环类型推断
+    private val logic: AssetsLogic = AssetsLogic().apply {
         // 资产生成：文本通道出细化prompt → 图像通道出图（双Provider桩接线）
         // 第九轮：生成 prompt 折叠 era 红线约束（C）；图生图参考图作为 input_images。
         generateHandler = { card ->
             withContext(Dispatchers.IO) {
                 val preset = eraPreset   // 第十三轮：按剧本推断的朝代预设
-                val basePrompt = runCatching {
-                    AppGraph.text.chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
-                        com.dramafactory.core.model.ChatMessage("user",
-                            "为短剧资产生成一段中文图像提示词（50字内）：${card.prompt}"))))
-                }.getOrNull()?.content ?: card.prompt
+                // 生图前的 LLM 扩写：把正则抽出的裸名词（如「王莽」）扩成聚焦主体、符合时代红线的
+                // 视觉描述；已有缓存直接用，无缓存则实时扩写并落回卡片（失败回退裸词，不阻断生图）。
+                val basePrompt = logic.ensureEnriched(card)
                 // C. era 红线：正负分离——prompt只带正向，禁词走 negative_prompt API字段
                 // （第十一轮修复：旧实现把禁词表拼进正面prompt，图像模型把"手机/塑料"全画出来了）
                 // T014 任务1：角色类资产额外追加棚拍无干扰背景约束，与场景/环境解耦
@@ -501,6 +500,29 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 // A. 资产质量闸门：G1 文件级硬校验 + G2 多模态打分（defects 直接拒，重试≤3）
                 runCatching { auditGeneratedAsset(card.assetId, url, erPrompt, card) }
                 Result.success(url)
+            }
+        }
+        // 资产卡 LLM 扩写：把裸名词扩成符合时代红线的视觉描述（core 的 AssetPromptEnricher + 已接好的文本模型）。
+        enrichHandler = { card ->
+            withContext(Dispatchers.IO) {
+                val preset = eraPreset
+                val kindKey = when (card.kind) {
+                    AssetsLogic.Kind.CHARACTER -> "character"
+                    AssetsLogic.Kind.SCENE -> "scene"
+                    AssetsLogic.Kind.PROP -> "prop"
+                    else -> "prop"
+                }
+                val enriched = com.dramafactory.core.quality.AssetPromptEnricher.enrich(
+                    chat = { msg ->
+                        // chat(): ChatResponse（非 Result）——用 runCatching 兜住 401/超时等，避免抛穿
+                        runCatching {
+                            AppGraph.text.chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
+                                com.dramafactory.core.model.ChatMessage("user", msg))))
+                        }.getOrNull()?.content ?: ""
+                    },
+                    kind = kindKey, name = card.prompt,
+                    eraLabel = preset.era.label, forbidden = preset.forbiddenEraTerms)
+                Result.success(enriched)
             }
         }
         reviewPersist = { assetId, st ->
@@ -779,8 +801,15 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     }
     /** v1.9.2：资产生成挂 AppGraph.backgroundScope——切走标签/离开页面也不打断，跑完即落库 */
     fun generate(assetId: String) = AppGraph.backgroundScope.launch { logic.generate(assetId) }
+    /**
+     * v1.9.10：手动「润色」——强制用 LLM 重新扩写该资产卡的视觉描述，结果缓存回卡片。
+     * 返回扩写文本（供编辑弹窗回填），扩写失败回退裸词时返回 null。
+     */
+    suspend fun polish(assetId: String): String? = logic.polish(assetId)
     fun review(assetId: String, keep: Boolean) = viewModelScope.launch { logic.review(assetId, keep) }
     fun reviewAllPassed() = logic.reviewAllPassed()
+    /** v1.9.10：编辑弹窗写回 LLM 扩写结果（空文本=清空扩写、回到裸词） */
+    fun setEnrichedPrompt(assetId: String, text: String) = logic.setEnrichedPrompt(assetId, text)
 
     // ==================== 第九轮 QualityEngine 接线 ====================
 

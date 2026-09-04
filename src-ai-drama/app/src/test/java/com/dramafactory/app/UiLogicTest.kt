@@ -131,6 +131,66 @@ class UiLogicTest {
         assertTrue(logic.assets.value[0].errorMessage == null)         // 成功清空错误提示
     }
 
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_首次实时扩写并缓存到卡片() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.CHARACTER, "王莽")
+        logic.enrichHandler = { Result.success("a han dynasty man in deep robe, plain studio backdrop") }
+        val card = logic.assets.value.first()
+        val base = logic.ensureEnriched(card)
+        assertEquals("a han dynasty man in deep robe, plain studio backdrop", base)
+        // 缓存回卡片，第二次无需再调 LLM
+        assertEquals(base, logic.assets.value.first().enrichedPrompt)
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_已有缓存直接返回不重复调用LLM() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.SCENE, "漠北草原")
+        var calls = 0
+        logic.enrichHandler = { calls++; Result.success("vast grassland, rammed-earth watchtower, empty, no people") }
+        val card = logic.assets.value.first()
+        logic.ensureEnriched(card)
+        logic.ensureEnriched(logic.assets.value.first())   // 第二次命中缓存
+        assertEquals(1, calls, "二次 ensureEnriched 应直接命中缓存，不再调 LLM")
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_LLM失败回退裸词不阻断() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.PROP, "简牍")
+        logic.enrichHandler = { Result.failure(RuntimeException("401")) }
+        val base = logic.ensureEnriched(logic.assets.value.first())
+        assertEquals("简牍", base, "扩写失败应安全回退裸词")
+        assertTrue(logic.assets.value.first().enrichedPrompt == null, "失败未产生新内容则不应写缓存")
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 润色_强制重扩写并写回缓存() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.CHARACTER, "女主")
+        logic.enrichHandler = { Result.success("a han woman in quju robe, neutral backdrop") }
+        val polished = logic.polish("a1")
+        assertEquals("a han woman in quju robe, neutral backdrop", polished)
+        assertEquals(polished, logic.assets.value.first().enrichedPrompt)
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun 扩写_手动清空扩写回到裸词() = runTest {
+        val logic = AssetsLogic()
+        logic.addAsset("a1", AssetsLogic.Kind.PROP, "铜灯")
+        logic.enrichHandler = { Result.success("a bronze lamp, isolated on plain background") }
+        logic.polish("a1")
+        assertTrue(logic.assets.value.first().enrichedPrompt != null)
+        logic.setEnrichedPrompt("a1", "")
+        assertTrue(logic.assets.value.first().enrichedPrompt == null, "空文本应清空扩写、回到裸词")
+    }
+
     // ---------- QueueLogic ----------
 
     @kotlinx.coroutines.ExperimentalCoroutinesApi

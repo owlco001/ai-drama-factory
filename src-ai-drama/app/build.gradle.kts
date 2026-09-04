@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 79
-        versionName = "1.9.9"  // v1.9.9: 修复 custom 模式未配 key 时 Agnes key 无法 fallback 导致图片生成报 no key for config custom-video
+        versionCode = 80
+        versionName = "1.9.10"  // v1.9.10: 资产卡 LLM 提示词扩写（自动+手动「润色」），裸名词→符合时代红线的视觉描述；修正场景 9:16 构图冲突
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

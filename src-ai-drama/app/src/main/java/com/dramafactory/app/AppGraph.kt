@@ -253,6 +253,26 @@ object AppGraph {
         com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
 
     /**
+     * v1.9.10：用已接好的文本 LLM 把资产裸名词扩写成聚焦主体、符合时代红线的视觉描述，
+     * 供各生图入口统一复用。失败（未配 Key / 401 / 超时）安全回退裸词，不阻断生图。
+     */
+    private suspend fun enrichAssetPrompt(kind: String, baseName: String): String {
+        val preset = currentPreset()
+        return runCatching {
+            com.dramafactory.core.quality.AssetPromptEnricher.enrich(
+                chat = { msg ->
+                    // chat(): ChatResponse（非 Result）——runCatching 兜住 401/超时等异常
+                    runCatching {
+                        text.chat(ChatRequest(messages = listOf(
+                            com.dramafactory.core.model.ChatMessage("user", msg))))
+                    }.getOrNull()?.content ?: ""
+                },
+                kind = kind, name = baseName,
+                eraLabel = preset.era.label, forbidden = preset.forbiddenEraTerms)
+        }.getOrDefault(baseName)
+    }
+
+    /**
      * 自动合成成片：查询该集 COMPLETED 且已落盘的视频镜，ffmpeg 拼装为 mp4。
      * 返回成片 File；无可用镜头/合成失败返回 null。
      * 复用成片库(S7)逻辑，供 AI 模式跑完自动产出成品展示。
@@ -384,7 +404,8 @@ object AppGraph {
                 // 导致「渲染前补齐缺失资产图」这条链路从来没成功过。
                 val url = runCatching {
                     com.dramafactory.app.ui.AssetImageGenerator.generate(
-                        provider = agnes, kind = a.kind, basePrompt = a.prompt, preset = preset)
+                        provider = agnes, kind = a.kind,
+                        basePrompt = enrichAssetPrompt(a.kind, a.prompt), preset = preset)
                 }.getOrNull() ?: continue
                 runCatching { dao.setAssetRemoteUrl(a.asset_id, url, System.currentTimeMillis()) }
             }
@@ -573,7 +594,7 @@ object AppGraph {
                             // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
                             val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
                                 provider = image, kind = asset.kind,
-                                basePrompt = asset.prompt, preset = preset)
+                                basePrompt = enrichAssetPrompt(asset.kind, asset.prompt), preset = preset)
                             // 落盘：生成成功回填资产图的 remote_url
                             runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }
                             url

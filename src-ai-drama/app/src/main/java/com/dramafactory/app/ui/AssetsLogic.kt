@@ -47,6 +47,11 @@ class AssetsLogic {
         val defectsJson: String? = null,
         /** 生成失败信息（非空=本卡片最近一次生成失败，UI 红字展示，替代「无反应」静默吞错） */
         val errorMessage: String? = null,
+        /**
+         * LLM 扩写后的视觉描述（缓存）。为 null 时生图走实时扩写或退回裸 prompt。
+         * 仅内存态：重启后从 DB 重载会复位，下次生图惰性重扩。
+         */
+        val enrichedPrompt: String? = null,
     )
 
     private val _assets = MutableStateFlow<List<AssetCard>>(emptyList())
@@ -164,6 +169,43 @@ class AssetsLogic {
 
     /** 生成回调：App层注入真实ImageProvider调用；返回(url或null)与错误信息 */
     var generateHandler: suspend (card: AssetCard) -> Result<String> = { Result.failure(IllegalStateException("未接线")) }
+
+    /**
+     * LLM 扩写回调：App 层注入——把资产卡的裸名词扩写成聚焦主体、符合时代红线的视觉描述。
+     * 返回扩写文本（非空）；失败应由调用方决定是否回退裸词。
+     */
+    var enrichHandler: suspend (card: AssetCard) -> Result<String> = { Result.failure(IllegalStateException("未接线")) }
+
+    /**
+     * 取该卡生图用的 base prompt：已有扩写结果直接用（缓存，避免重复消耗 token）；
+     * 否则实时扩写并缓存回卡片。扩写失败回退裸 prompt（不阻断生图）。
+     */
+    suspend fun ensureEnriched(card: AssetCard): String {
+        if (!card.enrichedPrompt.isNullOrBlank()) return card.enrichedPrompt
+        return enrichAndStore(card)
+    }
+
+    /**
+     * 强制重新扩写（手动「润色」按钮用）。返回扩写结果；
+     * 若扩写失败回退裸词（与裸词相同），返回 null 表示未产生新内容。
+     */
+    suspend fun polish(assetId: String): String? {
+        val card = _assets.value.firstOrNull { it.assetId == assetId } ?: return null
+        val enriched = enrichAndStore(card, force = true)
+        return if (enriched != card.prompt) enriched else null
+    }
+
+    /** 直接写回扩写结果（编辑弹窗手动改过并保存时调用）。空文本表示清空扩写、回到裸词。 */
+    fun setEnrichedPrompt(assetId: String, text: String) {
+        update(assetId) { it.copy(enrichedPrompt = text.takeIf { t -> t.isNotBlank() }) }
+    }
+
+    private suspend fun enrichAndStore(card: AssetCard, force: Boolean = false): String {
+        val enriched = runCatching { enrichHandler(card) }.getOrNull()?.getOrNull()
+        val text = enriched?.takeIf { it.isNotBlank() } ?: card.prompt
+        if (force || text != card.prompt) update(card.assetId) { it.copy(enrichedPrompt = text) }
+        return text
+    }
     /** 评审落库回调：App层注入Room UPDATE assets SET review_state */
     var reviewPersist: suspend (assetId: String, state: String) -> Unit = { _, _ -> }
     /** 第十一轮：生成结果落库回调——App层注入Room UPDATE assets SET remote_url+file_uri。
