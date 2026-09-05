@@ -28,6 +28,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
 import com.dramafactory.app.ui.components.DramaCard
@@ -37,6 +41,8 @@ import com.dramafactory.app.ui.components.PageHeader
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
 
 /**
  * 渲染队列页（S6）：每集渲染进度列表（镜状态机实时刷新）、暂停/恢复/取消、
@@ -44,6 +50,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  * 第六轮新增：每镜「设参考图」（图生视频，复用本地上传选图）、
  * 「上传参考视频」（仅当前视频模型标记 supportsVideoReference 时显示）。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QueuePage(
     episodeId: String = "default",
@@ -121,8 +128,9 @@ fun QueuePage(
                         (if (st.usage.priceEstimateYuan > 0) " · 约¥%.2f".format(st.usage.priceEstimateYuan) else ""),
                     style = MaterialTheme.typography.bodySmall)
 
-                // ---- 暂停/恢复/开始按钮组 ----
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // ---- 暂停/恢复/开始按钮组（FlowRow：窄屏自动换行，不再挤压放大）----
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.pause() }, enabled = snap.running) { Text("暂停") }
                     Button(onClick = { vm.resume() },
                         enabled = !snap.running && snap.pausedReason != "budget_exceeded") { Text("恢复") }
@@ -180,8 +188,9 @@ fun QueuePage(
             for ((shotId, stateName) in st.shotStates) {
                 item(key = shotId) {
                     DramaCard(Modifier.fillMaxWidth()) {
-                        Row(Modifier, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column(Modifier.weight(1f)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // 镜信息（镜号 + 状态 + 失败原因）：左对齐自然宽度
+                            Column(Modifier) {
                                 Text(shotId, style = MaterialTheme.typography.bodyMedium)
                                 Row(verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -198,31 +207,30 @@ fun QueuePage(
                                         modifier = Modifier.padding(top = 2.dp))
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            // v1.9.21：操作按钮改用 FlowRow 全宽换行，窄屏不再横向溢出被放大
+                            FlowRow(Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 // 第六轮：图生视频「设参考图」入口（复用本地上传选图）
-                                OutlinedButton(onClick = { pendingShotId = shotId; showRefImagePicker = true }) {
-                                    Text("设参考图")
-                                }
+                                QueueActionButton("设参考图") { pendingShotId = shotId; showRefImagePicker = true }
                                 // 第六轮：视频参考入口——仅当前视频模型标记支持时显示
                                 if (videoRefSupported) {
-                                    OutlinedButton(onClick = { pendingShotId = shotId; showRefVideoPicker = true }) {
-                                        Text("上传参考视频")
-                                    }
+                                    QueueActionButton("上传参考视频") { pendingShotId = shotId; showRefVideoPicker = true }
                                 }
                                 if (stateName == "RECONCILE") {
                                     // 待对账镜 → 人工处置对话框（复审N-2条件项）
-                                    OutlinedButton(onClick = {
+                                    QueueActionButton("处置") {
                                         vm.openReconcileDialog(shotId, "提交结果未知，需人工核实")
-                                    }) { Text("处置") }
+                                    }
                                 } else if (stateName in listOf("PENDING", "SUBMITTING", "SUBMITTED")) {
-                                    OutlinedButton(onClick = { vm.cancelShot(shotId) }) { Text("取消") }
+                                    QueueActionButton("取消") { vm.cancelShot(shotId) }
                                 }
                                 // v1.9.18：失败/已放弃/待对账的镜可重试（重置 PENDING 并清失败原因）
                                 if (stateName in listOf("FAILED", "BLOCKED", "RECONCILE")) {
-                                    OutlinedButton(onClick = { vm.retryShot(shotId) }) { Text("重试") }
+                                    QueueActionButton("重试") { vm.retryShot(shotId) }
                                 }
                                 // v1.9.18：删除该镜（二次确认，彻底移除 shots + render_tasks）
-                                OutlinedButton(onClick = { vm.requestDeleteShot(shotId) }) { Text("删除") }
+                                QueueActionButton("删除", danger = true) { vm.requestDeleteShot(shotId) }
                             }
                         }
                     }
@@ -287,6 +295,32 @@ fun QueuePage(
 @Composable
 private fun LaunchedPickEffect(block: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(Unit) { block() }
+}
+
+/**
+ * 队列页每镜操作按钮（v1.9.21）：局部把最小可交互尺寸降到 36dp + 紧凑 padding + 小字号，
+ * 让一镜最多 5 个按钮（设参考图/上传参考视频/取消或处置/重试/删除）在手机窄屏下也能 FlowRow 换行，
+ * 不再横向溢出被强制压缩放大。danger=true 时按钮文字着 error 色，提示不可逆操作。
+ */
+@Composable
+private fun QueueActionButton(
+    text: String,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = Modifier.height(36.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
 }
 
 /** 分镜 sb_check 错误码 → 中文可读（对齐 AiStoryboardDirector 六铁律忠实性校验） */

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 90
-        versionName = "1.9.20"  // v1.9.20: storyboard_gate 暂停详情直显（哪几镜、为何未过审六铁律），省去抓 logcat
+        versionCode = 91
+        versionName = "1.9.21"  // v1.9.21: 队列页布局健壮化——每镜操作按钮改 FlowRow 全宽换行，窄屏不再横向溢出放大
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
