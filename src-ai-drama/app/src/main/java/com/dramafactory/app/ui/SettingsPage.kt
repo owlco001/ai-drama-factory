@@ -150,6 +150,34 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
             }
         }
 
+        // ---- v1.9.24：Agnes 视频模型选择器（国际站多参：v2.0 / 2.5 / 2.5-flash）----
+        if (st.selectedProviderId == "agnes") {
+            val agncsModels = vm.agncsVideoModels
+            val currentVideoModel = st.selectedVideoModel ?: com.dramafactory.core.provider.AgnesProvider.MODEL_VIDEO
+            DramaCard(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Agnes 视频模型（多参）", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "当前：${if (currentVideoModel == com.dramafactory.core.provider.AgnesProvider.MODEL_VIDEO) "v2.0（默认）" else currentVideoModel}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    agncsModels.forEach { (id, label) ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = currentVideoModel == id,
+                                onClick = { vm.onVideoModelChanged(id); vm.saveVideoModel() })
+                            Column(Modifier.weight(1f)) {
+                                Text(label, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                    Text(
+                        "切换后下次渲染立即生效。2.5 系列走多参考图模式（国际站可用，最多5张），v2.0 走数组关键帧模式。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        }
+
         // ---- 自定义模型（OpenAI兼容格式，第四轮）----
         if (st.selectedProviderId == "custom") {
             DramaCard(Modifier.fillMaxWidth()) {

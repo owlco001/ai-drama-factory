@@ -23,10 +23,13 @@ class SettingsLogic(
     private val videoProviderFor: (String) -> VideoProvider,
     /** v1.9.0：供应商 id → KeyVault configId（含 region 分池） */
     private val configIdFor: (String) -> String,
-    private val keyVault: KeyVault,
+        private val keyVault: KeyVault,
     configId: String,
     /** v1.9.0：保存/切换供应商时持久化激活供应商 */
     private val activate: (String) -> Unit = {},
+    /** v1.9.24：Agnes 视频模型偏好读写（解耦 AppGraph，单测可注入空实现） */
+    private val videoModelReader: () -> String? = { null },
+    private val videoModelPersister: suspend (String?) -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /**
@@ -62,6 +65,8 @@ class SettingsLogic(
         val updateAvailable: UpdateInfo? = null,// 非空=发现新版本（持续提示，直至用户忽略或已更新）
         val updateLatest: Boolean = false,      // 已是最新（点击检查后的一次性确认）
         val updateError: String? = null,        // 检查失败原因
+        // ---- v1.9.24：Agnes 视频模型偏好（null=默认 agnes-video-v2.0）----
+        val selectedVideoModel: String? = null,
         // ---- 在线下载安装（v1.9.4 方案B）----
         val downloading: Boolean = false,       // 正在下载 APK
         val downloadBytes: Long = 0,            // 已下载字节
@@ -114,7 +119,21 @@ class SettingsLogic(
         val available = info.status == ProviderRegistry.Status.AVAILABLE
         // v1.9.0：选中可用供应商即持久化激活，重启后视频路由仍指向它
         if (available) activate(providerId)
+        // v1.9.24：选中 Agnes 时回填已存视频模型偏好，使选择器显示当前生效项
+        if (available && providerId == "agnes") {
+            _state.value = _state.value.copy(selectedVideoModel = videoModelReader())
+        }
         return available
+    }
+
+    /** v1.9.24：Agnes 视频模型选择变更（暂存 UI 状态，saveVideoModel 落库生效） */
+    fun onVideoModelChanged(modelId: String?) {
+        _state.value = _state.value.copy(selectedVideoModel = modelId)
+    }
+
+    /** v1.9.24：持久化 Agnes 视频模型偏好并热重建 provider */
+    suspend fun saveVideoModel() {
+        videoModelPersister(_state.value.selectedVideoModel)
     }
 
     fun onCustomFieldChanged(field: String, value: String) {

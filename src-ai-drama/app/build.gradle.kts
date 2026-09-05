@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 93
-        versionName = "1.9.23"  // v1.9.23: 错误原因递归可读化 + maxImages=1 强制单张字符串 + episodeId 显示精简
+        versionCode = 94
+        versionName = "1.9.24"  // v1.9.24: 设置页开放 Agnes 视频模型选择（国际站多参 v2.0/2.5/2.5-flash），KeyVault 持久化偏好
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

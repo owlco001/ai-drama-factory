@@ -37,6 +37,8 @@ object AppGraph {
     const val CONFIG_VIDEO = "agnes-video"
     const val CONFIG_TEXT = "agnes-text"
     const val CONFIG_IMAGE = "agnes-image"
+    /** v1.9.24：Agnes 视频模型偏好（v2.0/2.5/2.5-flash），独立存 KeyVault，避免污染 provider_configs 表的 key 字段 */
+    const val CONFIG_VIDEO_MODEL = "agnes-video-model-pref"
 
     lateinit var keyVault: KeyVault; private set
     lateinit var checkpointStore: CheckpointStore; private set
@@ -223,17 +225,36 @@ object AppGraph {
             videoParams.numFrames != null || videoParams.frameRate != null) {
             this.videoParams = videoParams
         }
-        val custom = listOfNotNull(vcfg, icfg).firstOrNull { it.provider_id == "custom" } ?: return
-        val baseUrl = parseExtraString(custom.extra_params, "base_url")
-        val vModel = vcfg?.takeIf { it.provider_id == "custom" }?.model
-        val iModel = icfg?.takeIf { it.provider_id == "custom" }?.model
-        if (baseUrl.isNullOrBlank() && vModel == null && iModel == null) return
-        // v1.8.8：记录 override 后复用 rebuildAgnes()，与运行时 region 热切换共用同一构建逻辑
+        // v1.9.24：custom 与 Agnes 官方模型偏好分开恢复，不再因 custom 缺失而 early return 跳过 agnes 偏好
+        val customV = vcfg?.takeIf { it.provider_id == "custom" }
+        val customI = icfg?.takeIf { it.provider_id == "custom" }
+        val baseUrl = customV?.let { parseExtraString(it.extra_params, "base_url") }
+        val customVModel = customV?.model?.takeIf { it.isNotBlank() }
+        val customIModel = customI?.model?.takeIf { it.isNotBlank() }
         agnesBaseUrlOverride = baseUrl
-        agnesVideoModelOverride = vModel
-        agnesImageModelOverride = iModel
+        agnesImageModelOverride = customIModel
+        // Agnes 官方视频模型偏好（KeyVault 持久化）：custom 优先，否则 Agnes 偏好
+        val agncsPref = runCatching { keyVault.load(CONFIG_VIDEO_MODEL) }.getOrNull()?.takeIf { it.isNotBlank() }
+        agnesVideoModelOverride = customVModel ?: agncsPref
         rebuildAgnes()
-        Log.i("AppGraph", "已按自定义模型重建 provider: base=${baseUrl ?: "默认"} video=${vModel ?: "默认"} image=${iModel ?: "默认"}")
+        Log.i("AppGraph", "已重建 provider: base=${baseUrl ?: "默认"} video=${agnesVideoModelOverride ?: "默认"} image=${customIModel ?: "默认"}")
+    }
+
+    /** v1.9.24：当前生效的 Agnes 视频模型 id（UI 回填用；null=默认 agnes-video-v2.0） */
+    val currentAgnesVideoModel: String? get() = agnesVideoModelOverride
+
+    /**
+     * v1.9.24：设置页切换 Agnes 视频模型（v2.0/2.5/2.5-flash）。
+     * 持久化到独立 KeyVault 键，热重建 provider；默认模型等价 null（不持久化，省一次存储）。
+     */
+    suspend fun setAgnesVideoModel(model: String?) {
+        val m = model?.takeIf { it.isNotBlank() && it != com.dramafactory.core.provider.AgnesProvider.MODEL_VIDEO }
+        agnesVideoModelOverride = m
+        runCatching {
+            if (m == null) keyVault.delete(CONFIG_VIDEO_MODEL) else keyVault.save(CONFIG_VIDEO_MODEL, "agnes", m)
+        }
+        rebuildAgnes()
+        Log.i("AppGraph", "Agnes 视频模型切换为: ${m ?: "默认(agnes-video-v2.0)"}")
     }
 
     private fun parseExtraString(extra: String?, key: String): String? = runCatching {

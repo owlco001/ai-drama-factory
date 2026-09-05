@@ -24,8 +24,15 @@ class SettingsViewModel : ViewModel() {
         keyVault = AppGraph.keyVault,
         configId = AppGraph.videoConfigIdFor("agnes"),   // 默认 agnes（按 region 分池）
         activate = { AppGraph.setActiveVideoProvider(it) },
+        videoModelReader = { AppGraph.currentAgnesVideoModel },
+        videoModelPersister = { AppGraph.setAgnesVideoModel(it) },
     )
     val state: StateFlow<SettingsLogic.UiState> get() = logic.state
+
+    /** v1.9.24：Agnes 视频模型列表（id,label），供设置页多选器使用（国际站多参 v2.0/2.5/2.5-flash） */
+    val agncsVideoModels: List<Pair<String, String>> get() =
+        AppGraph.agnes.listModels().filter { it.id.startsWith("agnes-video") }
+            .map { it.id to it.label }
 
     init {
         refresh()
@@ -173,6 +180,8 @@ class SettingsViewModel : ViewModel() {
 
     // ---- 供应商选择 + 自定义模型（第四轮）----
     fun selectProvider(providerId: String) { logic.selectProvider(providerId) }
+    fun onVideoModelChanged(modelId: String?) = logic.onVideoModelChanged(modelId)
+    fun saveVideoModel() = viewModelScope.launch { withContext(Dispatchers.IO) { logic.saveVideoModel() } }
     fun onCustomFieldChanged(field: String, value: String) = logic.onCustomFieldChanged(field, value)
     fun saveCustomModel() = viewModelScope.launch {
         withContext(Dispatchers.IO) { logic.saveCustomModel() }
