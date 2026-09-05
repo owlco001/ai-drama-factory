@@ -109,7 +109,11 @@ fun QueuePage(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val snap = st.snapshot
                 val pauseText: String? = snap.pausedReason
-                val epLabel = if (snap.episodeId.isNullOrBlank()) "本集" else "第${snap.episodeId}集"
+                val epDisplay = snap.episodeId?.let { id ->
+                    // v1.9.23：工程内部 ID 如 p_1788428301309_ep1 → 显示 ep1，避免「第 p_..._ep1集」
+                    id.substringAfterLast("_").takeIf { it.startsWith("ep", ignoreCase = true) } ?: id
+                } ?: "本集"
+                val epLabel = "第${epDisplay}集"
                 Text("$epLabel · ${snap.completedShots}/${snap.totalShots} 镜完成",
                     style = MaterialTheme.typography.titleMedium)
                 LinearProgressIndicator(

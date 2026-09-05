@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 92
-        versionName = "1.9.22"  // v1.9.22: 队列页底部导航遮挡修复（LazyColumn 底部预留 88dp）+ episodeId 空值友好显示
+        versionCode = 93
+        versionName = "1.9.23"  // v1.9.23: 错误原因递归可读化 + maxImages=1 强制单张字符串 + episodeId 显示精简
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

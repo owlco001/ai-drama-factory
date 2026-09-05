@@ -193,6 +193,46 @@ class AgnesProvider(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * v1.9.23：Agnes 的 error 字段经常是 JSON 字符串再套 JSON 字符串（如 pollResult 返回
+     * {"error": "{\"error\":{\"message\":\"ti2vid supports at most 1 image\"}}"}），直接 toString()
+     * 会露出转义堆栈。递归提取最内层 message，给用户看一句人话。
+     */
+    private fun extractReadableError(raw: String): String {
+        var current = raw.trim()
+        // 去除 HTTP 状态码前缀如 "400: "、"422: "
+        current = current.replace(Regex("""^\d{3}:\s*"""), "")
+        repeat(4) {
+            val trimmed = current.trim()
+            current = when {
+                trimmed.startsWith("{") || trimmed.startsWith("[") -> {
+                    try {
+                        val el = json.parseToJsonElement(trimmed)
+                        val next = when (el) {
+                            is JsonObject -> el["message"]?.jsonPrimitive?.contentOrNull
+                                ?: el["error"]?.let { e ->
+                                    when (e) {
+                                        is JsonObject -> e["message"]?.jsonPrimitive?.contentOrNull
+                                        is JsonPrimitive -> e.contentOrNull
+                                        else -> null
+                                    }
+                                }
+                            else -> null
+                        }
+                        if (next.isNullOrBlank()) return@extractReadableError trimmed else next
+                    } catch (_: Exception) { return@extractReadableError raw.trim() }
+                }
+                trimmed.startsWith("\"") && trimmed.endsWith("\"") -> {
+                    try {
+                        json.parseToJsonElement(trimmed).jsonPrimitive.content
+                    } catch (_: Exception) { return@extractReadableError raw.trim() }
+                }
+                else -> return@extractReadableError trimmed
+            }
+        }
+        return current.trim().take(300)
+    }
+
     // ------------------------------------------------------------------
     // 低层HTTP：POST/GET 带可重试状态分类（对齐_post_json/_get_json）
     // 注意：429 在此层立即抛 QuotaError，绝不HTTP层快重试——
@@ -393,8 +433,13 @@ class AgnesProvider(
                         println("AgnesProvider submitVideo[$effectiveVideoModel] image count ${images.size} > max $maxImages; keeping ${finalImages.size}")
                     }
                     if (finalImages.isNotEmpty()) {
-                        put("image", buildJsonArray { finalImages.forEach { add(JsonPrimitive(it)) } })
-                        if (finalImages.size >= 2 && req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
+                        if (maxImages == 1) {
+                            // v1.9.23：ti2vid / i2v / cogvideox 等只支持单张字符串 image，不要发数组
+                            put("image", finalImages.first())
+                        } else {
+                            put("image", buildJsonArray { finalImages.forEach { add(JsonPrimitive(it)) } })
+                            if (finalImages.size >= 2 && req.firstImageUri != null && req.lastImageUri != null) put("mode", "keyframes")
+                        }
                     }
                 }
             }
@@ -450,13 +495,15 @@ class AgnesProvider(
             }
             "failed" -> {
                 // v1.9.14：error 字段可能是字符串也可能是对象，兼容两种形态，避免原因丢失
+                // v1.9.23：再套一层 JSON 字符串时递归提取最内层 message，避免把转义堆栈丢给用户
                 val err = out["error"]
-                val reason = when {
+                val rawReason = when {
                     err == null -> "unknown"
                     err is JsonPrimitive -> err.contentOrNull ?: err.toString()
                     else -> err.toString()
                 }
-                println("AgnesProvider pollResult failed video_id=$providerTaskId reason=$reason")
+                val reason = extractReadableError(rawReason)
+                println("AgnesProvider pollResult failed video_id=$providerTaskId rawReason=$rawReason readable=$reason")
                 PollResult.Failed(reason.take(400))
             }
             else -> PollResult.InProgress(out["progress"]?.jsonPrimitive?.intOrNull)
