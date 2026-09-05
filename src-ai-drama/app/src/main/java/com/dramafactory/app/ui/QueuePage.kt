@@ -109,7 +109,8 @@ fun QueuePage(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val snap = st.snapshot
                 val pauseText: String? = snap.pausedReason
-                Text("第${snap.episodeId ?: "-"}集 · ${snap.completedShots}/${snap.totalShots} 镜完成",
+                val epLabel = if (snap.episodeId.isNullOrBlank()) "本集" else "第${snap.episodeId}集"
+                Text("$epLabel · ${snap.completedShots}/${snap.totalShots} 镜完成",
                     style = MaterialTheme.typography.titleMedium)
                 LinearProgressIndicator(
                     progress = { if (snap.totalShots > 0) snap.completedShots.toFloat() / snap.totalShots else 0f },
@@ -174,7 +175,12 @@ fun QueuePage(
         // weight(1f)：外层是 fillMaxSize 的 Column，不给高度约束的话 LazyColumn 会以
         // 「无限最大高度」测量 —— foundation 1.4+ 不再抛异常，但会退化为一次性全量排版
         // （丢掉复用）且超出屏幕部分滚不到。给它剩余空间才能正常懒加载 + 滚动。
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // v1.9.22：LazyColumn 底部预留 88dp，避免最后一镜被底部导航栏 + FAB 遮挡
+        LazyColumn(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(bottom = 88.dp),
+        ) {
             if (st.shotStates.isEmpty()) {
                 item {
                     EmptyState(

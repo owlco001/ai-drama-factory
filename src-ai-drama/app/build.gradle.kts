@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 91
-        versionName = "1.9.21"  // v1.9.21: 队列页布局健壮化——每镜操作按钮改 FlowRow 全宽换行，窄屏不再横向溢出放大
+        versionCode = 92
+        versionName = "1.9.22"  // v1.9.22: 队列页底部导航遮挡修复（LazyColumn 底部预留 88dp）+ episodeId 空值友好显示
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
