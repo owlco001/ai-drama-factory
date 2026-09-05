@@ -41,6 +41,10 @@ class QueueLogic(
         /** 待人工处置的RECONCILE镜头（对话框数据）：shotId → 原因 */
         val reconcileShot: Pair<String, String>? = null,
         val enqueueError: String? = null,
+        /** v1.9.18：待确认删除的镜头（删除是不可逆操作，需二次确认） */
+        val pendingDelete: String? = null,
+        /** v1.9.18：待确认清空本集队列 */
+        val showClearConfirm: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -51,6 +55,12 @@ class QueueLogic(
     var onReconcileResolve: suspend (shotId: String, retry: Boolean) -> Unit = { _, _ -> }
     /** 镜状态读取器：App层注入Room查询（shotId→(状态名, 原因)），供轮询刷新 */
     var shotStateReader: suspend () -> Map<String, Pair<String, String?>> = { emptyMap() }
+    /** v1.9.18：删除单镜（shots + render_tasks 全清，彻底移除该镜） */
+    var onDeleteShot: suspend (shotId: String) -> Unit = { }
+    /** v1.9.18：重试失败/已放弃的镜——重置为 PENDING 并清失败原因，队列续跑 */
+    var onRetryShot: suspend (shotId: String) -> Unit = { }
+    /** v1.9.18：清空本集队列（仅清 render_tasks，保留 shots 分镜数据） */
+    var onClearQueue: suspend (episodeId: String) -> Unit = { }
 
     /** 订阅队列快照+预算用量，并启动镜状态轮询（2s一次，页面离开时stopWatching） */
     fun startWatching(scope: CoroutineScope) {
@@ -141,6 +151,46 @@ class QueueLogic(
 
     fun dismissReconcileDialog() {
         _state.value = _state.value.copy(reconcileShot = null)
+    }
+
+    // ---------------- v1.9.18：队列管理（删除 / 重试 / 清空） ----------------
+
+    /** 请求删除某镜——打开二次确认（删除不可逆，不直接执行） */
+    fun requestDeleteShot(shotId: String) {
+        _state.value = _state.value.copy(pendingDelete = shotId)
+    }
+
+    fun dismissDeleteShot() {
+        _state.value = _state.value.copy(pendingDelete = null)
+    }
+
+    /** 确认删除：先取消该镜（防 worker 正在跑），再清 shots + render_tasks */
+    suspend fun confirmDeleteShot() {
+        val shot = _state.value.pendingDelete ?: return
+        queue.cancelShot(shot)
+        onDeleteShot(shot)
+        _state.value = _state.value.copy(pendingDelete = null)
+    }
+
+    /** 重试失败/已放弃的镜：重置为 PENDING 并清失败原因，随后续跑队列 */
+    suspend fun retryShot(shotId: String) {
+        onRetryShot(shotId)
+        queue.resume(confirmedByUser = true)
+    }
+
+    /** 请求清空本集队列——打开二次确认 */
+    fun requestClearQueue() {
+        _state.value = _state.value.copy(showClearConfirm = true)
+    }
+
+    fun dismissClearQueue() {
+        _state.value = _state.value.copy(showClearConfirm = false)
+    }
+
+    /** 确认清空：仅清 render_tasks，shots 分镜数据保留（可重新入队渲染） */
+    suspend fun confirmClearQueue(episodeId: String) {
+        onClearQueue(episodeId)
+        _state.value = _state.value.copy(showClearConfirm = false)
     }
 
     fun clearEnqueueError() {

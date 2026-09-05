@@ -250,6 +250,10 @@ interface DramaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertRenderTask(t: RenderTaskEntity)
     @Query("SELECT * FROM render_tasks WHERE episode_id=:ep") suspend fun renderTasksOf(ep: String): List<RenderTaskEntity>
     @Query("SELECT * FROM render_tasks WHERE shot_id=:shotId") suspend fun renderTask(shotId: String): RenderTaskEntity?
+    /** v1.9.18 队列管理：删除单镜的渲染任务记录 */
+    @Query("DELETE FROM render_tasks WHERE shot_id=:shotId") suspend fun deleteRenderTask(shotId: String)
+    /** v1.9.18 队列管理：清空本集全部渲染任务记录（不动 shots 分镜数据） */
+    @Query("DELETE FROM render_tasks WHERE episode_id=:episodeId") suspend fun deleteRenderTasksOf(episodeId: String)
     /** RoomCheckpointStore.findAny用：一镜可能存在于多集checkpoint，取最新者 */
     @Query("SELECT * FROM render_tasks WHERE shot_id=:shotId") suspend fun renderTasksOfShot(shotId: String): List<RenderTaskEntity>
     /** recoverOnBoot全量扫描（P1-6） */

@@ -312,6 +312,26 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
                 }
             }
         }
+        // v1.9.18 队列管理：删除单镜（shots + render_tasks 全清，彻底移除该镜）
+        onDeleteShot = { shotId ->
+            withContext(Dispatchers.IO) {
+                AppGraph.dao.deleteShot(shotId)
+                AppGraph.dao.deleteRenderTask(shotId)
+            }
+        }
+        // v1.9.18 队列管理：重试失败/已放弃的镜——重置 PENDING 并清失败原因
+        onRetryShot = { shotId ->
+            withContext(Dispatchers.IO) {
+                AppGraph.dao.renderTask(shotId)?.let { row ->
+                    AppGraph.dao.upsertRenderTask(
+                        row.copy(state = "PENDING", fail_reason = null, blocked_reason = null))
+                }
+            }
+        }
+        // v1.9.18 队列管理：清空本集队列（仅清 render_tasks，shots 分镜数据保留）
+        onClearQueue = { ep ->
+            withContext(Dispatchers.IO) { AppGraph.dao.deleteRenderTasksOf(ep) }
+        }
         // 第六轮：图生视频关键帧 + 视频参考解析器（从 shots 表读取本镜已设参考）
         setKeyframeResolver { shotId ->
             withContext(Dispatchers.IO) {
@@ -384,6 +404,17 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
     fun resolveReconcile(retry: Boolean) = viewModelScope.launch { logic.resolveReconcile(retry) }
     fun dismissReconcileDialog() = logic.dismissReconcileDialog()
     fun clearEnqueueError() = logic.clearEnqueueError()
+
+    // ==================== v1.9.18：队列管理（删除 / 重试 / 清空） ====================
+    /** 请求删除某镜（弹二次确认，删除不可逆） */
+    fun requestDeleteShot(shotId: String) = logic.requestDeleteShot(shotId)
+    fun dismissDeleteShot() = logic.dismissDeleteShot()
+    fun confirmDeleteShot() = viewModelScope.launch { logic.confirmDeleteShot() }
+    /** 重试失败/已放弃的镜：重置 PENDING 并清失败原因 */
+    fun retryShot(shotId: String) = viewModelScope.launch { logic.retryShot(shotId) }
+    fun requestClearQueue() = logic.requestClearQueue()
+    fun dismissClearQueue() = logic.dismissClearQueue()
+    fun confirmClearQueue() = viewModelScope.launch { logic.confirmClearQueue(episodeId) }
 
     // ==================== 第六轮：图生视频 / 视频参考 ====================
     /** 为某镜设置关键帧（图生视频）：首帧/尾帧 URI 落库 shots 表 */

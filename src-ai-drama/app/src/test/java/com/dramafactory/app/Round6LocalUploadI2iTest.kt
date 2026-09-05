@@ -105,6 +105,8 @@ class Round6LocalUploadI2iTest {
         override suspend fun upsertRenderTask(t: com.dramafactory.app.data.RenderTaskEntity) {}
         override suspend fun renderTasksOf(ep: String) = emptyList<com.dramafactory.app.data.RenderTaskEntity>()
         override suspend fun renderTask(shotId: String) = null
+        override suspend fun deleteRenderTask(shotId: String) {}
+        override suspend fun deleteRenderTasksOf(episodeId: String) {}
         override suspend fun renderTasksOfShot(shotId: String) = emptyList<com.dramafactory.app.data.RenderTaskEntity>()
         override suspend fun allEpisodeIds() = emptyList<String>()
         override suspend fun renderTasksOfEpOrdered(ep: String) = emptyList<com.dramafactory.app.data.RenderTaskEntity>()

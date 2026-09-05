@@ -133,6 +133,11 @@ fun QueuePage(
                             (!snap.running && st.shotStates.isNotEmpty())) {
                         Text(if (snap.running) "渲染中" else "开始渲染")
                     }
+                    // v1.9.18：清空本集队列（仅清渲染任务，保留分镜数据，可重新入队）
+                    OutlinedButton(onClick = { vm.requestClearQueue() },
+                        enabled = !snap.running && st.shotStates.isNotEmpty()) {
+                        Text("清空队列")
+                    }
                 }
             }
         }
@@ -192,6 +197,12 @@ fun QueuePage(
                                 } else if (stateName in listOf("PENDING", "SUBMITTING", "SUBMITTED")) {
                                     OutlinedButton(onClick = { vm.cancelShot(shotId) }) { Text("取消") }
                                 }
+                                // v1.9.18：失败/已放弃/待对账的镜可重试（重置 PENDING 并清失败原因）
+                                if (stateName in listOf("FAILED", "BLOCKED", "RECONCILE")) {
+                                    OutlinedButton(onClick = { vm.retryShot(shotId) }) { Text("重试") }
+                                }
+                                // v1.9.18：删除该镜（二次确认，彻底移除 shots + render_tasks）
+                                OutlinedButton(onClick = { vm.requestDeleteShot(shotId) }) { Text("删除") }
                             }
                         }
                     }
@@ -219,6 +230,28 @@ fun QueuePage(
             text = { Text("镜头 $shotId 提交结果未知，可能已在服务端创建任务并计费。\n原因：$reason\n\n「重试」将重置为待处理并续跑队列；「放弃」将其标记为终止态（不再自动处理）。") },
             confirmButton = { Button(onClick = { vm.resolveReconcile(retry = true) }) { Text("重试") } },
             dismissButton = { OutlinedButton(onClick = { vm.resolveReconcile(retry = false) }) { Text("放弃") } },
+        )
+    }
+
+    // ---- v1.9.18：删除单镜二次确认（不可逆）----
+    st.pendingDelete?.let { shotId ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissDeleteShot() },
+            title = { Text("删除镜头 $shotId？") },
+            text = { Text("将彻底删除该镜：分镜数据（含台词/关键帧/资产引用）与渲染任务记录一并移除，且无法恢复。\n\n如果只是不想让它继续渲染，用「取消」即可。") },
+            confirmButton = { Button(onClick = { vm.confirmDeleteShot() }) { Text("确认删除") } },
+            dismissButton = { OutlinedButton(onClick = { vm.dismissDeleteShot() }) { Text("再想想") } },
+        )
+    }
+
+    // ---- v1.9.18：清空本集队列二次确认 ----
+    if (st.showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { vm.dismissClearQueue() },
+            title = { Text("清空本集渲染队列？") },
+            text = { Text("将清空本集全部渲染任务记录（含已完成/失败/待处理）。\n\n分镜数据（shots）会保留，之后仍可点「开始渲染」重新入队。") },
+            confirmButton = { Button(onClick = { vm.confirmClearQueue() }) { Text("清空") } },
+            dismissButton = { OutlinedButton(onClick = { vm.dismissClearQueue() }) { Text("取消") } },
         )
     }
 

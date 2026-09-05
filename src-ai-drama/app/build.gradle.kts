@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 87
-        versionName = "1.9.17"  // v1.9.17: 分镜资产引用诊断（RefStats 定位目录为空/LLM未输出/幻觉id），生成后直接告知根因
+        versionCode = 88
+        versionName = "1.9.18"  // v1.9.18: 渲染队列管理（单镜重试/删除、清空队列，均带二次确认）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
