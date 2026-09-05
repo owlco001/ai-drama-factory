@@ -121,7 +121,7 @@ fun QueuePage(
                         (if (st.usage.priceEstimateYuan > 0) " · 约¥%.2f".format(st.usage.priceEstimateYuan) else ""),
                     style = MaterialTheme.typography.bodySmall)
 
-                // ---- 暂停/恢复按钮组 ----
+                // ---- 暂停/恢复/开始按钮组 ----
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.pause() }, enabled = snap.running) { Text("暂停") }
                     Button(onClick = { vm.resume() },
@@ -133,7 +133,9 @@ fun QueuePage(
                             (!snap.running && st.shotStates.isNotEmpty())) {
                         Text(if (snap.running) "渲染中" else "开始渲染")
                     }
-                    // v1.9.18：清空本集队列（仅清渲染任务，保留分镜数据，可重新入队）
+                }
+                // v1.9.19：清空队列独立一行右置，避免与主控按钮挤在一行导致文字竖排
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     OutlinedButton(onClick = { vm.requestClearQueue() },
                         enabled = !snap.running && st.shotStates.isNotEmpty()) {
                         Text("清空队列")

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 88
-        versionName = "1.9.18"  // v1.9.18: 渲染队列管理（单镜重试/删除、清空队列，均带二次确认）
+        versionCode = 89
+        versionName = "1.9.19"  // v1.9.19: 修复队列页顶部操作行挤压——清空队列独立一行右置，避免文字竖排
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
