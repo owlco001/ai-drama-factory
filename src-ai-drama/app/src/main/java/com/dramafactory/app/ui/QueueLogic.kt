@@ -45,6 +45,8 @@ class QueueLogic(
         val pendingDelete: String? = null,
         /** v1.9.18：待确认清空本集队列 */
         val showClearConfirm: Boolean = false,
+        /** v1.9.20：storyboard_gate 暂停时，列出哪几镜 sb_check 报 error 及原因（根因直显，省去抓 logcat） */
+        val storyboardBlockDetail: List<Pair<String, String>> = emptyList(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -61,6 +63,8 @@ class QueueLogic(
     var onRetryShot: suspend (shotId: String) -> Unit = { }
     /** v1.9.18：清空本集队列（仅清 render_tasks，保留 shots 分镜数据） */
     var onClearQueue: suspend (episodeId: String) -> Unit = { }
+    /** v1.9.20：storyboard_gate 详情读取器——App层注入（查 shots.sb_check 含 error 的镜 → (shotId, 原因码)） */
+    var storyboardBlockReader: suspend (episodeId: String) -> List<Pair<String, String>> = { emptyList() }
 
     /** 订阅队列快照+预算用量，并启动镜状态轮询（2s一次，页面离开时stopWatching） */
     fun startWatching(scope: CoroutineScope) {
@@ -69,11 +73,18 @@ class QueueLogic(
             while (true) {
                 val base = _state.value
                 val read = runCatching { shotStateReader() }.getOrDefault(emptyMap())
+                // v1.9.20：storyboard_gate 暂停时拉取失败镜详情（仅该暂停态需查库，避免无谓 IO）
+                val paused = queue.state.value.pausedReason
+                val blockDetail = if (paused == "storyboard_gate") {
+                    val epId = queue.state.value.episodeId ?: ""
+                    runCatching { storyboardBlockReader(epId) }.getOrDefault(emptyList())
+                } else emptyList()
                 _state.value = base.copy(
                     snapshot = queue.state.value,
                     usage = budgetGuard.usage.value,
                     shotStates = read.mapValues { it.value.first },
                     shotReasons = read.mapValues { it.value.second },
+                    storyboardBlockDetail = blockDetail,
                 )
                 // budget_exceeded暂停且尚未确认 → 触发预算确认弹窗（对齐resume(confirmed)放行位）
                 if (queue.state.value.pausedReason == "budget_exceeded" && !_state.value.showBudgetConfirm) {

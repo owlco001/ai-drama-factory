@@ -144,6 +144,24 @@ fun QueuePage(
             }
         }
 
+        // ---- v1.9.20：storyboard_gate 详情直显（哪几镜、为什么），省去抓 logcat ----
+        if (st.storyboardBlockDetail.isNotEmpty()) {
+            DramaCard(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("分镜六铁律未过审 · 整集中止", style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error)
+                    Text("以下镜头分镜检查报 error，需回分镜页修复 / 重生成后再点「开始渲染」：",
+                        style = MaterialTheme.typography.bodySmall)
+                    for ((shotId, raw) in st.storyboardBlockDetail) {
+                        val human = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            .joinToString("；") { sbCheckLabel(it) }
+                        Text("• $shotId：$human", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+
         // ---- 镜状态列表（状态机六态实时刷新）----
         // weight(1f)：外层是 fillMaxSize 的 Column，不给高度约束的话 LazyColumn 会以
         // 「无限最大高度」测量 —— foundation 1.4+ 不再抛异常，但会退化为一次性全量排版
@@ -269,6 +287,13 @@ fun QueuePage(
 @Composable
 private fun LaunchedPickEffect(block: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(Unit) { block() }
+}
+
+/** 分镜 sb_check 错误码 → 中文可读（对齐 AiStoryboardDirector 六铁律忠实性校验） */
+internal fun sbCheckLabel(code: String) = when (code) {
+    "dialogue_not_verbatim" -> "台词未逐字出现在剧本原文"
+    "action_empty" -> "动作描述为空"
+    else -> code
 }
 
 /** 状态机中文标签 */

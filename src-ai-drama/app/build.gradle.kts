@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 89
-        versionName = "1.9.19"  // v1.9.19: 修复队列页顶部操作行挤压——清空队列独立一行右置，避免文字竖排
+        versionCode = 90
+        versionName = "1.9.20"  // v1.9.20: storyboard_gate 暂停详情直显（哪几镜、为何未过审六铁律），省去抓 logcat
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

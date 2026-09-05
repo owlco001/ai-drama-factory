@@ -332,6 +332,14 @@ class QueueViewModel(private val episodeId: String) : ViewModel() {
         onClearQueue = { ep ->
             withContext(Dispatchers.IO) { AppGraph.dao.deleteRenderTasksOf(ep) }
         }
+        // v1.9.20：storyboard_gate 详情——查 sb_check 含 error 的镜（原因码取自 AiStoryboardDirector 六铁律校验）
+        storyboardBlockReader = { epId ->
+            withContext(Dispatchers.IO) {
+                AppGraph.dao.shotsOf(epId)
+                    .filter { it.sb_check.contains("error", ignoreCase = true) }
+                    .map { it.shot_id to it.sb_check.removePrefix("error:") }
+            }
+        }
         // 第六轮：图生视频关键帧 + 视频参考解析器（从 shots 表读取本镜已设参考）
         setKeyframeResolver { shotId ->
             withContext(Dispatchers.IO) {
