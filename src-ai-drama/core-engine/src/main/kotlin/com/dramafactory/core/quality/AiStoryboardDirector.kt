@@ -44,7 +44,26 @@ object AiStoryboardDirector {
         val visualPrompt: String? = null,
     )
 
-    data class Result(val shots: List<Shot>, val usedLlm: Boolean, val gateErrors: Map<Int, List<String>>)
+    /**
+     * v1.9.17：资产引用统计——诊断「分镜没引用资产」到底断在哪一环。
+     * - catalogSize=0：目录本身为空（资产没生图等）→ LLM 无从引用；
+     * - catalogSize>0 且 rawRefs=0：LLM 压根没输出 asset_ids（指令未跟随）；
+     * - rawRefs>0 且 keptRefs=0：LLM 引用了但 id 都不在目录内（幻觉）→ 被静默丢弃。
+     */
+    data class RefStats(
+        val catalogSize: Int,
+        val rawRefs: Int,
+        val keptRefs: Int,
+    ) {
+        val droppedRefs: Int get() = (rawRefs - keptRefs).coerceAtLeast(0)
+    }
+
+    data class Result(
+        val shots: List<Shot>,
+        val usedLlm: Boolean,
+        val gateErrors: Map<Int, List<String>>,
+        val refStats: RefStats = RefStats(0, 0, 0),
+    )
 
     private const val WRITER_PROMPT = """你是短剧分镜编剧。把给定的剧本/小说片段拆成视频镜头表。
 只输出严格 JSON，不要markdown代码块。格式：
@@ -74,7 +93,8 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         val catalogBlock = renderCatalog(assets)
 
         // —— 编剧：拆镜 ——
-        val shots = repeatRetry {
+        // v1.9.17：parseShots 额外返回引用统计；空列表仍触发重试（对齐原 repeatRetry 语义）
+        val parsed: Pair<List<Shot>, RefStats>? = repeatRetry {
             val writerMsg = if (catalogBlock.isNotBlank()) {
                 "$WRITER_PROMPT\n\n【资产目录】\n$catalogBlock\n\n【剧本】\n$clipped"
             } else {
@@ -82,8 +102,12 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
             }
             val resp = chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
                 com.dramafactory.core.model.ChatMessage("user", writerMsg))))
-            parseShots(resp.content, assets)
-        } ?: return Result(emptyList(), usedLlm = false, gateErrors = emptyMap())
+            val p = parseShots(resp.content, assets)
+            if (p.first.isEmpty()) null else p
+        }
+        val shots = parsed?.first ?: return Result(emptyList(), usedLlm = false, gateErrors = emptyMap(),
+            refStats = RefStats(assets.size, 0, 0))
+        val refStats = parsed.second
 
         // —— 导演：视觉指令 ——
         val visuals: Map<Int, String> = runCatching {
@@ -118,7 +142,8 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         return Result(
             shots = shots.map { it.copy(visualPrompt = visuals[it.shotNo]) },
             usedLlm = true,
-            gateErrors = gateErrors)
+            gateErrors = gateErrors,
+            refStats = refStats)
     }
 
     /** 把资产目录渲染成 LLM 友好的文本块 */
@@ -148,11 +173,14 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
      * 第十五轮：解析 shots；asset_ids 限定为 catalog 里的 id（防止 LLM 幻觉乱写），
      * 非 catalog 的 id 丢弃（不入 shot.assetIds 也不报错）。
      */
-    internal fun parseShots(content: String, assets: List<AssetSnapshot> = emptyList()): List<Shot> {
-        val obj = jsonOf(content) ?: return emptyList()
-        val arr = obj["shots"] as? JsonArray ?: return emptyList()
+    internal fun parseShots(content: String, assets: List<AssetSnapshot> = emptyList()): Pair<List<Shot>, RefStats> {
+        val empty = emptyList<Shot>()
+        val obj = jsonOf(content) ?: return empty to RefStats(assets.size, 0, 0)
+        val arr = obj["shots"] as? JsonArray ?: return empty to RefStats(assets.size, 0, 0)
         val validIds = assets.map { it.id }.toSet()
         val out = mutableListOf<Shot>()
+        var rawRefs = 0
+        var keptRefs = 0
         for (e in arr) {
             val o = e as? JsonObject ?: continue
             fun str(k: String): String = (o[k] as? JsonPrimitive)?.content?.trim() ?: ""
@@ -165,6 +193,8 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
                 ?: emptyList()
             val assetIds = if (validIds.isEmpty()) emptyList()
                 else rawAssetIds.filter { it in validIds }.distinct()
+            rawRefs += rawAssetIds.size
+            keptRefs += assetIds.size
             out += Shot(
                 shotNo = no, action = action,
                 dialogue = str("dialogue").ifBlank { null },
@@ -175,7 +205,7 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
                 beatRef = str("beat_ref").ifBlank { null },
                 carryOver = str("carry_over").ifBlank { null })
         }
-        return out.sortedBy { it.shotNo }
+        return out.sortedBy { it.shotNo } to RefStats(assets.size, rawRefs, keptRefs)
     }
 
     internal fun parseVisuals(content: String): Map<Int, String> {

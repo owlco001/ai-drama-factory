@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 86
-        versionName = "1.9.16"  // v1.9.16: 视频提交 model-aware（2.5 reference 模式 + reference_images；ti2vid 单帧；v2.0 维持）；listModels 国际站暴露 2.5/2.5-flash；cn 站禁 2.5
+        versionCode = 87
+        versionName = "1.9.17"  // v1.9.17: 分镜资产引用诊断（RefStats 定位目录为空/LLM未输出/幻觉id），生成后直接告知根因
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -14,7 +14,7 @@ class AiStoryboardDirectorTest {
             {"shot_no":1,"action":"他拔剑出鞘","dialogue":"出招吧","duration_seconds":6,"characters":["林晚"],"beat_ref":"B01"},
             {"shot_no":2,"action":"她侧身避开","narration":"风声骤起"}
         ]}"""
-        val shots = AiStoryboardDirector.parseShots(json)
+        val shots = AiStoryboardDirector.parseShots(json).first
         assertEquals(2, shots.size)
         assertEquals("出招吧", shots[0].dialogue)
         assertEquals("林晚", shots[0].characterNames.first())
@@ -26,14 +26,14 @@ class AiStoryboardDirectorTest {
     @Test
     fun parseShots_markdown栅栏容错() {
         val wrapped = "```json\n{\"shots\":[{\"shot_no\":1,\"action\":\"转身\"}]}\n```"
-        val shots = AiStoryboardDirector.parseShots(wrapped)
+        val shots = AiStoryboardDirector.parseShots(wrapped).first
         assertEquals(1, shots.size)
         assertEquals("转身", shots[0].action)
     }
 
     @Test
     fun parseShots_缺字段默认值() {
-        val shots = AiStoryboardDirector.parseShots("""{"shots":[{"action":"x"}]}""")
+        val shots = AiStoryboardDirector.parseShots("""{"shots":[{"action":"x"}]}""").first
         assertEquals(1, shots.size)
         assertEquals(6.0, shots[0].durationSeconds)   // 默认时长
         assertEquals(1, shots[0].shotNo)              // 缺号自动补
@@ -41,8 +41,8 @@ class AiStoryboardDirectorTest {
 
     @Test
     fun parseShots_非JSON返回空() {
-        assertTrue(AiStoryboardDirector.parseShots("这不是json").isEmpty())
-        assertTrue(AiStoryboardDirector.parseShots("""{"shots":"not-array"}""").isEmpty())
+        assertTrue(AiStoryboardDirector.parseShots("这不是json").first.isEmpty())
+        assertTrue(AiStoryboardDirector.parseShots("""{"shots":"not-array"}""").first.isEmpty())
     }
 
     @Test
@@ -71,7 +71,7 @@ class AiStoryboardDirectorTest {
         val json = """{"shots":[
             {"shot_no":1,"action":"张角走入破庙","asset_ids":["a_1","a_2","a_999"]}
         ]}"""
-        val shots = AiStoryboardDirector.parseShots(json, catalog)
+        val shots = AiStoryboardDirector.parseShots(json, catalog).first
         assertEquals(1, shots.size)
         assertEquals(listOf("a_1","a_2"), shots[0].assetIds, "非catalog的a_999应被过滤")
     }
@@ -79,8 +79,34 @@ class AiStoryboardDirectorTest {
     @Test
     fun parseShots_无catalog时assetIds一律空() {
         val json = """{"shots":[{"shot_no":1,"action":"x","asset_ids":["a_1"]}]}"""
-        val shots = AiStoryboardDirector.parseShots(json, emptyList())
+        val shots = AiStoryboardDirector.parseShots(json, emptyList()).first
         assertEquals(1, shots.size)
         assertTrue(shots[0].assetIds.isEmpty(), "无catalog注入时不接收任何asset_id")
+    }
+
+    // v1.9.17：引用统计——诊断「分镜没引用资产」断在目录/LLM/幻觉哪一环
+    @Test
+    fun parseShots_返回资产引用统计() {
+        val catalog = listOf(
+            AiStoryboardDirector.AssetSnapshot("a_1", "character", "张角", "灰袍道长"),
+            AiStoryboardDirector.AssetSnapshot("a_2", "scene", "破庙", "残破木结构"),
+        )
+        val json = """{"shots":[{"shot_no":1,"action":"张角走入","asset_ids":["a_1","a_999"]}]}"""
+        val (shots, stats) = AiStoryboardDirector.parseShots(json, catalog)
+        assertEquals(1, shots.size)
+        assertEquals(2, stats.catalogSize, "目录项数")
+        assertEquals(2, stats.rawRefs, "LLM 原始引用数（a_1 + a_999）")
+        assertEquals(1, stats.keptRefs, "仅 a_1 命中目录")
+        assertEquals(1, stats.droppedRefs, "a_999 为幻觉 id，应被丢弃")
+    }
+
+    @Test
+    fun parseShots_LLM未输出assetIds时统计为0() {
+        val catalog = listOf(AiStoryboardDirector.AssetSnapshot("a_1", "character", "张角", "灰袍"))
+        val json = """{"shots":[{"shot_no":1,"action":"张角走入"}]}"""
+        val (_, stats) = AiStoryboardDirector.parseShots(json, catalog)
+        assertEquals(1, stats.catalogSize)
+        assertEquals(0, stats.rawRefs, "LLM 没输出 asset_ids → 指令未跟随")
+        assertEquals(0, stats.keptRefs)
     }
 }

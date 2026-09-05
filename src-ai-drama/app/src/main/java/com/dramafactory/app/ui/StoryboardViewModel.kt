@@ -89,6 +89,11 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             withContext(Dispatchers.IO) { AppGraph.dao.assetsAllOf(projectId) }
         }.getOrDefault(emptyList())
         val catalog = AssetCatalog.build(assets)
+        // v1.9.17：诊断用统计——区分「项目没资产卡」/「有卡但没生图」/「LLM 幻觉 id」三种根因
+        val motherCards = assets.filter { it.parent_id.isNullOrBlank() && it.pose_role.isNullOrBlank() }
+        val mothersWithImage = motherCards.count {
+            !it.remote_url.isNullOrBlank() || !it.image_uri.isNullOrBlank()
+        }
         val result = runCatching {
             com.dramafactory.core.quality.AiStoryboardDirector.generate(
                 script, chat = { req -> AppGraph.text.chat(req) }, assets = catalog)
@@ -122,11 +127,24 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         }
         refresh()
         val errCount = result.gateErrors.size
-        // v1.7.17：目录为空意味着这些分镜一镜都不会引用资产（渲染只能回退项目级前4张）。
-        // 目录现在只收「已生图的母卡」，资产没生图就没有目录项，必须把原因直接说清楚，
-        // 否则用户只会觉得"我有资产啊，怎么不引用"。
-        val noAssetNote = if (catalog.isEmpty())
-            "。⚠ 本项目还没有已生成图像的角色/场景资产，分镜未引用任何资产（渲染将回退项目级前4张）；请先到资产页把资产图生成出来，再重生成分镜" else ""
+        // v1.9.17：用 refStats 精确定位「分镜没引用资产」断在哪一环，不再只给一句笼统警告
+        val st = result.refStats
+        val noAssetNote = when {
+            st.catalogSize == 0 && motherCards.isEmpty() ->
+                "。⚠ 本项目还没有任何资产卡，分镜未引用资产"
+            st.catalogSize == 0 && mothersWithImage == 0 ->
+                "。⚠ 你有 ${motherCards.size} 个资产卡，但**一个图都没生成**——资产目录为空，分镜无法引用任何资产。请先到资产页把资产图生成出来，再重生成分镜"
+            st.catalogSize == 0 ->
+                "。⚠ 资产目录为空（${motherCards.size} 个母卡中仅 $mothersWithImage 个有图且均未过审进目录），分镜未引用资产"
+            st.keptRefs == 0 && st.rawRefs == 0 ->
+                "。⚠ 目录有 ${st.catalogSize} 项，但 LLM 没有输出任何 asset_ids（指令未跟随）"
+            st.keptRefs == 0 && st.rawRefs > 0 ->
+                "。⚠ LLM 引用了 ${st.rawRefs} 个资产 id，但**都不在目录内**（目录 ${st.catalogSize} 项）→ 已丢弃 ${st.droppedRefs} 个幻觉 id"
+            st.keptRefs > 0 ->
+                " · 已引用资产 ${st.keptRefs} 次（目录 ${st.catalogSize} 项）" +
+                    (if (st.droppedRefs > 0) "，⚠ 丢弃 ${st.droppedRefs} 个不在目录的 id" else "")
+            else -> ""
+        }
         _state.value = _state.value.copy(generating = false, message =
             "已生成${result.shots.size}镜" + (if (errCount > 0) "（其中${errCount}镜校验有误，见列表标记）" else "，全部通过校验✓") + noAssetNote)
     }
