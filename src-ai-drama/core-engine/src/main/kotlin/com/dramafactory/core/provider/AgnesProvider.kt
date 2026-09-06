@@ -34,6 +34,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import kotlin.math.roundToInt
 
 /**
  * Agnes 服务站点（网关地域）。
@@ -173,6 +174,21 @@ class AgnesProvider(
             modelId.contains("video-2.5", ignoreCase = true) ||
             modelId.contains("2.5-flash", ignoreCase = true)
         fun isTi2vid(modelId: String): Boolean = modelId.contains("ti2vid", ignoreCase = true)
+
+        /** v1.9.27：2.5 系列 num_frames/frame_rate → seconds 字符串（官方仅收 "4"–"12"，默认"5"） */
+        fun video25Seconds(numFrames: Int, frameRate: Float): String =
+            (numFrames / maxOf(1f, frameRate)).roundToInt().coerceIn(4, 12).toString()
+
+        /** v1.9.27：2.5 宽高 → 官方画幅白名单（9:16 / 16:9 / 1:1，默认 16:9） */
+        fun video25AspectRatio(w: Int, h: Int): String = when {
+            w >= h * 1.2 -> "16:9"
+            h >= w * 1.2 -> "9:16"
+            else -> "1:1"
+        }
+
+        /** v1.9.27：2.5 reference 模式 images 上限——flash 5 张（超出 400），2.5 官方 8 张 */
+        fun video25MaxImages(modelId: String): Int =
+            if (modelId.contains("flash", ignoreCase = true)) 5 else 8
 
         /** num_frames 归一到最近的 8n+1，clamp到[1,441]（对齐closest_valid_num_frames） */
         fun closestValidNumFrames(target: Int): Int {
@@ -384,32 +400,64 @@ class AgnesProvider(
         // 决议Q9：中文配音指令注入（中文台词主导开头+显式指令追加）
         val prompt = ChineseAudioInjector.inject(req.prompt)
 
+        // v1.9.27：2.5/2.5-flash 官方独立协议（wiki agnes-video-25）——
+        // 顶层禁止 width/height/fps/num_frames（400 forbidden field），尺寸=size档位+aspect_ratio，时长=seconds。
+
         val body = buildJsonObject {
             put("model", effectiveVideoModel)
+
+            if (isAgnesVideo25(effectiveVideoModel)) {
+                // ---- Agnes Video 2.5 / 2.5-flash：官方参数集（mode 必填 + 媒体字段顶层）----
+                put("seconds", video25Seconds(nf, req.frameRate))
+                put("size", "720P")   // flash 仅支持 720P（其他值 400）；2.5 同档保守
+                put("aspect_ratio", video25AspectRatio(w, h))
+                // 模式互斥：首+尾且无资产参考→keyframe（保构图）；有资产参考→reference（锁脸优先）；无图→text
+                val extraRefs = req.inputImages.filter { it != req.firstImageUri && it != req.lastImageUri }
+                val refMedia = (listOfNotNull(req.firstImageUri ?: req.referenceImageUri) + req.inputImages).distinct()
+                val maxRefs = video25MaxImages(effectiveVideoModel)
+                when {
+                    req.lastImageUri != null && extraRefs.isEmpty() -> {
+                        put("prompt", prompt)
+                        put("mode", "keyframe")
+                        put("first_frame", req.firstImageUri ?: req.lastImageUri!!)
+                        put("last_frame", req.lastImageUri)
+                    }
+                    refMedia.isNotEmpty() -> {
+                        // <Picture N> 指代 images 数组（从1编号）：首帧=Picture 1 为视觉主体
+                        put("prompt", "画面构图与主体外观以 <Picture 1> 为准，其余图片为角色与风格参考。$prompt")
+                        put("mode", "reference")
+                        val kept = refMedia.take(maxRefs)
+                        put("images", buildJsonArray { kept.forEach { add(JsonPrimitive(it)) } })
+                        // 仅 2.5 支持参考视频（flash 传入 400 videos is not supported）
+                        req.referenceVideoUri?.takeIf { !effectiveVideoModel.contains("flash", true) }?.let { v ->
+                            put("videos", buildJsonArray {
+                                add(buildJsonObject { put("url", v); put("require_audio", false) })
+                            })
+                        }
+                        println("AgnesProvider submitVideo[2.5] reference mode: media=${kept.size}/${refMedia.size}")
+                    }
+                    req.firstImageUri != null || req.lastImageUri != null -> {
+                        put("prompt", prompt)
+                        put("mode", "keyframe")
+                        req.firstImageUri?.let { put("first_frame", it) }
+                        req.lastImageUri?.let { put("last_frame", it) }
+                    }
+                    else -> {
+                        put("prompt", prompt)
+                        put("mode", "text")
+                    }
+                }
+                // 2.5 协议无 negative_prompt/generate_audio 字段（文档参数集未含，多发字段一律 400）——
+                // 音画协同由 prompt 描述驱动（中文配音指令已注入 prompt）。
+                return@buildJsonObject
+            }
+
             put("prompt", prompt)
             put("width", w); put("height", h)
             put("num_frames", nf); put("frame_rate", req.frameRate.toDouble())
 
             // v1.9.16：按模型家族组装不同的图像输入协议
             when {
-                isAgnesVideo25(effectiveVideoModel) -> {
-                    // 2.5 reference 模式：首帧→image 字符串；资产参考图→reference_images 独立数组（最多5张）；
-                    // 两者放 extra_body，不要混入 image 数组（否则 400）。无参考图时退化为单帧 ti2vid。
-                    val first = req.firstImageUri ?: req.referenceImageUri
-                    val refs = req.inputImages.distinct().take(5)
-                    val extra = buildJsonObject {
-                        if (first != null) put("image", first)
-                        if (refs.isNotEmpty()) {
-                            put("mode", "reference")
-                            put("reference_images", buildJsonArray { refs.forEach { add(JsonPrimitive(it)) } })
-                        } else {
-                            put("mode", "ti2vid")
-                        }
-                    }
-                    put("extra_body", extra)
-                    if (refs.isNotEmpty())
-                        println("AgnesProvider submitVideo[2.5] reference mode: firstFrame=${first != null}, refImages=${refs.size}")
-                }
                 isTi2vid(effectiveVideoModel) -> {
                     // ti2vid：image 仅字符串（首帧），mode=ti2vid，禁止数组
                     val first = req.firstImageUri ?: req.referenceImageUri
@@ -481,10 +529,12 @@ class AgnesProvider(
 
     override suspend fun pollResult(providerTaskId: String): PollResult {
         // 自定义供应商走 OpenAI 兼容惯例 GET {base}/videos/{id}；Agnes 走官方推荐端点
+        // v1.9.27：官方推荐所有模式带 model_name 查询（keyframe/reference 模式不带会查不到任务）
+        val modelNameParam = if (baseUrlOverride == null) "&model_name=$effectiveVideoModel" else ""
         val out = when {
             baseUrlOverride != null -> getJson("$effectiveBaseUrl/videos/$providerTaskId")
-            region == AgnesRegion.CHINA -> getJson("$VIDEO_RESULT_URL_CN?video_id=$providerTaskId")
-            else -> getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId")
+            region == AgnesRegion.CHINA -> getJson("$VIDEO_RESULT_URL_CN?video_id=$providerTaskId$modelNameParam")
+            else -> getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId$modelNameParam")
         }
         val status = out["status"]?.jsonPrimitive?.content ?: "unknown"
         return when (status) {

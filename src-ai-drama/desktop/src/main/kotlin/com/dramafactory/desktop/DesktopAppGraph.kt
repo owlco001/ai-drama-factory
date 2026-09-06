@@ -1,50 +1,51 @@
 package com.dramafactory.desktop
 
-import com.dramafactory.core.model.ChatRequest
-import com.dramafactory.core.orchestrate.*
+import com.dramafactory.core.assemble.MovieAssembler
+import com.dramafactory.core.assemble.MovieAssemblerImpl
+import com.dramafactory.core.model.ImageGenRequest
+import com.dramafactory.core.orchestrate.DefaultAiOrchestrator
 import com.dramafactory.core.orchestrate.DefaultAiOrchestrator.AiAsset
 import com.dramafactory.core.orchestrate.DefaultAiOrchestrator.AiShot
 import com.dramafactory.core.orchestrate.DefaultAiOrchestrator.AuditResult
 import com.dramafactory.core.provider.AgnesProvider
 import com.dramafactory.core.provider.KeyVault
-import com.dramafactory.core.pipeline.DefaultBudgetGuard
-import com.dramafactory.core.assemble.MovieAssembler
-import com.dramafactory.core.assemble.MovieAssemblerImpl
-import com.dramafactory.core.assemble.MovieAssemblerExecutor
+import com.dramafactory.core.provider.TextModelRouter
 import com.dramafactory.core.quality.AiStoryboardDirector
 import com.dramafactory.core.quality.AssetPromptBuilder
-import com.dramafactory.core.quality.LlmAssetExtractor
 import com.dramafactory.core.quality.EraDetector
+import com.dramafactory.core.quality.LlmAssetExtractor
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 桌面端平台装配器（仿安卓 AppGraph）。
- * Phase A：内存存储 + 文件密钥库 + ffmpeg Process 执行器，跑通 AI 对话→开工→成片闭环。
- * 持久化(JDBC)放 Phase B。
+ * 桌面端内存数据底座（无 Android Room 依赖）。
+ * 单例持有项目、集、分镜等状态，并提供类似 AppGraph 的单例依赖。
  */
 object DesktopAppGraph {
+
     lateinit var keyVault: KeyVault
         private set
-    lateinit var aiOrchestrator: DefaultAiOrchestrator
-        private set
-    lateinit var textModelRouter: com.dramafactory.core.provider.TextModelRouter
+    lateinit var textModelRouter: TextModelRouter
         private set
     lateinit var movieAssembler: MovieAssembler
         private set
+    lateinit var aiOrchestrator: DefaultAiOrchestrator
+        private set
 
-    // 内存存储（Phase B 换 JDBC）
-    private val projects = ConcurrentHashMap<String, String>()   // id -> name
-    private val episodes = ConcurrentHashMap<String, String>()    // epId -> script
-    private val renderTasks = ConcurrentHashMap<String, RenderTaskRow>() // taskId -> row
-    private val finishedFilms = ConcurrentHashMap<String, String>() // epId -> filePath
+    // 内存数据表
+    val projects = ConcurrentHashMap<String, String>() // id -> name
+    val episodes = ConcurrentHashMap<String, String>() // epId -> scriptText
+    val renderTasks = ConcurrentHashMap<String, RenderTaskRow>()
+    val finishedFilms = ConcurrentHashMap<String, String>() // epId -> filePath
 
     data class RenderTaskRow(
-        val taskId: String, val episodeId: String, val shotNo: Int,
-        var state: String, var localFileUri: String?,
+        val taskId: String,
+        val episodeId: String,
+        val shotNo: Int,
+        val state: String,
+        val localFileUri: String?,
     )
 
     fun init() {
@@ -66,7 +67,7 @@ object DesktopAppGraph {
             },
             checkModel = { modelId ->
                 if (modelId.isBlank()) Result.success(Unit)
-                else runCatching { runBlocking { textModelRouter.validate(modelId).getOrThrow() } }
+                else runCatching { textModelRouter.validate(modelId).getOrThrow() }
             },
             extractAssets = { text, _ ->
                 runCatching {
@@ -79,24 +80,23 @@ object DesktopAppGraph {
             },
             generateImage = { asset ->
                 runCatching {
-                    runBlocking {
-                        val preset = EraDetector.presetFor("han")
-                        // v1.7.17：与 app 共用 core 的组装规则。
-                        // 原实现给图像接口传 negativePrompt，Agnes 图像端不支持（400）。
-                        agnes.generateImage(
-                            com.dramafactory.core.model.ImageGenRequest(
-                                prompt = AssetPromptBuilder.finalPrompt(preset, asset.kind, asset.prompt),
-                                size = AssetPromptBuilder.sizeFor(preset, asset.kind),
-                                negativePrompt = null)
+                    val preset = EraDetector.presetFor("han")
+                    // v1.7.17：与 app 共用 core 的组装规则。
+                    // 原实现给图像接口传 negativePrompt，Agnes 图像端不支持（400）。
+                    agnes.generateImage(
+                        ImageGenRequest(
+                            prompt = AssetPromptBuilder.finalPrompt(preset, asset.kind, asset.prompt),
+                            size = AssetPromptBuilder.sizeFor(preset, asset.kind),
+                            negativePrompt = null
                         )
-                    }
+                    )
                 }
             },
             auditAsset = { _ -> Result.success(AuditResult(passed = true)) },
-            generateShots = { script, _ ->
+            generateShots = { _, script, _ ->
                 runCatching {
                     val tp = textModelRouter.resolve(textModelRouter.activeTextModelId())
-                    val r = AiStoryboardDirector.generate(script) { req -> tp.chat(req) }
+                    val r = AiStoryboardDirector.generate(script, chat = { req -> tp.chat(req) })
                     r.shots.map { s -> AiShot(s.shotNo, s.action ?: "", s.dialogue) }
                 }
             },
@@ -104,8 +104,10 @@ object DesktopAppGraph {
                 var n = 0
                 shots.forEach { shot ->
                     val taskId = "rt_${episodeId}_${shot.shotNo}"
-                    renderTasks[taskId] = RenderTaskRow(taskId, episodeId, shot.shotNo, "COMPLETED",
-                        mockClip(episodeId, shot.shotNo))
+                    renderTasks[taskId] = RenderTaskRow(
+                        taskId, episodeId, shot.shotNo, "COMPLETED",
+                        mockClip(episodeId, shot.shotNo)
+                    )
                     n++
                 }
                 // 触发异步真实渲染（agnes 视频）—— 简化：标记 COMPLETED 后由轮询合成
@@ -136,9 +138,12 @@ object DesktopAppGraph {
         val outDir = File(homeDir(), "movies").apply { if (!exists()) mkdirs() }
         val out = File(outDir, "$episodeId.mp4")
         val clips = tasks.mapNotNull { it.localFileUri }.map { File(it) }
-        runCatching { movieAssembler.assemble(clips, out) }.getOrNull()?.let {
+        val res = runCatching { movieAssembler.assemble(clips, out) }.getOrNull()
+        if (res is MovieAssembler.AssembleResult.Success) {
             finishedFilms[episodeId] = out.absolutePath
             out
+        } else {
+            null
         }
     }
 

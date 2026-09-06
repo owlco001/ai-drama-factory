@@ -48,7 +48,7 @@ class DesktopPipelineSmokeTest {
             },
             generateImage = { Result.success("https://img/${it.name}.png") },
             auditAsset = { Result.success(AuditResult(passed = true)) },
-            generateShots = { script, _ ->
+            generateShots = { _, script, _ ->
                 // 桌面冒烟：直接构造镜头，验证 orchestrator 编排框架（解析器在安卓端已验证）
                 Result.success(listOf(
                     AiShot(1, "主角踏入客栈环视", "店家，来壶酒"),
