@@ -4,7 +4,11 @@ import com.dramafactory.app.AppGraph
 import com.dramafactory.app.ui.AssetCatalog
 import com.dramafactory.core.pipeline.DefaultPipelineOrchestrator
 import com.dramafactory.core.pipeline.DefaultRenderQueue
+import com.dramafactory.core.provider.SharedHttp
 import com.dramafactory.core.quality.StoryboardGate
+import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.utils.io.jvm.javaio.toInputStream
 
 /**
  * 渲染队列运行时 —— 按集懒建/复用DefaultRenderQueue实例 + 编排器恢复入口。
@@ -85,6 +89,35 @@ object RenderRuntime {
                 openingFrameProvider = { shotId ->
                     runCatching { AppGraph.dao.shotKeyframes(shotId)?.first_image_uri }.getOrNull()
                 },
+                // v1.9.24 TD-7 修复：资产锁脸三件套此前只在 QueueViewModel 接到 queueFor("default")，
+                // 真实 episode 队列（queueFor(episodeId)）永远拿到空 lambda → 道具 ref 从不注入、跨镜不锁脸。
+                // 现统一在 queueFor 构造期接齐，每个 episode 实例均生效。
+                // 图生视频关键帧（首帧 + 尾帧）
+                shotKeyframeResolver = { shotId ->
+                    AppGraph.dao.shotKeyframes(shotId)?.let { it.first_image_uri to it.last_image_uri }
+                        ?: (null to null)
+                },
+                // 角色/场景资产参考图（i2i 锁脸）：优先本镜 first_asset_ids，空则项目级兜底
+                shotAssetImageResolver = { shotId ->
+                    val epId = shotId.substringBeforeLast("_shot").takeIf { it.contains("_ep") } ?: shotId
+                    val projectId = epId.substringBeforeLast("_ep").ifBlank { epId }
+                    runCatching {
+                        val shot = AppGraph.dao.shotKeyframes(shotId)
+                            ?: AppGraph.dao.shotsOf(epId).firstOrNull { it.shot_id == shotId }
+                        val refIds = AssetCatalog.parseRefIds(shot?.first_asset_ids)
+                        val all = AppGraph.dao.assetsAllOf(projectId)
+                        AssetCatalog.resolveRefUris(all, refIds)
+                            .ifEmpty { AssetCatalog.fallbackUris(all) }
+                    }.getOrDefault(emptyList())
+                },
+                // 视频参考（仅当前模型支持视频参考时返回，否则空）
+                shotReferenceVideoResolver = { shotId ->
+                    val cfg = AppGraph.dao.verifiedConfig("video")
+                    val models = AppGraph.video.listModels()
+                    val supported = (models.firstOrNull { it.id == (cfg?.model ?: "agnes") } ?: models.first())
+                        .supportsVideoReference
+                    if (supported) AppGraph.dao.shotReferenceVideo(shotId) else null
+                },
             )
         }
     }
@@ -126,13 +159,21 @@ object RenderRuntime {
             throw IllegalStateException("无法创建/访问 clip 缓存目录：${dir.absolutePath}")
         }
         val f = java.io.File(dir, "$shotId.mp4")
-        // 简单HTTP流式下载（java.net，无额外依赖）；失败抛异常由队列重试取回
-        val conn = java.net.URL(videoUrl).openConnection() as java.net.HttpURLConnection
-        try {
-            conn.connectTimeout = 15_000; conn.readTimeout = 60_000
-            conn.inputStream.use { input -> f.outputStream().use { out -> input.copyTo(out) } }
-        } finally {
-            conn.disconnect()
+        // TD-3：付费 clip 下载统一走 Ktor SharedHttp（全项目唯一网络栈），获得超时/重试/拦截器与统一日志，
+        // 不再用裸 HttpURLConnection（无超时保护、Android 连接池泄漏与 TLS 历史问题）。
+        // 失败抛异常 → 队列保持 SUBMITTED 仅重试取回，绝不重新提交已付费任务（与架构§5一致）。
+        SharedHttp.client.prepareGet(videoUrl).execute { resp ->
+            if (resp.status.value !in 200..299) {
+                throw IllegalStateException("下载clip失败 http=${resp.status.value} shot=$shotId")
+            }
+            val input = resp.bodyAsChannel().toInputStream()
+            f.outputStream().use { out ->
+                val buf = ByteArray(DEFAULT_BUFFER_SIZE)
+                var read: Int
+                while (input.read(buf).also { read = it } > 0) {
+                    out.write(buf, 0, read)
+                }
+            }
         }
         val size = f.length()
         check(size > 0) { "下载clip为空文件 shot=$shotId" }

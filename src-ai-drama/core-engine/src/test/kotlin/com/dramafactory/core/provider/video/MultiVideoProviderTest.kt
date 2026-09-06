@@ -128,6 +128,7 @@ class MultiVideoProviderTest {
         val api = MockApi()
         api.responder = { HttpStatusCode.OK to """{"code":0}""" }
         assertFailsWith<ProviderError.ReconcileRequired> { kling(api).submitVideo(req()) }
+        Unit // ← 使 runBlocking lambda 返回 Unit，否则 Kotlin 推断为非 void 返回类型，JUnit Jupiter 会静默丢弃该用例（TD-1）
     }
 
     // ==================================================================

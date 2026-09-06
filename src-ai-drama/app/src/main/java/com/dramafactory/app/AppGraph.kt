@@ -587,8 +587,10 @@ object AppGraph {
                             ?: Result.failure(
                                 com.dramafactory.core.model.ProviderError.AuthError("未验证文本模型"))
                     } else {
+                        // TD-5：checkModel 本身是 suspend λ，validate 亦是 suspend；
+                        // 去掉 runBlocking，改为在编排器协程上下文直接 await，消除网络阻塞（原写法会卡线程）。
                         runCatching {
-                            runBlocking { textModelRouter.validate(modelId).getOrThrow() }
+                            textModelRouter.validate(modelId).getOrThrow()
                         }
                     }
                 },
@@ -609,17 +611,18 @@ object AppGraph {
                 },
                 generateImage = { asset ->
                     runCatching {
-                        runBlocking {
-                            // ★F3 修复：用按剧本自动推断的 currentEraKey 取预设，不再写死 "han"
-                            val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
-                            // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
-                            val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
-                                provider = image, kind = asset.kind,
-                                basePrompt = enrichAssetPrompt(asset.kind, asset.prompt), preset = preset)
-                            // 落盘：生成成功回填资产图的 remote_url
-                            runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }
-                            url
-                        }
+                        // TD-5：generateImage 本身是 suspend λ，去掉内层 runBlocking，
+                        // 让 EraDetector.presetFor / AssetImageGenerator.generate（均为 suspend）跑在编排器协程上，
+                        // 避免 LLM 调用阻塞当前线程（ANR 隐患）。
+                        // ★F3 修复：用按剧本自动推断的 currentEraKey 取预设，不再写死 "han"
+                        val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
+                        // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
+                        val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
+                            provider = image, kind = asset.kind,
+                            basePrompt = enrichAssetPrompt(asset.kind, asset.prompt), preset = preset)
+                        // 落盘：生成成功回填资产图的 remote_url
+                        runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }
+                        url
                     }
                 },
                 auditAsset = { asset ->
@@ -676,7 +679,8 @@ object AppGraph {
                         )
                     }
                     val queue = com.dramafactory.app.ui.RenderRuntime.queueFor(episodeId)
-                    runCatching { runBlocking { queue.enqueueEpisode(episodeId, metas) } }
+                    // TD-5：enqueueRender 本身是 suspend λ，去掉 runBlocking，在协程上下文直接 await
+                    runCatching { queue.enqueueEpisode(episodeId, metas) }
                         .map { metas.size }
                 },
                 persistAssets = { episodeId, assets ->

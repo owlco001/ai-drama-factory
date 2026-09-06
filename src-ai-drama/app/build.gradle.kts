@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 94
-        versionName = "1.9.24"  // v1.9.24: 设置页开放 Agnes 视频模型选择（国际站多参 v2.0/2.5/2.5-flash），KeyVault 持久化偏好
+        versionCode = 95
+        versionName = "1.9.25"  // v1.9.25: 技术债清理（TD-1 静默丢弃用例修复、TD-2 非void@Test字节码守卫、TD-3 付费clip下载迁Ktor、TD-5 去除编排runBlocking网络/LLM阻塞、TD-7 资产锁脸resolver接错队列实例修复），pre-push hook 接入 CI 守卫
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
