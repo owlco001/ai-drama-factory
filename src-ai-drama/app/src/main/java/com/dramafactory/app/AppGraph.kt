@@ -1,12 +1,11 @@
 package com.dramafactory.app
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+import com.dramafactory.app.data.BrokenDramaDao
+import com.dramafactory.app.data.BrokenMovieLibraryDao
 import com.dramafactory.app.data.DramaDatabase
 import com.dramafactory.app.data.MovieLibraryDao
 import com.dramafactory.app.data.RoomCheckpointStore
@@ -49,24 +48,6 @@ object AppGraph {
     /** v1.9.1：图像通道按激活视频供应商路由（Agnes 原生 / 其他家退化为 image2video 首帧） */
     val image get() = com.dramafactory.core.provider.ImageProviderRouter.resolve()
 
-    /**
-     * v1.9.1：video URL → 首帧 PNG data URI（供图像通道退化路径用）。
-     * 退化路径仅在「激活非 Agnes 视频供应商且无 Agnes Key」时触发，截帧属兜底能力，
-     * 失败不致命（由调用方按图像生成失败提示用户）。
-     */
-    private suspend fun extractFirstFrameAsDataUri(url: String): String = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(url)
-            val bmp = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
-                ?: throw com.dramafactory.core.model.ProviderError.TransientError("取首帧失败：$url")
-            val out = java.io.ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-            "data:image/png;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-        } finally {
-            runCatching { retriever.release() }
-        }
-    }
     lateinit var budgetGuard: DefaultBudgetGuard; private set
 
     // v1.8.8：自定义模型 override（由 refreshConfiguredProviders 写入），rebuildAgnes() 复用，
@@ -267,7 +248,7 @@ object AppGraph {
      * 不再写死西汉）。generateImage 生成链路一律用 presetFor(currentEraKey) 组装约束。
      * 单活跃 run 假设下用 @Volatile 保证可见性；并发多 run 由上层串行保证。
      */
-    @Volatile private var currentEraKey: String = "han"
+    @Volatile internal var currentEraKey: String = "han"
 
     /** 当前时代红线预设（AI 助手/资产生成共用；由 createEpisode 按剧本推断更新） */
     fun currentPreset(): com.dramafactory.core.quality.StylePreset =
@@ -277,7 +258,7 @@ object AppGraph {
      * v1.9.10：用已接好的文本 LLM 把资产裸名词扩写成聚焦主体、符合时代红线的视觉描述，
      * 供各生图入口统一复用。失败（未配 Key / 401 / 超时）安全回退裸词，不阻断生图。
      */
-    private suspend fun enrichAssetPrompt(kind: String, baseName: String): String {
+    internal suspend fun enrichAssetPrompt(kind: String, baseName: String): String {
         val preset = currentPreset()
         return runCatching {
             com.dramafactory.core.quality.AssetPromptEnricher.enrich(
@@ -338,31 +319,6 @@ object AppGraph {
         }.getOrNull()
     }
     val isInitialized: Boolean get() = initialized
-
-    // ---- 图像下载 / 降采样工具（F2 审计用，与 ViewModels.auditGeneratedAsset 同策略）----
-
-    /** 下载图像为字节数组（data:image 直接 base64 解码；http(s) 走 java.net）。 */
-    private fun fetchImageBytes(url: String): ByteArray? = runCatching {
-        if (url.startsWith("data:image")) {
-            val b64 = url.substringAfter(",")
-            android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-        } else {
-            java.net.URL(url).openStream().use { it.readBytes() }
-        }
-    }.getOrNull()
-
-    /** 降采样到 512px 内 JPEG 并返回 data URI（配合 G2 多模态审计，防 base64 爆上下文）。 */
-    private fun downscaleToDataUri(bytes: ByteArray): String? = runCatching {
-        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
-        val scale = 512.0 / maxOf(bmp.width, bmp.height).coerceAtLeast(1)
-        val w = (bmp.width * scale).toInt().coerceIn(1, 512)
-        val h = (bmp.height * scale).toInt().coerceIn(1, 512)
-        val small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
-        val bos = java.io.ByteArrayOutputStream()
-        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, bos)
-        "data:image/jpeg;base64," + android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
-    }.getOrNull()
-
 
     // ---- AI 助手可调用的内部能力（自然语言 agent 的"手"）----
     // 把 init 里的流水线 lambda 抽成独立方法，供 AiAssistantViewModel 分步/整体驱动
@@ -515,7 +471,7 @@ object AppGraph {
                 videoRouter = VideoProviderRouter,
                 agnesProvider = { agnes },
                 agnesKeyReady = { agnesKeyReady() },
-                frameExtractor = { url -> extractFirstFrameAsDataUri(url) },
+                frameExtractor = { url -> MediaHelpers.extractFirstFrameAsDataUri(url) },
             )
             // v1.7.18：按 provider_configs 里已保存的自定义模型重建 provider（"添加后能用"）。
             // 设置页保存自定义模型只落库 + KeyVault，此前运行时从不读表 → 自定义配置形同虚设。
@@ -550,315 +506,14 @@ object AppGraph {
             }
 
             // T014：AI 全托管编排器 —— 内部用 ioScope 承载 suspend 调用
-            aiOrchestrator = DefaultAiOrchestrator(
-                activeTextModelIdProvider = { textModelRouter.activeTextModelId() },
-                createProject = { name ->
-                    val id = "p_" + System.currentTimeMillis()
-                    dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
-                        project_id = id, name = name,
-                        created_at = System.currentTimeMillis(),
-                    ))
-                    id
-                },
-                createEpisode = { projectId, scriptText ->
-                    val epId = "${projectId}_ep1"
-                    // ★F3 修复：按剧本自动推断时代红线（LLM 优先，规则兜底），替换原写死 "han"。
-                    // 第十三轮 EraDetector 与人工模式（ViewModels:370-374）同策略。
-                    val llmReady = agnesKeyReady()
-                    currentEraKey = runCatching {
-                        com.dramafactory.core.quality.EraDetector.detect(scriptText, llmReady) { req ->
-                            agnes.chat(req)
-                        }
-                    }.getOrElse { com.dramafactory.core.quality.EraDetector.Detection("han", "", false) }.eraKey
-                    val flags = DramaDatabase.Companion.AiStageFlags
-                    val stageFlags =
-                        flags.put(flags.putBool("", flags.AI_MANAGED, true),
-                            flags.PROJECT_ID, projectId)
-                    dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
-                        episode_id = epId, project_id = projectId, ep_no = 1,
-                        script_json = scriptText,
-                        stage_flags = stageFlags,
-                    ))
-                    epId
-                },
-                checkModel = { modelId ->
-                    if (modelId.isBlank()) {
-                        dao.verifiedConfig("text")?.let { Result.success(Unit) }
-                            ?: Result.failure(
-                                com.dramafactory.core.model.ProviderError.AuthError("未验证文本模型"))
-                    } else {
-                        // TD-5：checkModel 本身是 suspend λ，validate 亦是 suspend；
-                        // 去掉 runBlocking，改为在编排器协程上下文直接 await，消除网络阻塞（原写法会卡线程）。
-                        runCatching {
-                            textModelRouter.validate(modelId).getOrThrow()
-                        }
-                    }
-                },
-                extractAssets = { text, _ ->
-                    runCatching {
-                        // 文字模型走用户自选(DeepSeek等)，key 多候选兜底（修 text-agnes 读不到）
-                        val tp = textProviderFor()
-                        val r = com.dramafactory.core.quality.LlmAssetExtractor.extract(text) { req ->
-                            tp.chat(req)
-                        }
-                        r.assets.map { a ->
-                            DefaultAiOrchestrator.AiAsset(
-                                assetId = "a_${System.nanoTime()}",
-                                kind = a.kind, name = a.name, prompt = a.desc,
-                            )
-                        }
-                    }
-                },
-                generateImage = { asset ->
-                    runCatching {
-                        // TD-5：generateImage 本身是 suspend λ，去掉内层 runBlocking，
-                        // 让 EraDetector.presetFor / AssetImageGenerator.generate（均为 suspend）跑在编排器协程上，
-                        // 避免 LLM 调用阻塞当前线程（ANR 隐患）。
-                        // ★F3 修复：用按剧本自动推断的 currentEraKey 取预设，不再写死 "han"
-                        val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
-                        // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
-                        val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
-                            provider = image, kind = asset.kind,
-                            basePrompt = enrichAssetPrompt(asset.kind, asset.prompt), preset = preset)
-                        // 落盘：生成成功回填资产图的 remote_url
-                        runCatching { dao.setAssetRemoteUrl(asset.assetId, url, System.currentTimeMillis()) }
-                        url
-                    }
-                },
-                auditAsset = { asset ->
-                    // ★F2 修复：真实质量审计——调用 AssetAuditor.audit（G1 文件级硬校验 + G2 多模态打分），
-                    // 替换原直接返回 passed=true 的「假通过」（原实现关闭了 PRD F03 两层闸门）。
-                    // 未生成图像/未配置 Key 时不阻断流水线，但明确标注未审计（audit_skipped_*）。
-                    // 注意：λ 返回类型必须是 Result<AuditResult>，故整体包在 runCatching 内；
-                    // 异常会变为 Result.failure，由编排器 AUDIT 阶段按「未过」处理（WARN 标红放行）。
-                    runCatching {
-                        val remoteUrl = runCatching { dao.assetRemoteUrl(asset.assetId) }.getOrNull()
-                        val llmReady = agnesKeyReady()
-                        if (remoteUrl.isNullOrBlank() || !llmReady) {
-                            return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_skipped_no_image_or_key")
-                        }
-                        val bytes = fetchImageBytes(remoteUrl)
-                            ?: return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_image_fetch_failed")
-                        val dataUri = downscaleToDataUri(bytes)
-                            ?: return@runCatching DefaultAiOrchestrator.AuditResult(passed = true, reason = "audit_image_decode_failed")
-                        val describer = com.dramafactory.core.quality.AssetAuditor.agnesDescriber(agnes, "")
-                        val engine = com.dramafactory.app.ui.QualityEngine()
-                        val outcome = engine.auditAsset(
-                            imageBytes = bytes, imageDataUri = dataUri,
-                            description = asset.prompt, assetType = asset.kind,
-                            describer = describer,
-                        )
-                        DefaultAiOrchestrator.AuditResult(
-                            passed = outcome.auditState == com.dramafactory.core.model.AuditState.APPROVED,
-                            score = outcome.qualityScore,
-                            reason = outcome.rejectReason,
-                        )
-                    }
-                },
-                generateShots = { pid, script, _ ->
-                    runCatching {
-                        // 文字模型走用户自选(DeepSeek等)，key 多候选兜底
-                        val tp = textProviderFor()
-                        // 第十五轮：从 DB 拉本项目已抽取/已生成的资产注入 LLM，让分镜用 asset_id 引用
-                        val assets = runCatching { dao.assetsAllOf(pid) }.getOrDefault(emptyList())
-                        // v1.7.17：与 StoryboardViewModel 共用同一套目录构造规则
-                        val catalog = com.dramafactory.app.ui.AssetCatalog.build(assets)
-                        val r = com.dramafactory.core.quality.AiStoryboardDirector.generate(
-                            script, chat = { req -> tp.chat(req) }, assets = catalog)
-                        r.shots.map { s ->
-                            DefaultAiOrchestrator.AiShot(s.shotNo, s.action ?: "", s.dialogue, s.assetIds)
-                        }
-                    }
-                },
-                enqueueRender = { episodeId, shots ->
-                    val metas = shots.map {
-                        com.dramafactory.core.model.ShotMeta(
-                            shotId = "${episodeId}_shot${it.shotNo}",
-                            episodeId = episodeId,
-                            prompt = it.action,
-                        )
-                    }
-                    val queue = com.dramafactory.app.ui.RenderRuntime.queueFor(episodeId)
-                    // TD-5：enqueueRender 本身是 suspend λ，去掉 runBlocking，在协程上下文直接 await
-                    runCatching { queue.enqueueEpisode(episodeId, metas) }
-                        .map { metas.size }
-                },
-                persistAssets = { episodeId, assets ->
-                    val projectId = episodeId.substringBeforeLast("_ep")
-                    for (a in assets) {
-                        runCatching {
-                            dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
-                                asset_id = a.assetId,
-                                project_id = projectId,
-                                kind = a.kind,
-                                prompt = a.name + "：" + a.prompt,
-                                updated_at = System.currentTimeMillis(),
-                            ))
-                        }
-                    }
-                },
-                persistShots = { episodeId, shots ->
-                    for (s in shots) {
-                        runCatching {
-                            dao.upsertShot(com.dramafactory.app.data.ShotEntity(
-                                shot_id = "${episodeId}_shot${s.shotNo}",
-                                episode_id = episodeId,
-                                project_id = episodeId.substringBeforeLast("_ep"),
-                                shot_no = s.shotNo,
-                                action = s.action,
-                                dialogue = s.dialogue,
-                                first_asset_ids = com.dramafactory.app.ui.AssetCatalog.encodeRefIds(s.assetIds),
-                                last_asset_ids = "[]",
-                            ))
-                        }
-                    }
-                },
-                writeCheckpoint = { episodeId, stage, assetCount, shotCount, renderEnqueued, failed ->
-                    val flags = DramaDatabase.Companion.AiStageFlags
-                    var f = dao.episode(episodeId)?.stage_flags ?: "{}"
-                    f = flags.put(f, flags.LAST_SUCCESS_STAGE, stage.name)
-                    f = flags.putInt(f, flags.ASSET_COUNT, assetCount)
-                    f = flags.putInt(f, flags.SHOT_COUNT, shotCount)
-                    f = flags.putBool(f, flags.RENDER_ENQUEUED, renderEnqueued)
-                    failed?.let { f = flags.put(f, flags.FAILED_STAGE, it.name) }
-                    dao.upsertEpisode(dao.episode(episodeId)?.copy(stage_flags = f)
-                        ?: com.dramafactory.app.data.EpisodeEntity(
-                            episode_id = episodeId, project_id = "unknown",
-                            ep_no = 1, stage_flags = f,
-                        ))
-                },
-                readCheckpoint = { episodeId ->
-                    val flags = DramaDatabase.Companion.AiStageFlags
-                    val stageName = flags.getString(
-                        dao.episode(episodeId)?.stage_flags,
-                        flags.LAST_SUCCESS_STAGE)
-                    if (stageName != null) runCatching { PipelineStage5.valueOf(stageName) }.getOrNull()
-                    else null
-                },
-                // ★F4 修复：断点续跑时读回真实剧本（episodes.script_json），替换 DefaultAiOrchestrator 内的 "RETRY_STUB" 占位
-                readScript = { episodeId ->
-                    runCatching { dao.episode(episodeId)?.script_json }.getOrNull().orEmpty()
-                },
-            )
-
+            aiOrchestrator = buildAiOrchestrator()
             initialized = true
         }
     }
 
     /** T014：Room 初始化失败时的空 MovieAssembler 兜底。 */
-    private object EmptyMovieAssembler : MovieAssembler {
-        override val progress: StateFlow<MovieAssembler.MovieAssembleProgress> =
-            MutableStateFlow(MovieAssembler.MovieAssembleProgress(
-                MovieAssembler.AssembleStage.DONE, 0, 0, "empty", 0))
-        override suspend fun assemble(
-            clips: List<File>, output: File,
-            grade: MovieAssembler.ColorGradePreset,
-        ): MovieAssembler.AssembleResult =
-            MovieAssembler.AssembleResult.Failure(
-                MovieAssembler.Strategy.CONCAT_COPY, "ffmpeg-kit 未初始化，请使用云端合成")
-    }
-
     var roomInitError: String? = null; private set
 
-    private class BrokenDramaDao : com.dramafactory.app.data.DramaDao {
-        override suspend fun upsertProject(p: com.dramafactory.app.data.ProjectEntity) {}
-        override suspend fun listProjects(): List<com.dramafactory.app.data.ProjectEntity> = emptyList()
-        override suspend fun project(id: String): com.dramafactory.app.data.ProjectEntity? = null
-        override suspend fun deleteProject(id: String) {}
-        override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) {}
-        override suspend fun assetsOf(projectId: String, kind: String): List<com.dramafactory.app.data.AssetEntity> = emptyList()
-        override suspend fun assetsAllOf(projectId: String): List<com.dramafactory.app.data.AssetEntity> = emptyList()
-        override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) {}
-        override suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long) {}
-        override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) {}
-        override suspend fun updateAssetPrompt(assetId: String, prompt: String, updatedAt: Long) {}
-        override suspend fun setAssetRemoteUrl(assetId: String, remoteUrl: String, updatedAt: Long) {}
-        override suspend fun setAssetEnrichedPrompt(assetId: String, enrichedPrompt: String?, updatedAt: Long) {}
-        override suspend fun assetRemoteUrl(assetId: String): String? = null
-        override suspend fun deleteAsset(assetId: String) {}
-        override suspend fun assetQuality(assetId: String): com.dramafactory.app.data.AssetQualityRow? = null
-        override suspend fun assetQualities(projectId: String): List<com.dramafactory.app.data.AssetQualityRow> = emptyList()
-        override suspend fun setEpisodeAllowedCrossEra(episodeId: String, allowed: String) {}
-        override suspend fun episodeAllowedCrossEra(episodeId: String): String? = null
-        override suspend fun setReviewState(assetId: String, state: String) {}
-        override suspend fun upsertShot(s: com.dramafactory.app.data.ShotEntity) {}
-        override suspend fun shotsOf(episodeId: String): List<com.dramafactory.app.data.ShotEntity> = emptyList()
-        override suspend fun deleteShotsOf(episodeId: String) {}
-        override suspend fun deleteShot(shotId: String) {}
-        override suspend fun deleteRenderTask(shotId: String) {}
-        override suspend fun deleteRenderTasksOf(episodeId: String) {}
-        override suspend fun renderStatesOf(episodeId: String): List<com.dramafactory.app.data.RenderStateRow> = emptyList()
-        override suspend fun setShotKeyframes(shotId: String, first: String?, last: String?) {}
-        override suspend fun setShotReferenceVideo(shotId: String, uri: String?) {}
-        override suspend fun shotKeyframes(shotId: String): com.dramafactory.app.data.ShotEntity? = null
-        override suspend fun shotReferenceVideo(shotId: String): String? = null
-        override suspend fun upsertRenderTask(t: com.dramafactory.app.data.RenderTaskEntity) {}
-        override suspend fun renderTasksOf(ep: String): List<com.dramafactory.app.data.RenderTaskEntity> = emptyList()
-        override suspend fun renderTask(shotId: String): com.dramafactory.app.data.RenderTaskEntity? = null
-        override suspend fun renderTasksOfShot(shotId: String): List<com.dramafactory.app.data.RenderTaskEntity> = emptyList()
-        override suspend fun allEpisodeIds(): List<String> = emptyList()
-        override suspend fun renderTasksOfEpOrdered(ep: String): List<com.dramafactory.app.data.RenderTaskEntity> = emptyList()
-        override suspend fun pendingRepoll(ep: String): List<com.dramafactory.app.data.RenderTaskEntity> = emptyList()
-        override suspend fun upsertProviderConfig(c: com.dramafactory.app.data.ProviderConfigEntity) {}
-        override suspend fun verifiedConfig(channel: String): com.dramafactory.app.data.ProviderConfigEntity? = null
-        override suspend fun upsertEpisode(e: com.dramafactory.app.data.EpisodeEntity) {}
-        override suspend fun episode(id: String): com.dramafactory.app.data.EpisodeEntity? = null
-        override suspend fun episodesOf(projectId: String): List<com.dramafactory.app.data.EpisodeEntity> = emptyList()
-    }
-
-    private class BrokenMovieLibraryDao : MovieLibraryDao {
-        override suspend fun upsertFilmOf(film: com.dramafactory.app.data.FinishedFilmEntity): Long = 0L
-        override suspend fun deleteFilmOf(episodeId: String): Int = 0
-        override suspend fun deleteFilm(film: com.dramafactory.app.data.FinishedFilmEntity): Int = 0
-        override suspend fun finishedFilmsOf(projectId: String): List<com.dramafactory.app.data.FinishedFilmEntity> = emptyList()
-        override suspend fun finishedFilmOf(episodeId: String): com.dramafactory.app.data.FinishedFilmEntity? = null
-        override suspend fun assembledEpisodeIds(projectId: String): List<String> = emptyList()
-        override suspend fun allFilms(): List<com.dramafactory.app.data.FinishedFilmEntity> = emptyList()
-    }
-
-    object CrashLog {
-        private fun crashFile(app: android.content.Context): File =
-            File(File(app.filesDir, "crash"), "last_crash.txt")
-
-        private fun writeCrash(app: android.content.Context, header: String, throwable: Throwable) {
-            try {
-                val stack = android.util.Log.getStackTraceString(throwable)
-                crashFile(app).apply { parentFile?.mkdirs() }.writeText(
-                    buildString {
-                        appendLine("time=${System.currentTimeMillis()}")
-                        appendLine(header)
-                        appendLine(stack)
-                    })
-                // 同时写一份到应用专属外部目录，便于用文件管理器/adb 取出（无需 root）。
-                // 原实现用 Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)：
-                // 该 API 自 API 29 废弃，且在分区存储（targetSdk≥30）下不可写，外面还套了 runCatching
-                // —— 于是在 Android 11+ 上「静默写不出去」，崩溃日志永远拿不到。改用应用专属目录。
-                runCatching {
-                    val dir = app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-                    val ext = java.io.File(dir, "ai-drama-crash.log")
-                    ext.writeText("time=${System.currentTimeMillis()}\n$header\n$stack\n\n")
-                }
-            } catch (_: Throwable) {}
-        }
-
-        fun installCrashLogger(context: Context) {
-            val app = context.applicationContext
-            val previous = Thread.getDefaultUncaughtExceptionHandler()
-            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-                writeCrash(app, "thread=${thread.name}", throwable)
-                previous?.uncaughtException(thread, throwable)
-            }
-        }
-
-        fun record(context: Context, tag: String, throwable: Throwable) {
-            writeCrash(context.applicationContext, "tag=$tag", throwable)
-            android.util.Log.e(tag, throwable.message ?: throwable.javaClass.simpleName, throwable)
-        }
-
-        fun lastCrashLog(context: Context): String? =
-            runCatching { crashFile(context.applicationContext) }
-                .getOrNull()?.takeIf { it.exists() }?.readText()
-    }
 }
 
 // ---- 文本 Provider 解析（文件级纯函数，便于 JVM 单测，不触发 object AppGraph 的 init）----

@@ -356,7 +356,7 @@ class AiPipelineViewModel : ViewModel() {
         viewModelScope.launch(kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
             // 协程未捕获异常兜底：写崩溃日志 + 显示，绝不杀进程
             android.util.Log.e("DramaAI", "launchPipeline crashed", e)
-            com.dramafactory.app.AppGraph.CrashLog.record(
+            com.dramafactory.app.CrashLog.record(
                 com.dramafactory.app.AppGraph.appContext() ?: return@CoroutineExceptionHandler, "launchPipeline", e)
             statusMsg = statusErr("运行异常：" + (e.message ?: e.javaClass.simpleName))
             isRunning = false

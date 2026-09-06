@@ -22,7 +22,7 @@ class DramaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        AppGraph.CrashLog.installCrashLogger(this)
+        com.dramafactory.app.CrashLog.installCrashLogger(this)
         runCatching { AppGraph.init(this) }
             .onFailure { android.util.Log.e("DramaApplication", "AppGraph.init failed", it) }
         // 队列协程作用域接线（DefaultRenderQueue worker在此scope内运行）

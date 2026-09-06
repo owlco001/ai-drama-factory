@@ -214,7 +214,7 @@ fun AssetsPage(
             if (kind == CaptureKind.IMAGE) cameraImageLauncher.launch(u) else cameraVideoLauncher.launch(u)
         } catch (t: Throwable) {
             pendingCaptureUri = null
-            AppGraph.CrashLog.record(ctx, "AssetsPage.camera", t)   // 复用 files/crash/last_crash.txt 机制
+            com.dramafactory.app.CrashLog.record(ctx, "AssetsPage.camera", t)   // 复用 files/crash/last_crash.txt 机制
             captureError = "无法启动相机：${t.message ?: t.javaClass.simpleName}"
         }
     }
@@ -238,7 +238,7 @@ fun AssetsPage(
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             runCatching { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }
                 .onFailure {
-                    AppGraph.CrashLog.record(ctx, "AssetsPage.permission", it)
+                    com.dramafactory.app.CrashLog.record(ctx, "AssetsPage.permission", it)
                     captureError = "无法请求相机权限：${it.message ?: it.javaClass.simpleName}"
                 }
         } else {

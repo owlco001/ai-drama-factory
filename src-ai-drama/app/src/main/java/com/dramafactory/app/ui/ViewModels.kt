@@ -765,7 +765,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         // 这里统一兜住：记 CrashLog + 把失败转成用户可见提示。
         kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
             android.util.Log.e("AssetsVM", "extractFromScript crashed", e)
-            runCatching { AppGraph.CrashLog.record(AppGraph.appContext() ?: return@CoroutineExceptionHandler, "extractFromScript", e) }
+            runCatching { com.dramafactory.app.CrashLog.record(AppGraph.appContext() ?: return@CoroutineExceptionHandler, "extractFromScript", e) }
             _extractMessage.value = "提取失败：" + (e.message ?: e.javaClass.simpleName)
         },
     ) {
