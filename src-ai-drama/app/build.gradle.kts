@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 96
-        versionName = "1.9.26"  // v1.9.26: TD-4 AppGraph 上帝对象拆分（911→564 行）——抽出 CrashLog/MediaHelpers/BrokenDaos/EmptyMovieAssembler/AiOrchestratorFactory 独立模块，init 退化为组合根，对外 API 与行为不变
+        versionCode = 98
+        versionName = "1.9.28"  // v1.9.28: Agnes 2.5 官方协议对齐 + ImgBB 图床公网URL转换（修 400 forbidden field + 参考媒体访问）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
