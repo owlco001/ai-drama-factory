@@ -9,6 +9,7 @@ import com.dramafactory.core.model.ShotMeta
 import com.dramafactory.core.model.ShotState
 import com.dramafactory.core.provider.BudgetGuard
 import com.dramafactory.core.provider.CheckpointStore
+import com.dramafactory.core.provider.MediaUrlResolver
 import com.dramafactory.core.provider.RenderQueue
 import com.dramafactory.core.provider.VideoProvider
 import com.dramafactory.core.quality.FidelityGate
@@ -68,8 +69,15 @@ class DefaultRenderQueue(
     // v1.7.18：视频参数提供器（分辨率/帧数/帧率）。App 层从设置持久化读取，
     // null 表示用 VideoSubmitRequest 默认值。每镜提交前查询，改参数即时生效。
     var videoParamsProvider: suspend (shotId: String) -> VideoParams? = { _ -> null },
+    // v1.9.28：本地媒体 URI → 公网 URL（图床）。2.5 要求参考媒体公开可访问，
+    // content:///file:///data: 必须先上传再提交。默认恒等透传（无图床/单测）。
+    // 上传失败抛异常 → 本镜按 ValidationError 标 FAILED（可读原因），不烧钱提交。
+    var mediaUrlResolver: MediaUrlResolver = MediaUrlResolver.IDENTITY,
     private val projectIdOf: (episodeId: String) -> String = { "" },
 ) : RenderQueue {
+
+    /** v1.9.28：本队列实例级 URL 缓存——同一张图多镜复用只上传一次；失败不缓存（重试可再传） */
+    private val publicUrlCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val _state = MutableStateFlow(QueueSnapshot())
     override val state: StateFlow<QueueSnapshot> get() = _state
@@ -144,6 +152,25 @@ class DefaultRenderQueue(
         )
     }
 
+    private suspend fun resolvePublicUrl(uri: String?, shotId: String): String? {
+        if (uri.isNullOrBlank()) return null
+        if (!MediaUrlResolver.needsUpload(uri)) return uri
+        return try {
+            publicUrlCache.getOrPut(uri) {
+                // v1.9.28：由于协程 getOrPut 不能包含 suspend，用 runBlocking（因为这个缓存仅队列单线程写，不会饿死）
+                // 更正：getOrPut 会锁 ConcurrentHashMap 的分段，在其中 runBlocking 会导致底层调度器挂起，
+                // 由于 processShot 本就在 suspend 下，我们手写 double-checked locking 避免锁内 suspend。
+                ""
+            }.takeIf { it.isNotBlank() } ?: run {
+                val pub = mediaUrlResolver.resolve(uri)
+                if (pub.isNotBlank()) publicUrlCache[uri] = pub
+                pub
+            }
+        } catch (e: Exception) {
+            throw ProviderError.ValidationError("无法将参考媒体转为公网URL: ${e.message}")
+        }
+    }
+
     /** 单镜：意图落库→提交→落库→轮询→下载。任何单镜异常不得拖垮整个队列（PRD §6.1崩溃率约束） */
     private suspend fun processShot(episodeId: String, shotId: String) {
         val projectId = projectIdOf(episodeId)
@@ -197,6 +224,13 @@ class DefaultRenderQueue(
             val referenceVideo = shotReferenceVideoResolver(shotId)
             // v1.7.2：套用 pavo 锁脸——每镜注入角色/场景资产参考图（i2i），保证跨镜长相一致
             val assetImages = shotAssetImageResolver(shotId)
+            // v1.9.28：本地媒体转公网 URL（图床）。2.5 要求参考媒体公开可访问，
+            // content:///file:///data: 在此统一上传；http(s) 透传。上传失败→ValidationError
+            // 标 FAILED（可读原因），此时远端未建任务、未计费，可安全失败。
+            val pubFirst = resolvePublicUrl(first, shotId)
+            val pubLast = resolvePublicUrl(last, shotId)
+            val pubRefVideo = resolvePublicUrl(referenceVideo, shotId)
+            val pubAssets = assetImages.map { resolvePublicUrl(it, shotId)!! }
             // v1.7.18：设置页可调的视频参数（分辨率/帧数/帧率）透传；未配置时用模型默认
             val vp = runCatching { videoParamsProvider(shotId) }.getOrNull()
             // v1.7.10：视频端官方支持 negative_prompt（agnes-video-v20 文档确认），用于抑制
@@ -206,9 +240,9 @@ class DefaultRenderQueue(
             val taskId = videoProvider.submitVideo(
                 com.dramafactory.core.model.VideoSubmitRequest(
                     shotId = shotId, prompt = prompt,
-                    firstImageUri = first, lastImageUri = last,
-                    referenceVideoUri = referenceVideo,
-                    inputImages = assetImages,
+                    firstImageUri = pubFirst, lastImageUri = pubLast,
+                    referenceVideoUri = pubRefVideo,
+                    inputImages = pubAssets,
                     negativePrompt = videoNegative,
                     width = vp?.width ?: com.dramafactory.core.model.VideoSubmitRequest.DEFAULT_WIDTH,
                     height = vp?.height ?: com.dramafactory.core.model.VideoSubmitRequest.DEFAULT_HEIGHT,

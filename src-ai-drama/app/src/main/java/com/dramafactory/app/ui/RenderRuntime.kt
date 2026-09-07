@@ -118,6 +118,9 @@ object RenderRuntime {
                         .supportsVideoReference
                     if (supported) AppGraph.dao.shotReferenceVideo(shotId) else null
                 },
+                // v1.9.28：图床上传器（Android 侧实现：content:// 等复制到 App 内部 uploads 目录并走图床 API）
+                // 暂时用占位，如果配置了图床服务则上传，否则透传让远端 400（由 ValidationError 捕获）
+                mediaUrlResolver = { uri -> AppGraph.uploadImageToCloud(uri) },
             )
         }
     }

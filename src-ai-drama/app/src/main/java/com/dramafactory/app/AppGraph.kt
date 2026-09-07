@@ -423,6 +423,16 @@ object AppGraph {
 
     private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
+    /**
+     * v1.9.28: 临时空图床实现（供 RenderQueue 使用）。
+     * 后续若配置真实 OSS/S3 客户端则在此接线。当前遇到需要图床的本地媒体先抛异常。
+     */
+    suspend fun uploadImageToCloud(uri: String): String {
+        if (!com.dramafactory.core.provider.MediaUrlResolver.needsUpload(uri)) return uri
+        // 如果是 Agnes 测试或未配图床，先抛出以便走 FAILED
+        throw IllegalStateException("未配置图床，无法上传本地媒体（$uri）至公网URL")
+    }
+
     fun init(context: Context) {
         if (initialized) return
         synchronized(this) {
