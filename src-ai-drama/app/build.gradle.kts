@@ -18,6 +18,7 @@ android {
         versionName = "1.9.26"  // v1.9.26: TD-4 AppGraph 上帝对象拆分（911→564 行）——抽出 CrashLog/MediaHelpers/BrokenDaos/EmptyMovieAssembler/AiOrchestratorFactory 独立模块，init 退化为组合根，对外 API 与行为不变
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "IMGBB_API_KEY", "\"6f000a100f89f943d5c885d32015b683\"")
     }
     buildFeatures {
         compose = true

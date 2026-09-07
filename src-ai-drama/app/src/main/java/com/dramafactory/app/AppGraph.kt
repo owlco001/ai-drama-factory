@@ -30,6 +30,16 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import android.net.Uri
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 
 object AppGraph {
 
@@ -424,13 +434,49 @@ object AppGraph {
     private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     /**
-     * v1.9.28: 临时空图床实现（供 RenderQueue 使用）。
-     * 后续若配置真实 OSS/S3 客户端则在此接线。当前遇到需要图床的本地媒体先抛异常。
+     * v1.9.28: 真实 ImgBB 图床上传实现（供 RenderQueue 使用）。
+     * 将本地 content:///file:///data: 媒体上传到 ImgBB 换取公网 URL，满足 Agnes 2.5 要求。
      */
     suspend fun uploadImageToCloud(uri: String): String {
         if (!com.dramafactory.core.provider.MediaUrlResolver.needsUpload(uri)) return uri
-        // 如果是 Agnes 测试或未配图床，先抛出以便走 FAILED
-        throw IllegalStateException("未配置图床，无法上传本地媒体（$uri）至公网URL")
+        
+        val bytes = withContext(Dispatchers.IO) {
+            runCatching {
+                if (uri.startsWith("data:image")) {
+                    val b64 = uri.substringAfter(",")
+                    android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                } else {
+                    appContext()?.contentResolver?.openInputStream(Uri.parse(uri))?.use { it.readBytes() }
+                        ?: throw IllegalStateException("openInputStream returned null")
+                }
+            }.getOrElse { throw IllegalStateException("读取本地媒体失败($uri): ${it.message}") }
+        }
+        
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val apiKey = BuildConfig.IMGBB_API_KEY
+                val response = com.dramafactory.core.provider.SharedHttp.client.post("https://api.imgbb.com/1/upload?key=\$apiKey") {
+                    setBody(MultiPartFormDataContent(
+                        formData {
+                            append("image", bytes, Headers.build {
+                                append(HttpHeaders.ContentDisposition, "filename=\"upload.jpg\"")
+                            })
+                        }
+                    ))
+                }.bodyAsText()
+                
+                val root = Json.parseToJsonElement(response).jsonObject
+                if (root["success"]?.jsonPrimitive?.contentOrNull == "true") {
+                    root["data"]?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull
+                        ?: throw IllegalStateException("ImgBB 返回成功但无 URL")
+                } else {
+                    throw IllegalStateException("ImgBB 上传失败: ${root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull}")
+                }
+            }.getOrElse { 
+                Log.e("AppGraph", "ImgBB upload failed", it)
+                throw IllegalStateException("上传图床失败: ${it.message}") 
+            }
+        }
     }
 
     fun init(context: Context) {
