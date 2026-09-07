@@ -454,7 +454,9 @@ object AppGraph {
         
         return withContext(Dispatchers.IO) {
             runCatching {
-                val apiKey = BuildConfig.IMGBB_API_KEY
+                val apiKey = keyVault.readSync("imgbb_api_key").takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("ImgBB API Key 未配置（请在设置页「ImgBB 图床」填写）")
+                
                 val response = com.dramafactory.core.provider.SharedHttp.client.post("https://api.imgbb.com/1/upload?key=\$apiKey") {
                     setBody(MultiPartFormDataContent(
                         formData {

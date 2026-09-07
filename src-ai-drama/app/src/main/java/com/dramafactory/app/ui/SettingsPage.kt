@@ -1,6 +1,7 @@
 package com.dramafactory.app.ui
 import com.dramafactory.core.provider.AgnesRegion
 import com.dramafactory.core.provider.DefaultTextModelRouter
+import com.dramafactory.app.AppGraph
 
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
@@ -243,6 +244,39 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                     color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 Text("提示：建议先「测试连通」再保存；Key失效时渲染会自动暂停并回到本页。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+        }
+
+        // ---- v1.9.28：ImgBB 图床（视频参考媒体转公网 URL 用，Agnes 2.5 要求）----
+        DramaCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ImgBB 图床", style = MaterialTheme.typography.titleMedium)
+                Text("Agnes Video 2.5 要求参考图/参考视频是公开 URL。此处配置 ImgBB API Key，渲染时会先把本地相册媒体上传换取公网地址。图片参考仅需。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                var imgbbKey by remember { mutableStateOf("") }
+                var imgbbMasked by remember { mutableStateOf<String?>(null) }
+                var imgbbSaved by remember { mutableStateOf(false) }
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    imgbbMasked = runCatching {
+                        val k = AppGraph.keyVault.readSync("imgbb_api_key")
+                        if (k.isBlank()) null else if (k.length <= 6) "***" else k.take(3) + "***" + k.takeLast(3)
+                    }.getOrNull()
+                }
+                imgbbMasked?.let { Text("已保存：$it", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary) }
+                OutlinedTextField(value = imgbbKey, onValueChange = { imgbbKey = it },
+                    label = { Text(if (imgbbMasked == null) "输入 ImgBB API Key（可选）" else "输入新Key以更换") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = {
+                    runCatching { AppGraph.keyVault.writeSync("imgbb_api_key", imgbbKey.trim()) }
+                        .onSuccess { imgbbSaved = true; imgbbMasked =
+                            if (imgbbKey.trim().length <= 6) "***" else imgbbKey.trim().take(3) + "***" + imgbbKey.trim().takeLast(3); imgbbKey = "" }
+                        .onFailure { imgbbSaved = false }
+                }, enabled = imgbbKey.isNotBlank()) {
+                    Text("保存图床Key")
+                }
+                if (imgbbSaved) Text("已保存（加密存储）", color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
 
