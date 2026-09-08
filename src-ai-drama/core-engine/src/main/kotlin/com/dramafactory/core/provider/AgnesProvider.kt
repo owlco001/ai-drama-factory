@@ -16,12 +16,16 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -621,6 +625,84 @@ class AgnesProvider(
             ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content
             ?: throw ProviderError.ValidationError("unexpected chat response: ${out.toString().take(400)}")
         return ChatResponse(content, out.toString())
+    }
+
+    // ------------------------------------------------------------------
+    // TextProvider.streamChat —— OpenAI 兼容 SSE 流式（T002：打字机展示）
+    // body 加 stream:true；逐行读 "data: {...}"，解析 choices[0].delta.content，
+    // "data: [DONE]" 结束。错误分类对齐 postJson（429/401/400/422 直抛）。
+    // ------------------------------------------------------------------
+    override fun streamChat(req: ChatRequest): Flow<String> = flow {
+        val body = buildJsonObject {
+            val officialDir = setOf(MODEL_TEXT, MODEL_TEXT_MID, MODEL_TEXT_LIGHT)
+            val requested = req.model.trim()
+            val model = when {
+                baseUrlOverride != null -> requested.ifEmpty { pickTextModel(req) }
+                requested.isEmpty() || requested !in officialDir -> pickTextModel(req)
+                else -> requested
+            }
+            put("model", model)
+            put("messages", buildJsonArray {
+                req.messages.forEach { m ->
+                    if (m.imageUrl != null) {
+                        add(buildJsonObject {
+                            put("role", m.role)
+                            put("content", buildJsonArray {
+                                add(buildJsonObject { put("type", "text"); put("text", m.content) })
+                                add(buildJsonObject {
+                                    put("type", "image_url")
+                                    put("image_url", buildJsonObject { put("url", m.imageUrl) })
+                                })
+                            })
+                        })
+                    } else {
+                        add(buildJsonObject { put("role", m.role); put("content", m.content) })
+                    }
+                }
+            })
+            put("temperature", req.temperature)
+            put("stream", true)
+            req.maxTokens?.let { put("max_tokens", it) }
+            if (!req.enableThinking) {
+                put("chat_template_kwargs", buildJsonObject { put("enable_thinking", false) })
+            }
+        }
+        val resp = client.post("$effectiveBaseUrl/chat/completions") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${currentApiKey()}")
+            setBody(body.toString())
+        }
+        when {
+            resp.status.value == 429 -> throw ProviderError.QuotaError("429 Too Many Requests (stream)")
+            resp.status.value == 401 -> throw ProviderError.AuthError("401 Unauthorized (stream)")
+            resp.status.value == 400 || resp.status.value == 422 ->
+                throw ProviderError.ValidationError("${resp.status.value} (stream): ${resp.snip()}")
+            resp.status.value != 200 -> throw ProviderError.TransientError("HTTP ${resp.status.value} (stream)")
+            else -> { /* 200：逐行读 SSE */ }
+        }
+        val channel = resp.bodyAsChannel()
+        var buffer = ""
+        while (!channel.isClosedForRead) {
+            val packet = channel.readRemaining(64 * 1024)
+            buffer += packet.readText()
+            var nl: Int
+            while (buffer.indexOf('\n').also { nl = it } >= 0) {
+                val line = buffer.substring(0, nl).removeSuffix("\r")
+                buffer = buffer.substring(nl + 1)
+                val data = line.removePrefix("data:").trim()
+                if (data.isBlank()) continue
+                if (data == "[DONE]") return@flow
+                val delta = runCatching {
+                    json.parseToJsonElement(data).jsonObject["choices"]
+                        ?.jsonArray?.firstOrNull()?.jsonObject
+                        ?.get("delta")?.jsonObject
+                        ?.get("content")?.jsonPrimitive?.contentOrNull
+                }.getOrNull() ?: continue
+                if (delta.isNotEmpty()) emit(delta)
+            }
+        }
+        // 收尾：无 chunk 也 emit 空串，保证调用方拿到完整流终止信号
+        emit("")
     }
 
     // ------------------------------------------------------------------

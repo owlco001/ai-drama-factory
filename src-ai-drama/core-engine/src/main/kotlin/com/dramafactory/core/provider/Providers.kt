@@ -8,7 +8,9 @@ import com.dramafactory.core.model.ImageGenRequest
 import com.dramafactory.core.model.ModelSpec
 import com.dramafactory.core.model.PollResult
 import com.dramafactory.core.model.VideoSubmitRequest
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 
 /**
  * 供应商三通道核心接口 —— 严格按架构文档§3签名。
@@ -34,6 +36,18 @@ interface VideoProvider {
 interface TextProvider {
     val id: String
     suspend fun chat(req: ChatRequest): ChatResponse      // enable_thinking=false 约定
+
+    /**
+     * 流式对话（T002：AI 助手边生成边展示）。
+     *
+     * 默认实现 = 退化为一次 `chat(req)` 并整体 emit，保证未实现流式的老 mock /
+     * 简化 Provider 零改动即可编译运行。支持流式的 Provider（Agnes/DeepSeek）覆盖为真 SSE 流。
+     *
+     * 每次调用必须 emit 完整内容（含空串）后再正常结束，调用方据此收尾。
+     */
+    fun streamChat(req: ChatRequest): Flow<String> = flow {
+        emit(chat(req).content)
+    }
 }
 
 /** 图像通道：6pose包 / 场景 / 道具母图 / i2i合成 */

@@ -76,7 +76,8 @@ object AiStoryboardDirector {
     private const val DIRECTOR_PROMPT = """你是短剧摄影导演。为每个镜头写一条中文视觉指令（visual字段）。
 只输出严格 JSON：{"visuals":[{"shot_no":1,"visual":"景别+运镜+构图，20-40字"}]}
 要求：只描述机位语言（如"近景缓推，人物居左，背景纵深虚化"）；严禁出现光线、色调、天气、氛围词汇；不要重复画面内容。
-asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色长相/场景/道具），visual_prompt 描述应与资产描述一致（如"近景缓推张角道长"而非"近景缓推一古装男子"）。"""
+asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色长相/场景/道具），visual_prompt 描述应与资产描述一致（如"近景缓推张角道长"而非"近景缓推一古装男子"）。
+跨镜连贯：必须继承上一镜的 carry_over、角色/场景资产与动作结果，禁止无因果跳转；通过 beat_ref 控制因果顺序与节奏。"""
 
     /**
      * 编剧+导演两段式生成。
@@ -130,6 +131,8 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
 
         // —— 忠实性粗校验：台词逐字必须在剧本原文中出现（引号边界内）——
         val gateErrors = mutableMapOf<Int, List<String>>()
+        StoryCoherence.validate(shots, assets.map { it.id }.toSet()).groupBy { it.shotNo }
+            .forEach { (shotNo, issues) -> gateErrors[shotNo] = issues.map { it.code } }
         for (s in shots) {
             val errs = mutableListOf<String>()
             s.dialogue?.let { d ->

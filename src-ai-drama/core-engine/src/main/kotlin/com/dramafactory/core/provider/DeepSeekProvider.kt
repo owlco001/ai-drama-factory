@@ -10,14 +10,19 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -179,5 +184,74 @@ class DeepSeekProvider(
             ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.content
             ?: throw ProviderError.ValidationError("unexpected chat response: ${out.toString().take(400)}")
         return ChatResponse(content, out.toString())
+    }
+
+    // ------------------------------------------------------------------
+    // TextProvider.streamChat —— OpenAI SSE 流式（T002：AI 助手打字机展示）
+    // ------------------------------------------------------------------
+    override fun streamChat(req: ChatRequest): Flow<String> = flow {
+        val body = buildJsonObject {
+            put("model", MODEL)
+            put("messages", buildJsonArray {
+                req.messages.forEach { m ->
+                    if (m.imageUrl != null) {
+                        add(buildJsonObject {
+                            put("role", m.role)
+                            put("content", buildJsonArray {
+                                add(buildJsonObject { put("type", "text"); put("text", m.content) })
+                                add(buildJsonObject {
+                                    put("type", "image_url")
+                                    put("image_url", buildJsonObject { put("url", m.imageUrl) })
+                                })
+                            })
+                        })
+                    } else {
+                        add(buildJsonObject { put("role", m.role); put("content", m.content) })
+                    }
+                }
+            })
+            put("temperature", req.temperature)
+            put("stream", true)
+            req.maxTokens?.let { put("max_tokens", it) }
+            put("chat_template_kwargs", buildJsonObject { put("enable_thinking", false) })
+        }
+        val resp = client.post("$BASE_URL/chat/completions") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer ${apiKeyProvider()}")
+            setBody(body.toString())
+        }
+        when {
+            resp.status.value == 429 -> throw ProviderError.QuotaError("429 Too Many Requests")
+            resp.status.value == 401 -> throw ProviderError.AuthError("401 Unauthorized")
+            resp.status.value == 400 || resp.status.value == 422 ->
+                throw ProviderError.ValidationError("${resp.status.value}: ${resp.bodyAsText().take(400)}")
+            resp.status.value != 200 -> throw ProviderError.TransientError("HTTP ${resp.status.value}")
+            else -> { /* 200：继续读 SSE */ }
+        }
+        val channel = resp.bodyAsChannel()
+        var buffer = ""
+        while (!channel.isClosedForRead) {
+            val packet = channel.readRemaining(64 * 1024)
+            buffer += packet.readText()
+            // 按行切分（SSE 以 \n 分隔 event；兼容 \r\n 回车残留）
+            var nl: Int
+            while (buffer.indexOf('\n').also { nl = it } >= 0) {
+                val line = buffer.substring(0, nl).removeSuffix("\r")
+                buffer = buffer.substring(nl + 1)
+                val data = line.removePrefix("data:").trim()
+                if (data.isBlank()) continue
+                if (data == "[DONE]") return@flow
+                // OpenAI 兼容格式：choices[0].delta.content
+                val delta = runCatching {
+                    (json.parseToJsonElement(data) as? JsonObject)?.get("choices")
+                        ?.jsonArray?.firstOrNull()?.jsonObject
+                        ?.get("delta")?.jsonObject
+                        ?.get("content")?.jsonPrimitive?.contentOrNull
+                }.getOrNull() ?: continue
+                if (delta.isNotEmpty()) emit(delta)
+            }
+        }
+        // 收尾：即使无 chunk 也要 emit 空串，让调用方正常收尾
+        emit("")
     }
 }

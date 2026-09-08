@@ -38,9 +38,12 @@ import com.dramafactory.core.model.ProviderError
 import com.dramafactory.core.orchestrate.AiAgent
 import com.dramafactory.core.orchestrate.ActionIntent
 import com.dramafactory.core.orchestrate.DialogueTurn
+import com.dramafactory.core.orchestrate.StreamChunk
+import com.dramafactory.core.orchestrate.StreamingAssistant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -58,6 +61,10 @@ import kotlinx.coroutines.withContext
 class AiAssistantViewModel : ViewModel() {
     private val _history = MutableStateFlow<List<DialogueTurn>>(emptyList())
     val history: StateFlow<List<DialogueTurn>> = _history
+    private val _streamingText = MutableStateFlow("")
+    val streamingText: StateFlow<String> = _streamingText
+    private val _actionCards = MutableStateFlow<List<String>>(emptyList())
+    val actionCards: StateFlow<List<String>> = _actionCards
 
     var isThinking by mutableStateOf(false)
         private set
@@ -424,7 +431,44 @@ class AiAssistantViewModel : ViewModel() {
         }
     }
 
-    /** 用户自然语言发一句话 */
+    /** 流式发送：逐段更新气泡，并把 App 动作结果放入卡片流。 */
+    fun sendStreamingMessage(text: String) {
+        if (text.isBlank() || isThinking) return
+        viewModelScope.launch {
+            isThinking = true
+            _streamingText.value = ""
+            _actionCards.value = emptyList()
+            if (!AppGraph.hasAnyTextKey()) {
+                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 还没配置文本模型 Key，请先到设置页配置。")
+                isThinking = false
+                return@launch
+            }
+            if (agent == null) ensureAgent()
+            val a = agent
+            if (a == null) {
+                _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ 智能体初始化失败，请检查文本模型 Key。")
+                isThinking = false
+                return@launch
+            }
+            val streaming = StreamingAssistant(AppGraph.textProviderFor(), "")
+            runCatching {
+                streaming.sayStreaming(text).collect { chunk ->
+                    when (chunk) {
+                        is StreamChunk.TextDelta -> _streamingText.value += chunk.text
+                        is StreamChunk.ActionComplete -> _actionCards.value = _actionCards.value + "${chunk.module}：${chunk.result}"
+                        is StreamChunk.Done -> {
+                            _history.value = _history.value + DialogueTurn(DialogueTurn.Side.USER, text.trim()) +
+                                DialogueTurn(DialogueTurn.Side.AI, chunk.fullText)
+                            _streamingText.value = ""
+                        }
+                    }
+                }
+            }.onFailure { _history.value = _history.value + DialogueTurn(DialogueTurn.Side.AI, "⚠️ AI 暂时没有响应，请稍后再试。") }
+            isThinking = false
+        }
+    }
+
+    /** 用户自然语言发一句话（兼容旧非流式调用） */
     fun sendUserMessage(text: String) {
         if (text.isBlank() || isThinking) return
         viewModelScope.launch {
@@ -587,7 +631,11 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         // v1.6.3 修对话闪退：之前 items 没传 key，_history.value 整体替换后
                         // LazyColumn 不知道每个 item 的稳定标识，触发原生 crash（用户消息+AI回复序列重组时）。
                         itemsIndexed(vm.history.value, key = { i, _ -> i }) { _, turn -> ChatBubbleLocal(turn) }
-                        if (vm.isThinking) item("thinking") { ThinkingBubbleLocal() }
+                        if (vm.streamingText.value.isNotBlank()) {
+                            item("streaming") { StreamingBubbleLocal(vm.streamingText.value) }
+                        }
+                        items(vm.actionCards.value, key = { "action-$it" }) { card -> ActionCardLocal(card) }
+                        if (vm.isThinking && vm.streamingText.value.isBlank()) item("thinking") { ThinkingBubbleLocal() }
                     }
                     var input by remember { mutableStateOf("") }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -598,10 +646,32 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = 120.dp),
                             shape = MaterialTheme.shapes.medium,
                         )
-                        Button(onClick = { if (input.isNotBlank()) { vm.sendUserMessage(input); input = "" } }) { Text("发送") }
+                        Button(onClick = { if (input.isNotBlank()) { vm.sendStreamingMessage(input); input = "" } }) { Text("发送") }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun StreamingBubbleLocal(text: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = BubbleAiShape) {
+            Text(text + "▌", Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun ActionCardLocal(text: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(0.92f),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.CheckCircle, contentDescription = "模块完成", modifier = Modifier.size(20.dp))
+            Text(text, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
