@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 98
-        versionName = "1.9.28"  // v1.9.28: Agnes 2.5 官方协议对齐 + ImgBB 图床公网URL转换（修 400 forbidden field + 参考媒体访问）
+        versionCode = 99
+        versionName = "1.9.29"  // v1.9.29: 分镜/故事连贯性 + AI助手流式多轮对话与模块结果展示
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
