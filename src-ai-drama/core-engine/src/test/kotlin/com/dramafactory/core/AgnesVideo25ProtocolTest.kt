@@ -5,6 +5,7 @@
 // 尺寸=size档位+aspect_ratio，时长=seconds 字符串，媒体字段顶层；width/height/fps/num_frames 一律 400。
 package com.dramafactory.core
 
+import com.dramafactory.core.model.ProviderError
 import com.dramafactory.core.model.VideoSubmitRequest
 import com.dramafactory.core.pipeline.DefaultRateGate
 import com.dramafactory.core.provider.AgnesProvider
@@ -22,14 +23,18 @@ class AgnesVideo25ProtocolTest {
         var count = 0
         var lastBody: String = ""
         var lastPath: String = ""
+        var responder: (Int) -> Pair<HttpStatusCode, String> = { n ->
+            HttpStatusCode.OK to if (lastPath.contains("agnesapi"))
+                """{"status":"completed","metadata":{"url":"https://cdn/v.mp4"}}"""
+            else """{"video_id":"vid-$n","status":"queued"}"""
+        }
         fun client(): HttpClient = HttpClient(MockEngine { req ->
             count++
             lastPath = req.url.encodedPath + req.url.encodedQuery
             lastBody = (req.body as? io.ktor.http.content.OutgoingContent.ByteArrayContent)
                 ?.bytes()?.decodeToString() ?: ""
-            val resp = if (lastPath.contains("agnesapi")) """{"status":"completed","metadata":{"url":"https://cdn/v.mp4"}}"""
-                       else """{"video_id":"vid-$count","status":"queued"}"""
-            respond(resp, HttpStatusCode.OK, headersOf("Content-Type" to listOf("application/json")))
+            val (status, body) = responder(count)
+            respond(body, status, headersOf("Content-Type" to listOf("application/json")))
         })
     }
 
@@ -37,6 +42,22 @@ class AgnesVideo25ProtocolTest {
         rateGate = DefaultRateGate(0) {}, apiKeyProvider = { "sk-t" },
         client = api.client(), sleeper = {}, videoModelOverride = model,
     )
+
+    @Test
+    fun `model_not_found即使HTTP503也不重试并明确分类`() = runBlocking {
+        val api = MockApi().apply {
+            responder = { HttpStatusCode.ServiceUnavailable to """{"error":"model_not_found: No available channel for model agnes-video-2.5"}""" }
+        }
+        val sleeps = mutableListOf<Long>()
+        val error = assertFailsWith<ProviderError.ValidationError> {
+            AgnesProvider(
+                rateGate = DefaultRateGate(0) {}, apiKeyProvider = { "sk-t" },
+                client = api.client(), sleeper = { sleeps += it }, videoModelOverride = "agnes-video-2.5",
+            ).submitVideo(VideoSubmitRequest(shotId = "s1", prompt = "x"))
+        }
+        assertTrue(error.message.orEmpty().contains("视频模型不可用"), error.message)
+        assertEquals(1, api.count, "模型不可用不是瞬时故障，不应重复请求")
+    }
 
     @Test
     fun `25 reference模式 禁width字段 images顶层 mode必填`() = runBlocking {

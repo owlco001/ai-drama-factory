@@ -283,7 +283,12 @@ class AgnesProvider(
                     resp.status.value == 400 || resp.status.value == 422 ->
                         throw ProviderError.ValidationError("${resp.status.value}: ${resp.snip()}")
                     resp.isRetryable() -> {
-                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} retryable: ${resp.snip()}", retryable = true)
+                        val body = resp.snip()
+                        if (body.contains("model_not_found", ignoreCase = true) ||
+                            body.contains("No available channel", ignoreCase = true)) {
+                            throw ProviderError.ValidationError("${resp.status.value}: 视频模型不可用，请在设置中更换模型或渠道：$body")
+                        }
+                        lastErr = ProviderError.TransientError("HTTP ${resp.status.value} retryable: $body", retryable = true)
                         sleeper(backoff); backoff *= 2
                         continue
                     }

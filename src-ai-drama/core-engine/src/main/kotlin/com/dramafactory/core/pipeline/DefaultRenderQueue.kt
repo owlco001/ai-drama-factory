@@ -263,7 +263,7 @@ class DefaultRenderQueue(
             // 意图已落库：恢复后走RECONCILE/SUBMITTED路径对账或重提前先核实
             pause("auth_401")
         } catch (e: ProviderError.ValidationError) {
-            // 本地参数校验/明确400/422：远端未创建任务、未计费，可安全标FAILED
+            // 明确的模型不存在/渠道不可用：远端未创建任务，直接失败并提示换模型。
             runCatching { checkpointStore.markFailed(shotId, e.message ?: "validation") }
         } catch (e: ProviderError.ReconcileRequired) {
             // P0-1：响应已计费但video_id缺失/响应体异常——落库原始响应待对账，绝不静默重提

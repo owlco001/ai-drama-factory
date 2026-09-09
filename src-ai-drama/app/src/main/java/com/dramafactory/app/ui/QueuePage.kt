@@ -212,7 +212,7 @@ fun QueuePage(
                                 // v1.9.13：FAILED/BLOCKED/RECONCILE 直接展示原因，省去抓 logcat
                                 val reason = st.shotReasons[shotId]
                                 if (!reason.isNullOrBlank() && stateName in listOf("FAILED", "BLOCKED", "RECONCILE")) {
-                                    Text(reason, style = MaterialTheme.typography.bodySmall,
+                                    Text(renderErrorLabel(reason), style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.padding(top = 2.dp))
                                 }
@@ -357,6 +357,22 @@ internal fun shotStateLabel(s: String) = when (s) {
     "BLOCKED" -> "已放弃"
     "RECONCILE" -> "待对账"
     else -> s
+}
+
+/** 将服务端/供应商错误翻译成用户可执行的提示，避免暴露内部重试堆栈。 */
+internal fun renderErrorLabel(raw: String): String {
+    val s = raw.trim()
+    if (s.contains("model_not_found", ignoreCase = true) ||
+        s.contains("No available channel", ignoreCase = true)) {
+        val model = Regex("model\\s+([A-Za-z0-9_.-]+)", RegexOption.IGNORE_CASE)
+            .find(s)?.groupValues?.getOrNull(1)
+        return if (model != null) "视频模型不可用（$model）：请到设置更换模型或渠道"
+        else "视频模型不可用：请到设置更换模型或渠道"
+    }
+    if (s.contains("giving up", ignoreCase = true) && s.contains("503")) {
+        return "视频服务暂时繁忙：请稍后重试"
+    }
+    return s
 }
 
 /** 状态机图标（与 shotStateColor 同一套语义色，替代 emoji 前缀） */

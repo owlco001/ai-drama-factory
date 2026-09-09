@@ -129,7 +129,12 @@ abstract class BaseVideoProvider(
             resp.status.value == 400 || resp.status.value == 422 ->
                 throw ProviderError.ValidationError("${resp.status.value}: ${resp.snip()}")
             resp.status.value in intArrayOf(408, 500, 502, 503, 504, 520, 522, 524) -> {
-                throw ProviderError.TransientError("HTTP ${resp.status.value} retryable: ${resp.snip()}", retryable = true)
+                val body = resp.snip()
+                if (body.contains("model_not_found", ignoreCase = true) ||
+                    body.contains("No available channel", ignoreCase = true)) {
+                    throw ProviderError.ValidationError("${resp.status.value}: 视频模型不可用，请在设置中更换模型或渠道：$body")
+                }
+                throw ProviderError.TransientError("HTTP ${resp.status.value} retryable: $body", retryable = true)
             }
             else -> throw ProviderError.TransientError("HTTP ${resp.status.value}: ${resp.snip()}")
         }
