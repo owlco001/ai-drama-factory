@@ -29,10 +29,11 @@ class SettingsViewModel : ViewModel() {
     )
     val state: StateFlow<SettingsLogic.UiState> get() = logic.state
 
-    /** v1.9.24：Agnes 视频模型列表（id,label），供设置页多选器使用（国际站多参 v2.0/2.5/2.5-flash） */
+    /** v1.9.24：Agnes 视频模型列表（含自动选型） */
     val agncsVideoModels: List<Pair<String, String>> get() =
-        AppGraph.agnes.listModels().filter { it.id.startsWith("agnes-video") }
-            .map { it.id to it.label }
+        listOf(AppGraph.AUTO_VIDEO_MODEL to "智能选择（按参考图/视频参数自动匹配）") +
+            AppGraph.agnes.listModels().filter { it.id.startsWith("agnes-video") }
+                .map { it.id to it.label }
 
     init {
         refresh()

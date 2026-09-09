@@ -48,6 +48,7 @@ object AppGraph {
     const val CONFIG_IMAGE = "agnes-image"
     /** v1.9.24：Agnes 视频模型偏好（v2.0/2.5/2.5-flash），独立存 KeyVault，避免污染 provider_configs 表的 key 字段 */
     const val CONFIG_VIDEO_MODEL = "agnes-video-model-pref"
+    const val AUTO_VIDEO_MODEL = "auto"
 
     lateinit var keyVault: KeyVault; private set
     lateinit var checkpointStore: CheckpointStore; private set
@@ -84,8 +85,9 @@ object AppGraph {
                     .orEmpty()
             },
             baseUrlOverride = agnesBaseUrlOverride,
-            videoModelOverride = agnesVideoModelOverride,
+            videoModelOverride = agnesVideoModelOverride?.takeUnless { it == AUTO_VIDEO_MODEL },
             imageModelOverride = agnesImageModelOverride,
+            autoSelectVideoModel = agnesVideoModelOverride == null || agnesVideoModelOverride == AUTO_VIDEO_MODEL,
             region = region,
         )
     }

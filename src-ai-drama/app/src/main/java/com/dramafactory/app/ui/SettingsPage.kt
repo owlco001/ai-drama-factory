@@ -154,12 +154,13 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
         // ---- v1.9.24：Agnes 视频模型选择器（国际站多参：v2.0 / 2.5 / 2.5-flash）----
         if (st.selectedProviderId == "agnes") {
             val agncsModels = vm.agncsVideoModels
-            val currentVideoModel = st.selectedVideoModel ?: com.dramafactory.core.provider.AgnesProvider.MODEL_VIDEO
+            val currentVideoModel = st.selectedVideoModel ?: AppGraph.AUTO_VIDEO_MODEL
             DramaCard(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Agnes 视频模型（多参）", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "当前：${if (currentVideoModel == com.dramafactory.core.provider.AgnesProvider.MODEL_VIDEO) "v2.0（默认）" else currentVideoModel}",
+                        if (currentVideoModel == AppGraph.AUTO_VIDEO_MODEL) "当前：智能选择"
+                        else "当前：$currentVideoModel",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                     agncsModels.forEach { (id, label) ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -173,7 +174,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                         }
                     }
                     Text(
-                        "切换后下次渲染立即生效。2.5 系列走多参考图模式（国际站可用，最多5张），v2.0 走数组关键帧模式。",
+                        "自动模式：纯文生或最多5张参考图用 2.5 Flash；超过5张图片或带参考视频自动切 2.5；中国站自动回退 v2.0。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
             }

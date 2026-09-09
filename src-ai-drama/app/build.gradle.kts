@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 100
-        versionName = "1.9.30"  // v1.9.30: 分镜连贯性自动修复与失败原因可见化
+        versionCode = 101
+        versionName = "1.9.31"  // v1.9.31：Agnes 视频模型智能选型与模型错误分类
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

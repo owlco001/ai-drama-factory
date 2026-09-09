@@ -44,6 +44,16 @@ class AgnesVideo25ProtocolTest {
     )
 
     @Test
+    fun `智能选型_纯文生与五张以内参考图用Flash_多图或视频参考用25`() {
+        assertEquals("agnes-video-2.5-flash", AgnesProvider.pickVideoModel("", imageCount = 0, hasReferenceVideo = false, region = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL))
+        assertEquals("agnes-video-2.5-flash", AgnesProvider.pickVideoModel("", imageCount = 5, hasReferenceVideo = false, region = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL))
+        assertEquals("agnes-video-2.5", AgnesProvider.pickVideoModel("", imageCount = 6, hasReferenceVideo = false, region = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL))
+        assertEquals("agnes-video-2.5", AgnesProvider.pickVideoModel("", imageCount = 1, hasReferenceVideo = true, region = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL))
+        assertEquals("agnes-video-v2.0", AgnesProvider.pickVideoModel("", imageCount = 8, hasReferenceVideo = true, region = com.dramafactory.core.provider.AgnesRegion.CHINA))
+        assertEquals("agnes-video-2.5", AgnesProvider.pickVideoModel("agnes-video-2.5", imageCount = 0, hasReferenceVideo = false, region = com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL))
+    }
+
+    @Test
     fun `model_not_found即使HTTP503也不重试并明确分类`() = runBlocking {
         val api = MockApi().apply {
             responder = { HttpStatusCode.ServiceUnavailable to """{"error":"model_not_found: No available channel for model agnes-video-2.5"}""" }

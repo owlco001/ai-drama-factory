@@ -45,7 +45,10 @@ data class VideoSubmitRequest(
     // ---- v1.7.2：角色/场景资产参考图注入（套用 pavo 锁脸逻辑：每镜 i2i 绑定角色参考图，保证跨镜长相一致）----
     /** 多图 i2i 参考图（角色主锚图/场景图），非空即注入视频生成的 image 数组，使角色长相跨镜一致 */
     val inputImages: List<String> = emptyList(),
+    /** 请求级模型选择：用于自动模式在每次提交前确定实际模型，并在返回 task id 时带上模型名。 */
+    val modelId: String? = null,
 ) {
+
     companion object {
         /** 9:16 竖屏默认（对齐短片竖屏目标） */
         const val DEFAULT_WIDTH = 448

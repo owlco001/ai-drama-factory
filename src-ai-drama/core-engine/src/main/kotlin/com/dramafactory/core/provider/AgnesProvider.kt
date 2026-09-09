@@ -73,6 +73,8 @@ class AgnesProvider(
     private val baseUrlOverride: String? = null,
     /** 自定义视频模型 id，覆盖默认 agnes-video-v2.0 */
     private val videoModelOverride: String? = null,
+    /** 自动选型不固定模型；true 时每次根据输入参数选择可用模型 */
+    private val autoSelectVideoModel: Boolean = false,
     /** 自定义图像模型 id，覆盖默认 agnes-image-2.1-flash */
     private val imageModelOverride: String? = null,
     /** v1.8.8：服务站点。CHINA 时全部网关走中国站（覆盖 baseUrlOverride 之外的官方端点） */
@@ -87,7 +89,7 @@ class AgnesProvider(
     }
     /** 测试可见：当前生效的网关 base（便于校验 region / 自定义 override 解析） */
     internal val resolvedBaseUrl: String get() = effectiveBaseUrl
-    private val effectiveVideoModel: String get() = videoModelOverride?.trim()?.takeIf { it.isNotBlank() } ?: MODEL_VIDEO
+    private val effectiveVideoModel: String get() = videoModelOverride?.trim()?.takeIf { it.isNotBlank() && it != "auto" } ?: MODEL_VIDEO
     private val effectiveImageModel: String get() = imageModelOverride?.trim()?.takeIf { it.isNotBlank() } ?: MODEL_IMAGE
 
     /** P1-1：验证期间的候选Key通道（null=用常规apiKeyProvider） */
@@ -138,6 +140,25 @@ class AgnesProvider(
         }
         const val MODEL_IMAGE = "agnes-image-2.1-flash"
         const val MODEL_VIDEO = "agnes-video-v2.0"
+
+        /**
+         * 按实际输入复杂度自动选择 Agnes 视频模型。
+         * 空偏好=自动：纯文生/最多5张图片优先 Flash；超过5张图片或带参考视频切 2.5。
+         * 中国站当前不暴露 2.5，自动模式退回 v2.0；用户明确指定模型时尊重指定值。
+         */
+        fun pickVideoModel(
+            preferredModel: String?,
+            imageCount: Int,
+            hasReferenceVideo: Boolean,
+            region: AgnesRegion,
+        ): String {
+            val preferred = preferredModel?.trim().orEmpty()
+            if (preferred.isNotBlank() && preferred != "auto") return preferred
+            if (region == AgnesRegion.CHINA) return MODEL_VIDEO
+            return if (hasReferenceVideo || imageCount > 5) "agnes-video-2.5" else "agnes-video-2.5-flash"
+        }
+
+
         const val MAX_NUM_FRAMES = 441
         const val NUM_FRAMES_MOD = 8      // 必须 8n+1
         const val DIMENSION_MULTIPLE = 64 // 宽高必须64的倍数
@@ -374,10 +395,10 @@ class AgnesProvider(
             AgnesRegion.CHINA -> listOf(
                 MODEL_VIDEO to "Agnes 视频 v2.0（国内站，常403）",
             )
-            else -> listOf(
-                MODEL_VIDEO to "Agnes 视频 v2.0",
-                "agnes-video-2.5" to "Agnes 视频 2.5（多参考图锁定）",
-                "agnes-video-2.5-flash" to "Agnes 视频 2.5 Flash（5s 720p）",
+            AgnesRegion.INTERNATIONAL -> listOf(
+                MODEL_VIDEO to "Agnes 视频 v2.0（旧协议）",
+                "agnes-video-2.5" to "Agnes 视频 2.5（多参数/最多8图+1视频）",
+                "agnes-video-2.5-flash" to "Agnes 视频 2.5 Flash（快速/最多5图/仅720P）",
             )
         }
         return videoModels.map { (id, label) ->
@@ -386,13 +407,24 @@ class AgnesProvider(
             ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
             ModelSpec(MODEL_TEXT_MID, "Agnes 文本 2.0 Flash"),
             ModelSpec(MODEL_TEXT_LIGHT, "Agnes 文本 1.5 Flash"),
-            ModelSpec(effectiveImageModel, if (imageModelOverride != null) "自定义图像 ${effectiveImageModel}" else "Agnes 图像 2.1 Flash"),
+            ModelSpec(MODEL_IMAGE, "Agnes 图像 2.1 Flash"),
         )
     }
 
     override suspend fun submitVideo(req: VideoSubmitRequest): String {
         // ① 先过120s限速门再干活（首发免等）
         rateGate.awaitSlot()
+
+        // v1.9.31：自动选型。用户未固定模型时，根据本镜实际参考参数选择协议：
+        // 纯文生/≤5张图片→2.5 Flash；>5张图片或参考视频→2.5；中国站→v2.0。
+        val modelId = req.modelId?.trim()?.takeIf { it.isNotBlank() }
+        val effectiveVideoModel = if (modelId != null) modelId else if (autoSelectVideoModel) pickVideoModel(
+            preferredModel = videoModelOverride,
+            imageCount = (req.inputImages + listOfNotNull(req.firstImageUri, req.lastImageUri, req.referenceImageUri))
+                .distinct().size,
+            hasReferenceVideo = req.referenceVideoUri != null,
+            region = region,
+        ) else (videoModelOverride?.trim()?.takeIf { it.isNotBlank() && it != "auto" } ?: MODEL_VIDEO)
 
         // v1.9.16：地域×模型前置校验（省远程 422/403 浪费）
         // cn 站没有 2.5 模型 id（填了直接 422 模型不存在），也不建议跑 v2.0（大量账号 403）
@@ -438,18 +470,26 @@ class AgnesProvider(
                         val kept = refMedia.take(maxRefs)
                         put("images", buildJsonArray { kept.forEach { add(JsonPrimitive(it)) } })
                         // 仅 2.5 支持参考视频（flash 传入 400 videos is not supported）
-                        req.referenceVideoUri?.takeIf { !effectiveVideoModel.contains("flash", true) }?.let { v ->
+                        req.referenceVideoUri?.let { v ->
                             put("videos", buildJsonArray {
                                 add(buildJsonObject { put("url", v); put("require_audio", false) })
                             })
                         }
-                        println("AgnesProvider submitVideo[2.5] reference mode: media=${kept.size}/${refMedia.size}")
+                        println("AgnesProvider submitVideo[2.5] reference mode: media=${kept.size}/${refMedia.size} video=${req.referenceVideoUri != null}")
                     }
                     req.firstImageUri != null || req.lastImageUri != null -> {
                         put("prompt", prompt)
                         put("mode", "keyframe")
                         req.firstImageUri?.let { put("first_frame", it) }
                         req.lastImageUri?.let { put("last_frame", it) }
+                    }
+                    req.referenceVideoUri != null -> {
+                        val v = req.referenceVideoUri
+                        put("prompt", prompt)
+                        put("mode", "reference")
+                        put("videos", buildJsonArray {
+                            add(buildJsonObject { put("url", v); put("require_audio", false) })
+                        })
                     }
                     else -> {
                         put("prompt", prompt)
@@ -523,7 +563,8 @@ class AgnesProvider(
                         msg = "2xx but missing video_id; remote task may be billed — reconcile required",
                     )
                 // 返回providerTaskId；调用方拿到后【立即】落库submitted态
-                return videoId
+                // 仅自动/请求级选型需要把实际模型随任务保存，旧固定模型保持原 task id 兼容。
+                return if (autoSelectVideoModel || modelId != null) "$videoId|$effectiveVideoModel" else videoId
             } catch (e: ProviderError.QuotaError) {
                 if (attempt == SUBMIT_MAX_ATTEMPTS - 1) throw e
                 sleeper(backoff); backoff = minOf(backoff * 2, SUBMIT_BACKOFF_CAP_MS)
@@ -537,13 +578,15 @@ class AgnesProvider(
     }
 
     override suspend fun pollResult(providerTaskId: String): PollResult {
+        val (taskId, taskModel) = providerTaskId.split("|", limit = 2).let { it.first() to it.getOrNull(1) }
+        val modelForPoll = taskModel?.takeIf { it.isNotBlank() } ?: effectiveVideoModel
         // 自定义供应商走 OpenAI 兼容惯例 GET {base}/videos/{id}；Agnes 走官方推荐端点
         // v1.9.27：官方推荐所有模式带 model_name 查询（keyframe/reference 模式不带会查不到任务）
-        val modelNameParam = if (baseUrlOverride == null) "&model_name=$effectiveVideoModel" else ""
+        val modelNameParam = if (baseUrlOverride == null) "&model_name=$modelForPoll" else ""
         val out = when {
-            baseUrlOverride != null -> getJson("$effectiveBaseUrl/videos/$providerTaskId")
-            region == AgnesRegion.CHINA -> getJson("$VIDEO_RESULT_URL_CN?video_id=$providerTaskId$modelNameParam")
-            else -> getJson("$VIDEO_RESULT_URL?video_id=$providerTaskId$modelNameParam")
+            baseUrlOverride != null -> getJson("$effectiveBaseUrl/videos/$taskId")
+            region == AgnesRegion.CHINA -> getJson("$VIDEO_RESULT_URL_CN?video_id=$taskId$modelNameParam")
+            else -> getJson("$VIDEO_RESULT_URL?video_id=$taskId$modelNameParam")
         }
         val status = out["status"]?.jsonPrimitive?.content ?: "unknown"
         return when (status) {
