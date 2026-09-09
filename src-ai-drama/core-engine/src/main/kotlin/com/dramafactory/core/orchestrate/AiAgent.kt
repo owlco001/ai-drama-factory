@@ -55,7 +55,8 @@ class AiAgent(
         append("  提取资产 → [ACT] extract_assets\n")
         append("  改主角 → [ACT] edit_asset | assetId=a_主角 | prompt=穿红衣的少女\n")
         append("  生成分镜 → [ACT] gen_shots\n")
-        append("  跑完整流程 → [ACT] run_pipeline\n")
+        append("  测试短剧 → [ACT] test_drama | name=测试雪夜 | script=大雪夜，镖师护送秘匣……\n")
+
         append("  打开资产页 → [ACT] goto | page=assets\n\n")
         append("【重要规矩】\n")
         append("1) 操作资产前先 [ACT] list_assets 拿到真实 assetId，不要编造 id；拿不准就问用户要资产名。\n")
@@ -65,6 +66,8 @@ class AiAgent(
         append("5) 每次回复控制在一两段内，口语自然，像真人搭档而不是客服；动手的事用 [ACT] 表达，别在正文里写机器指令。\n")
         append("6) 用户问「进度/到哪了/好了没」→ 先发 [ACT] render_status 拿真实进度再回答，不要凭感觉编。\n")
         append("7) 渲染卡住/失败时，先 [ACT] render_status 看状态，再决定 pause/resume 或请用户去「渲染」标签页处理。\n")
+        append("8) 用户说「测试短剧/试做一下/先跑个测试」时，默认使用临时测试项目：先创建带“测试-”前缀的项目和第1集，把测试剧本落盘后再执行；测试结束保留项目和全部中间结果，明确告诉用户项目名称，用户可继续查看/删除。\n")
+
         if (currentProjectHint != null) {
             append("\n【当前项目上下文】你现在操作的项目 id 是：$currentProjectHint。用户说的「这个项目/本项目」都指它。")
         }

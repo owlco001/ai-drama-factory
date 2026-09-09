@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 99
-        versionName = "1.9.29"  // v1.9.29: 分镜/故事连贯性 + AI助手流式多轮对话与模块结果展示
+        versionCode = 100
+        versionName = "1.9.30"  // v1.9.30: 分镜连贯性自动修复与失败原因可见化
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

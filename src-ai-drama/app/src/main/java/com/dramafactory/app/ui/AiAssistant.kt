@@ -89,6 +89,7 @@ class AiAssistantViewModel : ViewModel() {
         // 丢弃旧 agent（其 scriptDraft/_history/_messages 都是 mutable 内部状态，无 reset 接口，
         // 直接置空，下次 say 时 ensureAgent 重建干净实例）
         agent = null
+        streamingAssistant = null
         _history.value = listOf(
             DialogueTurn(
                 DialogueTurn.Side.AI,
@@ -103,6 +104,7 @@ class AiAssistantViewModel : ViewModel() {
 
     private var agent: AiAgent? = null
     private var _building = false
+    private var streamingAssistant: StreamingAssistant? = null
 
     /**
      * v1.9.2：AI 助手内直接切换文本模型（面板头部下拉）。
@@ -115,6 +117,7 @@ class AiAssistantViewModel : ViewModel() {
         val r = runCatching { AppGraph.textModelRouter.setActiveTextModel(providerId) }
         if (r.isSuccess) {
             agent = null   // 旧 agent 绑定旧 provider/model，置空后 ensureAgent 按新激活重建
+            streamingAssistant = null
             _history.value = _history.value + DialogueTurn(
                 DialogueTurn.Side.AI,
                 "已切换文本模型：${entry?.label ?: providerId}。下一条消息起由它接管。")
@@ -194,6 +197,32 @@ class AiAssistantViewModel : ViewModel() {
                 currentProjectId = id
                 currentEpisodeId = "${id}_ep1"
                 "已切换到项目：$id"
+            }
+            "test_drama" -> {
+                val name = act.param("name")?.trim().takeUnless { it.isNullOrBlank() } ?: "测试短剧"
+                val script = act.param("script")?.trim().takeUnless { it.isNullOrBlank() }
+                    ?: return "（测试短剧需要 script=剧本文本；请把测试内容一起发给我）"
+                val id = withContext(Dispatchers.IO) {
+                    val pid = "p_test_${System.currentTimeMillis()}"
+                    dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
+                        project_id = pid, name = if (name.startsWith("测试")) name else "测试-$name",
+                        created_at = System.currentTimeMillis()))
+                    val eid = "${pid}_ep1"
+                    dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
+                        episode_id = eid, project_id = pid, ep_no = 1, script_json = script.take(100_000)))
+                    pid to eid
+                }
+                currentProjectId = id.first
+                currentEpisodeId = id.second
+                onNotice("测试项目已创建并已保存剧本，开始测试流水线…")
+                val res = AppGraph.runFullPipeline(script) { onNotice("· $it") }
+                if (res.isSuccess) {
+                    currentProjectId = res.getOrNull()?.projectId ?: id.first
+                    currentEpisodeId = res.getOrNull()?.episodeId ?: id.second
+                    "测试短剧已完成：项目「$name」（${currentProjectId}），项目和剧本已实时保存，可继续查看或删除"
+                } else {
+                    "测试项目已保存：${id.first}；流水线未完成，可到「渲染」查看失败原因后继续"
+                }
             }
             // ===== 资产 =====
             "extract_assets" -> {
@@ -450,7 +479,10 @@ class AiAssistantViewModel : ViewModel() {
                 isThinking = false
                 return@launch
             }
-            val streaming = StreamingAssistant(AppGraph.textProviderFor(), "")
+            val streaming = streamingAssistant ?: StreamingAssistant(
+                AppGraph.textProviderFor(), "",
+                actionHandler = { act -> handleAction(act) },
+            ).also { streamingAssistant = it }
             runCatching {
                 streaming.sayStreaming(text).collect { chunk ->
                     when (chunk) {
