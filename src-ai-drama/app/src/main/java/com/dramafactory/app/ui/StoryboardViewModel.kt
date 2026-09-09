@@ -108,9 +108,16 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         }
 
         // 落库：清旧镜 → 写新镜（assetIds 落 first_asset_ids JSON 数组，渲染时据此拉图入锁脸）
-        withContext(Dispatchers.IO) { runCatching { AppGraph.dao.deleteShotsOf(episodeId) } }
+        val deleteError = withContext(Dispatchers.IO) {
+            runCatching { AppGraph.dao.deleteShotsOf(episodeId) }.exceptionOrNull()
+        }
+        if (deleteError != null) {
+            _state.value = _state.value.copy(generating = false,
+                message = "清理旧分镜失败，已停止保存新结果：${deleteError.message ?: deleteError.javaClass.simpleName}")
+            return@launch
+        }
         for (s in result.shots) {
-            withContext(Dispatchers.IO) {
+            val saveError = withContext(Dispatchers.IO) {
                 runCatching { AppGraph.dao.upsertShot(com.dramafactory.app.data.ShotEntity(
                     shot_id = "${episodeId}_shot${s.shotNo}",
                     episode_id = episodeId, project_id = projectId, shot_no = s.shotNo,
@@ -122,7 +129,12 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
                     visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
                     sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
                                else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}",
-                )) }
+                )) }.exceptionOrNull()
+            }
+            if (saveError != null) {
+                _state.value = _state.value.copy(generating = false,
+                    message = "分镜已生成但保存第${s.shotNo}镜失败：${saveError.message ?: saveError.javaClass.simpleName}")
+                return@launch
             }
         }
         refresh()

@@ -55,13 +55,36 @@ class AiStoryboardDirectorTest {
     }
 
     @Test
+    fun parseShots_承接字段可解析() {
+        val json = """{"shots":[{"shot_no":2,"action":"推门进入堂屋","carry_over":"女刺客从庭院进入堂屋，视线锁定密函"}]}"""
+        val shot = AiStoryboardDirector.parseShots(json).first.single()
+        assertEquals("女刺客从庭院进入堂屋，视线锁定密函", shot.carryOver)
+    }
+
+    @Test
     fun 台词逐字校验() {
         val script = "林晚冷声道：「留下吧。」陈默停住了脚步。"
         assertTrue(AiStoryboardDirector.verbatimIn("留下吧", script))
         assertTrue(!AiStoryboardDirector.verbatimIn("留下来", script), "改写台词应判不逐字")
     }
 
-    // 第十五轮：catalog 注入 + asset_ids 校验
+    @Test
+    fun generate_连贯性错误会定向修复并保留其他镜头() = kotlinx.coroutines.runBlocking {
+        val responses = ArrayDeque(listOf(
+            com.dramafactory.core.model.ChatResponse(
+                """{"shots":[{"shot_no":1,"action":"翻墙入院","duration_seconds":6},{"shot_no":2,"action":"密函静置","duration_seconds":5}]}""", ""),
+            com.dramafactory.core.model.ChatResponse(
+                """{"shots":[{"shot_no":2,"action":"推门进入堂屋，目光锁定密函","duration_seconds":5,"carry_over":"女刺客从庭院进入堂屋，视线锁定密函"}]}""", ""),
+            com.dramafactory.core.model.ChatResponse("""{"visuals":[]}""", "")
+        ))
+        val result = AiStoryboardDirector.generate("女刺客翻墙后进入堂屋查看密函", chat = {
+            responses.removeFirst()
+        })
+        assertEquals("推门进入堂屋，目光锁定密函", result.shots[1].action)
+        assertTrue(result.gateErrors.isEmpty())
+    }
+
+
     @Test
     fun parseShots_assetIds仅保留catalog内的() {
         val catalog = listOf(

@@ -107,16 +107,24 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
             val p = parseShots(resp.content, assets)
             if (p.first.isEmpty()) null else p
         }
-        val shots = parsed?.first ?: return Result(emptyList(), usedLlm = false, gateErrors = emptyMap(),
+        var shots = parsed?.first ?: return Result(emptyList(), usedLlm = false, gateErrors = emptyMap(),
             refStats = RefStats(assets.size, 0, 0))
         val refStats = parsed.second
+
+        // 先做确定性连贯性校验；发现 carry_over/镜号/时长等问题时，
+        // 把上一镜上下文和具体错误回传给模型，只修复问题镜头，最多两轮。
+        shots = repairCoherenceIfNeeded(shots, clipped, assets, chat)
 
         // —— 导演：视觉指令 ——
         val visuals: Map<Int, String> = runCatching {
             val brief = shots.joinToString("\n") { s ->
                 val assetNames = s.assetIds.mapNotNull { id -> assets.firstOrNull { it.id == id }?.let { "${it.kind}:${it.name}" } }
                 val tail = if (assetNames.isNotEmpty()) " [资产：${assetNames.joinToString("、")}]" else ""
-                "镜头${s.shotNo}：${s.action}$tail"
+                val previous = shots.firstOrNull { it.shotNo == s.shotNo - 1 }
+                val context = if (previous != null) {
+                    " [上一镜结束：${previous.carryOver ?: previous.action}；本镜承接：${s.carryOver ?: "缺失"}]"
+                } else " [开场镜头]"
+                "镜头${s.shotNo}：${s.action}$tail$context"
             }
             val directorMsg = if (catalogBlock.isNotBlank()) {
                 "$DIRECTOR_PROMPT\n\n【资产目录】\n$catalogBlock\n\n$brief"
@@ -150,7 +158,53 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
             refStats = refStats)
     }
 
-    /** 把资产目录渲染成 LLM 友好的文本块 */
+    /**
+     * 连贯性定向修复：只把失败镜头、上一镜状态和错误原因发给模型，
+     * 避免整集重写导致每次结果漂移。解析失败或模型拒绝时保留原镜头，
+     * 最终仍由 StoryCoherence 做硬校验。
+     */
+    private suspend fun repairCoherenceIfNeeded(
+        initial: List<Shot>,
+        script: String,
+        assets: List<AssetSnapshot>,
+        chat: suspend (com.dramafactory.core.model.ChatRequest) -> com.dramafactory.core.model.ChatResponse,
+    ): List<Shot> {
+        var current = initial
+        repeat(2) {
+            val issues = StoryCoherence.validate(current, assets.map { it.id }.toSet())
+                .filter { it.code in setOf("carry_over_missing", "shot_order_gap", "rhythm_duration", "asset_unbound") }
+            if (issues.isEmpty()) return current
+            val targets = issues.map { it.shotNo }.toSet()
+            val context = current.filter { it.shotNo in targets || it.shotNo - 1 in targets }
+                .joinToString("\n") { s ->
+                    "镜头${s.shotNo}：action=${s.action}; carry_over=${s.carryOver ?: "缺失"}; duration=${s.durationSeconds}; asset_ids=${s.assetIds}"
+                }
+            val errors = issues.joinToString("\n") { "镜头${it.shotNo}: ${it.code} - ${it.message}" }
+            val prompt = """你是分镜修复导演。只修复指定镜头，不要重写其他镜头。
+严格只输出 JSON：{"shots":[{"shot_no":2,"action":"...","duration_seconds":6,"asset_ids":[],"beat_ref":"B02","carry_over":"..."}]}
+要求：carry_over 必须写明上一镜结束状态、当前镜头承接的角色/空间/道具及转场因果；保持原故事事件和台词不变；asset_ids 只能使用资产目录中的 id；时长限定5-10秒。
+【错误】
+$errors
+【相关镜头】
+$context
+【资产目录】
+${renderCatalog(assets)}
+【原剧本】
+$script"""
+            val response = runCatching {
+                chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
+                    com.dramafactory.core.model.ChatMessage("user", prompt))))
+            }.getOrNull() ?: return@repeat
+            val repaired = parseShots(response.content, assets).first
+                .filter { it.shotNo in targets }
+            if (repaired.isEmpty()) return@repeat
+            val byNo = repaired.associateBy { it.shotNo }
+            current = current.map { byNo[it.shotNo] ?: it }
+        }
+        return current
+    }
+
+
     private fun renderCatalog(assets: List<AssetSnapshot>): String {
         if (assets.isEmpty()) return ""
         return assets.joinToString("\n") { a ->
