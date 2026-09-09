@@ -40,6 +40,8 @@ object AiStoryboardDirector {
         val assetIds: List<String> = emptyList(),
         val beatRef: String? = null,
         val carryOver: String? = null,
+        /** 跨镜必须显式继承的时间/天气/空间/光线状态，避免场景缺省后模型自由发挥。 */
+        val sceneContext: String? = null,
         /** 导演视觉指令（运镜/景别/构图） */
         val visualPrompt: String? = null,
     )
@@ -67,12 +69,15 @@ object AiStoryboardDirector {
 
     private const val WRITER_PROMPT = """你是短剧分镜编剧。把给定的剧本/小说片段拆成视频镜头表。
 只输出严格 JSON，不要markdown代码块。格式：
-{"shots":[{"shot_no":1,"action":"画面中发生的具体动作（30字内，纯动作描述，禁止出现光线/色调/氛围词）","dialogue":"该镜台词原文（无台词则省略）","narration":"旁白（无则省略）","duration_seconds":6,"characters":["角色名"],"asset_ids":["a_xxx","a_yyy"],"beat_ref":"B01","carry_over":"本镜结束时角色/场景/道具的状态，供下一镜承接"}]}
+{"shots":[{"shot_no":1,"action":"画面中发生的具体动作（30字内，纯动作描述）","scene_context":"时间+天气+空间位置+光线状态，第一镜建立基准，后续镜头必须继承或写明变化原因","dialogue":"该镜台词原文（无台词则省略）","narration":"旁白（无则省略）","duration_seconds":6,"characters":["角色名"],"asset_ids":["a_xxx","a_yyy"],"beat_ref":"B01","carry_over":"本镜结束时角色/场景/道具的状态，供下一镜承接"}]}
 规则：
 - 每镜5-10秒；一场戏2-5镜；台词必须与原文逐字一致不得改写；shot_no从1连续递增；总镜数控制在4-12镜。
-- 除第一镜外，每镜必须填写 carry_over：明确写出上一镜结束后仍在场的角色、空间、道具状态，或写明可理解的转场因果（例如“女刺客落地后推门进入堂屋，视线锁定密函”）；禁止从室外无解释跳到室内、从角色无解释跳到静物。
+- 每镜必须填写 scene_context：明确时间、天气、空间位置、光线/明暗状态。第一镜建立全局基准；后续镜头默认继承上一镜，只有剧本明确或 carry_over 写明转场原因时才允许改变。
+- 严禁无解释地改变时间、天气、明暗、室内外或空间位置。后续镜头必须继承上一镜已明确的环境状态；只有剧本或转场因果明确要求时才允许改变，不得自行补全未提供的天气、时间或光线。
+- 室外→室内、室内→室外或跨地点切换，carry_over 必须写明进入/离开/推门/转场等因果；没有转场依据时保持上一镜环境，不得跳变。
+- 除第一镜外，每镜必须填写 carry_over：明确写出上一镜结束后仍在场的角色、空间、道具状态，或写明可理解的转场因果。禁止从室外无解释跳到室内、从角色无解释跳到静物。
 - asset_ids：剧本或 action/narration 中出现的每个角色、场景、道具，必须且只能从下方【资产目录】的 asset_id 中挑选并写入；不要自己造新名。若文本提及堂屋、庭院、烛台等元素但目录没有对应资产，仍保留镜头并让 carry_over 说明转场，不得编造 asset_id。
-- action 中引用角色时使用资产目录中的"名字"（中文），便于人工对账。"""
+- action 中引用角色时使用资产目录中的“名字”（中文），便于人工对账。"""
 
     private const val DIRECTOR_PROMPT = """你是短剧摄影导演。为每个镜头写一条中文视觉指令（visual字段）。
 只输出严格 JSON：{"visuals":[{"shot_no":1,"visual":"景别+运镜+构图，20-40字"}]}
@@ -122,8 +127,8 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
                 val tail = if (assetNames.isNotEmpty()) " [资产：${assetNames.joinToString("、")}]" else ""
                 val previous = shots.firstOrNull { it.shotNo == s.shotNo - 1 }
                 val context = if (previous != null) {
-                    " [上一镜结束：${previous.carryOver ?: previous.action}；本镜承接：${s.carryOver ?: "缺失"}]"
-                } else " [开场镜头]"
+                    " [上一镜结束：${previous.carryOver ?: previous.action}；上一镜场景：${previous.sceneContext ?: "缺失"}；本镜场景：${s.sceneContext ?: "缺失"}；本镜承接：${s.carryOver ?: "缺失"}]"
+                } else " [开场镜头；场景：${s.sceneContext ?: "缺失"}]"
                 "镜头${s.shotNo}：${s.action}$tail$context"
             }
             val directorMsg = if (catalogBlock.isNotBlank()) {
@@ -172,17 +177,17 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         var current = initial
         repeat(2) {
             val issues = StoryCoherence.validate(current, assets.map { it.id }.toSet())
-                .filter { it.code in setOf("carry_over_missing", "shot_order_gap", "rhythm_duration", "asset_unbound") }
+                .filter { it.code in setOf("carry_over_missing", "scene_context_missing", "scene_context_conflict", "shot_order_gap", "rhythm_duration", "asset_unbound") }
             if (issues.isEmpty()) return current
             val targets = issues.map { it.shotNo }.toSet()
             val context = current.filter { it.shotNo in targets || it.shotNo - 1 in targets }
                 .joinToString("\n") { s ->
-                    "镜头${s.shotNo}：action=${s.action}; carry_over=${s.carryOver ?: "缺失"}; duration=${s.durationSeconds}; asset_ids=${s.assetIds}"
+                    "镜头${s.shotNo}：action=${s.action}; scene_context=${s.sceneContext ?: "缺失"}; carry_over=${s.carryOver ?: "缺失"}; duration=${s.durationSeconds}; asset_ids=${s.assetIds}"
                 }
             val errors = issues.joinToString("\n") { "镜头${it.shotNo}: ${it.code} - ${it.message}" }
             val prompt = """你是分镜修复导演。只修复指定镜头，不要重写其他镜头。
-严格只输出 JSON：{"shots":[{"shot_no":2,"action":"...","duration_seconds":6,"asset_ids":[],"beat_ref":"B02","carry_over":"..."}]}
-要求：carry_over 必须写明上一镜结束状态、当前镜头承接的角色/空间/道具及转场因果；保持原故事事件和台词不变；asset_ids 只能使用资产目录中的 id；时长限定5-10秒。
+严格只输出 JSON：{"shots":[{"shot_no":2,"action":"...","scene_context":"...","duration_seconds":6,"asset_ids":[],"beat_ref":"B02","carry_over":"..."}]}
+要求：scene_context 必须明确继承上一镜的时间、天气、空间、光线；若有变化，carry_over 必须写明转场因果（如推门进入、离开、切换地点）；保持原故事事件和台词不变；asset_ids 只能使用资产目录中的 id；时长限定5-10秒。
 【错误】
 $errors
 【相关镜头】
@@ -261,7 +266,8 @@ $script"""
                 characterNames = chars,
                 assetIds = assetIds,
                 beatRef = str("beat_ref").ifBlank { null },
-                carryOver = str("carry_over").ifBlank { null })
+                carryOver = str("carry_over").ifBlank { null },
+                sceneContext = str("scene_context").ifBlank { null })
         }
         return out.sortedBy { it.shotNo } to RefStats(assets.size, rawRefs, keptRefs)
     }

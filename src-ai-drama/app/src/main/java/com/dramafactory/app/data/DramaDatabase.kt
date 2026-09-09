@@ -80,6 +80,8 @@ data class ShotEntity(
     val action: String? = null,
     val beat_ref: String? = null,
     val carry_over: String? = null,
+    /** 分镜跨镜环境锚点：时间/天气/空间/明暗，直接进入最终视频 prompt。 */
+    val scene_context: String? = null,
     val first_asset_ids: String = "[]",
     val last_asset_ids: String = "[]",
     val sb_check: String = "pending",  // 六铁律: pass/error(JSON)

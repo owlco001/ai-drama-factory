@@ -123,7 +123,7 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
                     episode_id = episodeId, project_id = projectId, shot_no = s.shotNo,
                     dialogue = s.dialogue, narration = s.narration,
                     action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
-                    beat_ref = s.beatRef, carry_over = s.carryOver,
+                    beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
                     first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
                     last_asset_ids = "[]",
                     visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,

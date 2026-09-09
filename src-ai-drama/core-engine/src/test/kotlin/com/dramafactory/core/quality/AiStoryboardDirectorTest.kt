@@ -55,6 +55,19 @@ class AiStoryboardDirectorTest {
     }
 
     @Test
+    fun 未提供环境事实时不应由系统自动补写() {
+        val shots = AiStoryboardDirector.parseShots("""{"shots":[{"shot_no":1,"action":"站在门外","duration_seconds":6},{"shot_no":2,"action":"进入室内","duration_seconds":6,"carry_over":"推门进入"}]}""").first
+        assertTrue(shots.all { it.sceneContext == null })
+    }
+    @Test
+    fun parseShots_解析场景连续性字段() {
+        val json = """{"shots":[{"shot_no":1,"action":"站在门外","scene_context":"雨夜，院门外，地面湿滑","carry_over":"她抬手敲门"},{"shot_no":2,"action":"推门进入","scene_context":"仍是同一雨夜，从门外进入昏暗门厅","carry_over":"她推门进入门厅"}]}"""
+        val shots = AiStoryboardDirector.parseShots(json).first
+        assertEquals("雨夜，院门外，地面湿滑", shots[0].sceneContext)
+        assertEquals("仍是同一雨夜，从门外进入昏暗门厅", shots[1].sceneContext)
+    }
+
+    @Test
     fun parseShots_承接字段可解析() {
         val json = """{"shots":[{"shot_no":2,"action":"推门进入堂屋","carry_over":"女刺客从庭院进入堂屋，视线锁定密函"}]}"""
         val shot = AiStoryboardDirector.parseShots(json).first.single()

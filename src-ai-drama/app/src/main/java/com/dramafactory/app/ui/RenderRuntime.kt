@@ -42,7 +42,14 @@ object RenderRuntime {
                 // 取 episodeId 后查 shots 表回填该镜文本。若查不到（如 Room 未初始化）安全退化为空三元组。
                 shotPromptResolver = { shotId ->
                     val shot = runCatching { AppGraph.dao.shotKeyframes(shotId) }.getOrNull()
-                    Triple(shot?.dialogue ?: "", shot?.narration ?: "", shot?.action ?: "")
+                    Triple(
+                        shot?.dialogue ?: "",
+                        shot?.narration ?: "",
+                        listOfNotNull(
+                            shot?.scene_context?.takeIf { !it.isNullOrBlank() }?.let { "场景连续性：$it" },
+                            shot?.action
+                        ).joinToString("；")
+                    )
                 },
                 // v1.7.18：视频参数透传（设置页可调；每镜提交前读取，改参数即时生效）
                 videoParamsProvider = { _ -> AppGraph.videoParams },

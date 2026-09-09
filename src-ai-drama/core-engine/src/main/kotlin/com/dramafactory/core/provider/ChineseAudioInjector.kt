@@ -31,11 +31,16 @@ object ChineseAudioInjector {
         return han * 2 >= chars.count()
     }
 
-    /** 组装一镜完整提交prompt：中文台词/旁白主导开头 + 动作描述 + 显式中文指令 */
-    fun buildShotPrompt(dialogue: String, narration: String, action: String): String {
+    /** 组装一镜完整提交prompt：中文台词/旁白主导开头 + 显式中文指令 */
+    fun buildShotPrompt(dialogue: String, narration: String, action: String): String =
+        buildShotPrompt(dialogue, narration, action, "")
+
+    /** 将分镜场景连续性锚点放入最终视频 prompt，避免渲染阶段重新自由发挥环境。 */
+    fun buildShotPrompt(dialogue: String, narration: String, action: String, sceneContext: String): String {
         val head = listOf(dialogue.trim(), narration.trim()).filter { it.isNotEmpty() }.joinToString(" ")
+        val environment = sceneContext.trim().takeIf { it.isNotEmpty() }?.let { "场景连续性约束（仅复用已明确事实，不新增天气/时间/光线）：$it。" } ?: ""
         val body = action.trim()
-        val raw = listOf(head, body).filter { it.isNotEmpty() }.joinToString(if (head.isEmpty()) "" else " ")
+        val raw = listOf(head, environment, body).filter { it.isNotEmpty() }.joinToString(if (head.isEmpty()) "" else " ")
         return inject(raw)
     }
 }

@@ -47,7 +47,7 @@ class DefaultRenderQueue(
     var pollIntervalMs: suspend (submittedAt: Long) -> Long = { _ ->
         30_000L
     },
-    /** 提交prompt组装：shotId → (dialogue,narration,action)，由分镜层提供 */
+    /** 提交prompt组装：shotId → (dialogue,narration,action+场景锚点)，由分镜层提供 */
     var shotPromptResolver: suspend (shotId: String) -> Triple<String, String, String> =
         { _ -> Triple("", "", "") },
     /** 首尾帧解析：shotId → (firstUri,lastUri) */
