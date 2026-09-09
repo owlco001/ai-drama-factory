@@ -49,7 +49,27 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.dramafactory.app.ui.components.HeroButton
 import com.dramafactory.app.ui.components.PrimaryButton
 
-/** 图标 + 短文案 状态标记（替代此前 ✓ / ⚠ 等 emoji 前缀） */
+/** 分镜校验错误码 → 用户可理解的中文提示。 */
+private fun storyboardCheckLabel(code: String): String = when (code) {
+    "carry_over_missing" -> "缺少前后镜头承接：请补充角色、场景、道具状态或转场动作"
+    "shot_order_gap" -> "镜号不连续：前后镜头存在顺序断点"
+    "asset_unbound" -> "引用了未批准资产：请重新选择资产库中的素材"
+    "rhythm_duration" -> "镜头时长不在5–10秒建议范围"
+    "dialogue_not_verbatim" -> "台词与剧本原文不一致"
+    "action_empty" -> "动作描述为空"
+    "beat_ref_missing" -> "缺少剧本节拍来源"
+    "beat_index_invalid" -> "剧本节拍顺序无效"
+    "beat_out_of_order" -> "剧本节拍顺序回退"
+    "missing_asset" -> "引用了未批准资产：请重新选择资产库中的素材"
+    else -> code
+}
+
+/** 将 error:code,code 渲染成自然语言，避免把内部错误码直接暴露给用户。 */
+private fun storyboardCheckSummary(raw: String): String = raw.removePrefix("error:")
+    .split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    .joinToString("；") { storyboardCheckLabel(it) }
+
+
 @Composable
 private fun StatusChip(icon: ImageVector, text: String, tint: Color) {
     Row(
@@ -250,7 +270,7 @@ fun StoryboardPage(
                                 tint = MaterialTheme.colorScheme.outline)
                             else -> StatusChip(
                                 icon = Icons.Default.Warning,
-                                text = shot.sb_check.removePrefix("error:"),
+                                text = storyboardCheckSummary(shot.sb_check),
                                 tint = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -326,7 +346,6 @@ fun StoryboardPage(
         }
     }
 
-    // ---- v1.9.2：单镜详情对话框（点击卡片查看全部内容 + 引用资产缩略图）----
     val viewingShot = viewingShotId?.let { id -> st.shots.firstOrNull { it.shot_id == id } }
     if (viewingShot != null) {
         AlertDialog(
@@ -345,7 +364,7 @@ fun StoryboardPage(
                             Icons.Default.DateRange, "待生成", MaterialTheme.colorScheme.outline)
                         else -> StatusChip(
                             Icons.Default.Warning,
-                            viewingShot.sb_check.removePrefix("error:"),
+                            storyboardCheckSummary(viewingShot.sb_check),
                             MaterialTheme.colorScheme.error)
                     }
                     viewingShot.action?.let { DetailLine("动作", it) }

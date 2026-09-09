@@ -336,6 +336,13 @@ private fun QueueActionButton(
 /** 分镜 sb_check 错误码 → 中文可读（对齐 AiStoryboardDirector 六铁律忠实性校验） */
 internal fun sbCheckLabel(code: String) = when (code) {
     "dialogue_not_verbatim" -> "台词未逐字出现在剧本原文"
+    "carry_over_missing" -> "缺少前后镜头承接：请补充角色、场景、道具状态或转场动作"
+    "shot_order_gap" -> "镜号不连续：前后镜头存在顺序断点"
+    "asset_unbound", "missing_asset" -> "引用了未批准资产：请重新选择资产库中的素材"
+    "rhythm_duration" -> "镜头时长不在5–10秒建议范围"
+    "beat_ref_missing" -> "缺少剧本节拍来源"
+    "beat_index_invalid" -> "剧本节拍顺序无效"
+    "beat_out_of_order" -> "剧本节拍顺序回退"
     "action_empty" -> "动作描述为空"
     else -> code
 }

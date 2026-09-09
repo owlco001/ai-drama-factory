@@ -67,10 +67,11 @@ object AiStoryboardDirector {
 
     private const val WRITER_PROMPT = """你是短剧分镜编剧。把给定的剧本/小说片段拆成视频镜头表。
 只输出严格 JSON，不要markdown代码块。格式：
-{"shots":[{"shot_no":1,"action":"画面中发生的具体动作（30字内，纯动作描述，禁止出现光线/色调/氛围词）","dialogue":"该镜台词原文（无台词则省略）","narration":"旁白（无则省略）","duration_seconds":6,"characters":["角色名"],"asset_ids":["a_xxx","a_yyy"],"beat_ref":"B01"}]}
+{"shots":[{"shot_no":1,"action":"画面中发生的具体动作（30字内，纯动作描述，禁止出现光线/色调/氛围词）","dialogue":"该镜台词原文（无台词则省略）","narration":"旁白（无则省略）","duration_seconds":6,"characters":["角色名"],"asset_ids":["a_xxx","a_yyy"],"beat_ref":"B01","carry_over":"本镜结束时角色/场景/道具的状态，供下一镜承接"}]}
 规则：
 - 每镜5-10秒；一场戏2-5镜；台词必须与原文逐字一致不得改写；shot_no从1连续递增；总镜数控制在4-12镜。
-- 资产引用：剧本中出现的每个角色/场景/道具，必须且只能从下方【资产目录】的 asset_id 中挑选并写入 asset_ids；不要自己造新名。若该镜无明显角色/场景/道具，asset_ids 可为 []。
+- 除第一镜外，每镜必须填写 carry_over：明确写出上一镜结束后仍在场的角色、空间、道具状态，或写明可理解的转场因果（例如“女刺客落地后推门进入堂屋，视线锁定密函”）；禁止从室外无解释跳到室内、从角色无解释跳到静物。
+- asset_ids：剧本或 action/narration 中出现的每个角色、场景、道具，必须且只能从下方【资产目录】的 asset_id 中挑选并写入；不要自己造新名。若文本提及堂屋、庭院、烛台等元素但目录没有对应资产，仍保留镜头并让 carry_over 说明转场，不得编造 asset_id。
 - action 中引用角色时使用资产目录中的"名字"（中文），便于人工对账。"""
 
     private const val DIRECTOR_PROMPT = """你是短剧摄影导演。为每个镜头写一条中文视觉指令（visual字段）。
