@@ -418,18 +418,28 @@ object AppGraph {
         onEvent: (String) -> Unit = {},
     ): Result<com.dramafactory.core.orchestrate.AiOrchestrator.PipelineRun> {
         val orc = aiOrchestrator
-        // v1.7.3：边跑边把进度事件推给 UI（非阻塞收集，run 是 suspend 阻塞，并发 drain events）
-        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
-            var lastN = 0
-            orc.events.collect { list ->
-                for (i in lastN until list.size) onEvent(list[i].message)
-                lastN = list.size
+        return kotlinx.coroutines.coroutineScope {
+            val job = launch(kotlinx.coroutines.Dispatchers.Default) {
+                var lastN = 0
+                try {
+                    orc.events.collect { list ->
+                        for (i in lastN until list.size) {
+                            runCatching { onEvent(list[i].message) }
+                                .onFailure { Log.e("AppGraph", "pipeline progress callback failed", it) }
+                        }
+                        lastN = list.size
+                    }
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    Log.e("AppGraph", "pipeline event collector failed", t)
+                }
             }
-        }
-        try {
-            return orc.run(scriptText, "", { pid, epId -> })
-        } finally {
-            job.cancel()
+            try {
+                orc.run(scriptText, "", { _, _ -> })
+            } finally {
+                job.cancel()
+                job.join()
+            }
         }
     }
 

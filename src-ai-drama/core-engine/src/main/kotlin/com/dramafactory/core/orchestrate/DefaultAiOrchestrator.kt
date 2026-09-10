@@ -1,5 +1,6 @@
 package com.dramafactory.core.orchestrate
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -200,11 +201,11 @@ class DefaultAiOrchestrator(
                 _currentEpisodeId.value = episodeId
                 onAutoCreatedProject(projectId, episodeId)
 
-                val assets = when {
-                    !extractAssets(scriptText, modelId).isSuccess -> {
-                        throwAi("资产提取失败", PipelineStage5.EXTRACT_ASSETS, st, "extract failed")
-                    }
-                    else -> extractAssets(scriptText, modelId).getOrThrow()
+                val extracted = runCatching { extractAssets(scriptText, modelId) }
+                    .getOrElse { Result.failure<List<AiAsset>>(it) }
+                val assets = extracted.getOrElse {
+                    throwAi("资产提取失败", PipelineStage5.EXTRACT_ASSETS, st,
+                        it.message ?: it.javaClass.simpleName)
                 }
                 assetCount = assets.size
                 emit(PipelineStage5.EXTRACT_ASSETS, assetCount, "已提取 ${assetCount} 张资产", st)
@@ -217,9 +218,14 @@ class DefaultAiOrchestrator(
                 emit(PipelineStage5.GENERATE_IMAGES, 0, "开始生成图像…", stG)
                 var imgOk = 0
                 for ((i, a) in assets.withIndex()) {
-                    if (generateImage(a).isSuccess) imgOk++
-                    else emit(PipelineStage5.GENERATE_IMAGES, i + 1, "图像${i + 1}生成失败", stG,
-                        ProgressEvent.Level.WARN)
+                    val imageResult = runCatching { generateImage(a) }
+                        .getOrElse { Result.failure(it) }
+                    if (imageResult.isSuccess) imgOk++
+                    else {
+                        val cause = imageResult.exceptionOrNull()?.message ?: "unknown image generation failure"
+                        emit(PipelineStage5.GENERATE_IMAGES, i + 1, "图像${i + 1}生成失败：${cause.take(120)}", stG,
+                            ProgressEvent.Level.WARN, cause)
+                    }
                 }
                 emit(PipelineStage5.GENERATE_IMAGES, assets.size, "图像生成 ${imgOk}/${assets.size} 成功", stG)
                 writeCheckpoint(episodeId, PipelineStage5.GENERATE_IMAGES, assetCount, 0, false, null)
@@ -246,11 +252,11 @@ class DefaultAiOrchestrator(
                 lastStage = PipelineStage5.GENERATE_STORYBOARD
                 val stS = t0
                 emit(PipelineStage5.GENERATE_STORYBOARD, 0, "开始生成分镜…", stS)
-                val shots = when {
-                    !generateShots(projectId, scriptText, modelId).isSuccess -> {
-                        throwAi("分镜生成失败", PipelineStage5.GENERATE_STORYBOARD, stS, "generate failed")
-                    }
-                    else -> generateShots(projectId, scriptText, modelId).getOrThrow()
+                val shotsResult = runCatching { generateShots(projectId, scriptText, modelId) }
+                    .getOrElse { Result.failure<List<AiShot>>(it) }
+                val shots = shotsResult.getOrElse {
+                    throwAi("分镜生成失败", PipelineStage5.GENERATE_STORYBOARD, stS,
+                        it.message ?: it.javaClass.simpleName)
                 }
                 shotCount = shots.size
                 emit(PipelineStage5.GENERATE_STORYBOARD, shotCount, "已生成 ${shotCount} 镜", stS)
@@ -282,6 +288,16 @@ class DefaultAiOrchestrator(
                 projectId = projectId.ifBlank { "unknown" },
                 episodeId = episodeId.ifBlank { "unknown" },
                 success = false, lastStage = lastStage, errors = listOf(e)))
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            val cause = t.message ?: t.javaClass.simpleName
+            val err = AiOrchestrator.AiError.StageFailed(
+                "流水线异常：${lastStage.label}", lastStage, cause)
+            emit(lastStage, 0, err.msg, t0, ProgressEvent.Level.ERROR, cause)
+            return Result.success(AiOrchestrator.PipelineRun(
+                projectId = projectId.ifBlank { "unknown" },
+                episodeId = episodeId.ifBlank { "unknown" },
+                success = false, lastStage = lastStage, errors = listOf(err)))
         }
     }
 

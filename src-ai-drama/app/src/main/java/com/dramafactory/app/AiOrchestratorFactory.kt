@@ -50,8 +50,7 @@ internal fun AppGraph.buildAiOrchestrator(): DefaultAiOrchestrator =
         checkModel = { modelId ->
             if (modelId.isBlank()) {
                 dao.verifiedConfig("text")?.let { Result.success(Unit) }
-                    ?: Result.failure(
-                        com.dramafactory.core.model.ProviderError.AuthError("未验证文本模型"))
+                    ?: Result.failure(com.dramafactory.core.model.ProviderError.AuthError("未验证文本模型"))
             } else {
                 // TD-5：checkModel 本身是 suspend λ，validate 亦是 suspend；
                 // 去掉 runBlocking，改为在编排器协程上下文直接 await，消除网络阻塞（原写法会卡线程）。
@@ -77,12 +76,12 @@ internal fun AppGraph.buildAiOrchestrator(): DefaultAiOrchestrator =
         },
         generateImage = { asset ->
             runCatching {
-                // TD-5：generateImage 本身是 suspend λ，去掉内层 runBlocking，
-                // 让 EraDetector.presetFor / AssetImageGenerator.generate（均为 suspend）跑在编排器协程上，
-                // 避免 LLM 调用阻塞当前线程（ANR 隐患）。
-                // ★F3 修复：用按剧本自动推断的 currentEraKey 取预设，不再写死 "han"
+                if (asset.assetId.isBlank() || asset.kind.isBlank() || asset.prompt.isBlank()) {
+                    throw IllegalArgumentException("资产字段不完整：id=${asset.assetId}, kind=${asset.kind}")
+                }
                 val preset = com.dramafactory.core.quality.EraDetector.presetFor(currentEraKey)
-                // v1.7.17：同上，去掉图像端不支持的 negativePrompt，改走统一生成器
+                // TD-5：generateImage 在编排器协程上下文中执行，避免阻塞主线程。
+                // ★F3：按剧本推断时代预设，不写死具体时代。
                 val url = com.dramafactory.app.ui.AssetImageGenerator.generate(
                     provider = image, kind = asset.kind,
                     basePrompt = enrichAssetPrompt(asset.kind, asset.prompt), preset = preset)

@@ -79,6 +79,22 @@ class AiOrchestratorTest {
     }
 
     @Test
+    fun `生图回调异常不应逃出流水线导致协程崩溃`() = runSuspend {
+        val o = DefaultAiOrchestrator(
+            createProject = { "proj_img" },
+            createEpisode = { pid, _ -> "${pid}_ep1" },
+            checkModel = { Result.success(Unit) },
+            extractAssets = { _, _ -> Result.success(listOf(DefaultAiOrchestrator.AiAsset("a1", "character", "主角", "描述"))) },
+            generateImage = { throw IllegalStateException("image provider boom") },
+            writeCheckpoint = { _, _, _, _, _, _ -> },
+        )
+        val result = o.run("x".repeat(200))
+        assertTrue(result.isSuccess)
+        assertFalse(result.getOrThrow().success)
+        assertTrue(result.getOrThrow().errors.first().message!!.contains("image provider boom"))
+    }
+
+    @Test
     fun `五阶段全成功_run通过`() = runSuspend {
         val o = makeOkOrchestrator()
         val script = "a".repeat(200)

@@ -75,6 +75,7 @@ class AiAssistantViewModel : ViewModel() {
 
     /** 上次注入的项目 id，用于检测"切换项目"事件（避免每次重组重复重置） */
     private var _lastProjectId: String? = null
+    private var pipelineRunning = false
 
     /**
      * DramaApp 在导航项目变化时调用。若项目 id 真的变化（且非空），
@@ -403,12 +404,26 @@ class AiAssistantViewModel : ViewModel() {
                 val e = epId ?: "${pid}_ep1"
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本文本，先上传剧本或跟我说『剧本是：…』）"
-                onNotice("启动完整流水线：提取→生图→审计→分镜→渲染…")
-                val res = AppGraph.runFullPipeline(script) { onNotice("· $it") }
-                if (res.isSuccess) {
-                    currentEpisodeId = AppGraph.aiOrchestrator.currentEpisodeId.value ?: e
-                    "已启动完整流水线（提取→图→分镜→渲染），跑完去「成片」标签看成片"
-                } else "（流水线启动失败：${res.exceptionOrNull()?.message?.take(80)}）"
+                if (pipelineRunning) return "（完整流水线正在运行，请稍候）"
+                pipelineRunning = true
+                try {
+                    onNotice("启动完整流水线：提取→生图→审计→分镜→渲染…")
+                    val res = AppGraph.runFullPipeline(script) { onNotice("· $it") }
+                    val run = res.getOrNull()
+                    if (res.isSuccess && run?.success == true) {
+                        currentEpisodeId = run.episodeId.ifBlank { AppGraph.aiOrchestrator.currentEpisodeId.value ?: e }
+                        "完整流水线已完成（提取→图→分镜→渲染），去「成片」标签查看"
+                    } else {
+                        val detail = run?.errors?.firstOrNull()?.let { err ->
+                            val cause = (err as? com.dramafactory.core.orchestrate.AiOrchestrator.AiError.StageFailed)
+                                ?.causeMsg?.takeIf { it.isNotBlank() }
+                            listOfNotNull(err.msg, cause).joinToString("：")
+                        } ?: res.exceptionOrNull()?.message ?: "未知错误"
+                        "（流水线失败：${detail.take(120)}）"
+                    }
+                } finally {
+                    pipelineRunning = false
+                }
             }
             // ===== v1.7.18：渲染控制 / 状态查询 / 模型配置 =====
             "render_status" -> {
@@ -666,7 +681,7 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         if (vm.streamingText.value.isNotBlank()) {
                             item("streaming") { StreamingBubbleLocal(vm.streamingText.value) }
                         }
-                        items(vm.actionCards.value, key = { "action-$it" }) { card -> ActionCardLocal(card) }
+                        itemsIndexed(vm.actionCards.value, key = { i, _ -> "action-$i" }) { _, card -> ActionCardLocal(card) }
                         if (vm.isThinking && vm.streamingText.value.isBlank()) item("thinking") { ThinkingBubbleLocal() }
                     }
                     var input by remember { mutableStateOf("") }
