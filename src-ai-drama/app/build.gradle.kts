@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 102
-        versionName = "1.9.32"  // v1.9.32：分镜逻辑连续性校验，避免无依据环境跳变
+        versionCode = 103
+        versionName = "1.9.33"  // v1.9.33：AI 编排阶段异常隔离与流水线稳定性修复
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
