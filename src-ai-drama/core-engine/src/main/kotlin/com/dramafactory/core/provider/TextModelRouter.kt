@@ -51,6 +51,7 @@ data class TextModelEntry(
 interface TextModelRouter {
     fun registeredTextModels(): List<TextModelEntry>
     fun activeTextModelId(): String
+    fun currentRegion(): AgnesRegion
     suspend fun setActiveTextModel(modelId: String): Result<Unit>
     suspend fun saveKey(modelId: String, key: String): Result<Unit>
     suspend fun validate(modelId: String, key: String? = null): Result<ConnectionInfo>
@@ -117,6 +118,8 @@ object DefaultTextModelRouter : TextModelRouter {
         }
 
     override fun activeTextModelId(): String = store.loadActiveModel()
+
+    override fun currentRegion(): AgnesRegion = agnesRegion
 
     override suspend fun setActiveTextModel(modelId: String): Result<Unit> = runCatching {
         val entry = resolveId(modelId)
