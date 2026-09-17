@@ -21,8 +21,9 @@ import kotlinx.coroutines.sync.withLock
         RenderTaskEntity::class, ProviderConfigEntity::class, EpisodeEntity::class,
         // T014：成片库表（v5，finished_films）
         FinishedFilmEntity::class,
+        ActionIdempotencyEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class DramaDatabase : RoomDatabase() {
@@ -41,17 +42,12 @@ abstract class DramaDatabase : RoomDatabase() {
                 // 第十轮：v3→v4 shots 新增 visual_prompt + duration_seconds。
                 // T014：v4→v5 新增成片库表 finished_films。
                 // v1.9.12：v5→v6 assets 新增 enriched_prompt 列（LLM 扩写视觉描述永久落盘）。
-                // 移除手写 migration 链：手写 SQL 与 FinishedFilmEntity 期望 schema 不一致会触发
-                // "Migration didn't properly handle: finished_films"，直接只留破坏性重建，
-                // Room 用最新 schema(version=6) 直接建库，旧库不匹配自动删重建（本地库数据本就未落盘）。
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-                .fallbackToDestructiveMigration()  // 无匹配迁移（损坏/未知版本）时删库重建兜底
-                .fallbackToDestructiveMigrationOnDowngrade()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build().also { instance = it }
         }
 
         /** v1→v2：仅新增可空列（默认null），直接ALTER TABLE，保留既有数据 */
-        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE assets ADD COLUMN source TEXT NOT NULL DEFAULT 'generated'")
                 db.execSQL("ALTER TABLE assets ADD COLUMN image_uri TEXT")
@@ -66,14 +62,14 @@ abstract class DramaDatabase : RoomDatabase() {
         /** 第九轮 QualityEngine（v2→v3）：新增资产质量闸门列 + 按剧集放行跨时代器物列。 */
         /** 第十轮 AI分镜（v3→v4）：shots 增加视觉指令与时长列。 */
         @SuppressWarnings("unused")
-        private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE shots ADD COLUMN visual_prompt TEXT")
                 db.execSQL("ALTER TABLE shots ADD COLUMN duration_seconds REAL NOT NULL DEFAULT 6.0")
             }
         }
 
-        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE assets ADD COLUMN quality_score REAL")
                 db.execSQL("ALTER TABLE assets ADD COLUMN audit_state TEXT NOT NULL DEFAULT 'pending'")
@@ -124,6 +120,20 @@ abstract class DramaDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE shots ADD COLUMN scene_context TEXT")
+                db.execSQL("CREATE TABLE IF NOT EXISTS action_idempotency (idempotency_key TEXT NOT NULL PRIMARY KEY, state TEXT NOT NULL DEFAULT 'RESERVED', updated_at INTEGER NOT NULL)")
+            }
+        }
+
+        /** v7→v8：兼容 scene_context 已存在或缺失的两种 v7 schema。 */
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS action_idempotency (idempotency_key TEXT NOT NULL PRIMARY KEY, state TEXT NOT NULL DEFAULT 'RESERVED', updated_at INTEGER NOT NULL)")
+                db.query("PRAGMA table_info(shots)").use { c ->
+                    val nameIndex = c.getColumnIndex("name")
+                    var found = false
+                    while (c.moveToNext()) if (nameIndex >= 0 && c.getString(nameIndex) == "scene_context") found = true
+                    if (!found) db.execSQL("ALTER TABLE shots ADD COLUMN scene_context TEXT")
+                }
             }
         }
 

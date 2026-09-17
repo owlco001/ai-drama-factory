@@ -34,9 +34,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
 import com.dramafactory.app.R
+import com.dramafactory.app.data.PersistenceActionExecutor
+import com.dramafactory.app.storage.StorageUnavailableException
 import com.dramafactory.core.model.ProviderError
-import com.dramafactory.core.orchestrate.AiAgent
+import com.dramafactory.core.orchestrate.ActionContext
+import com.dramafactory.core.orchestrate.ActionEnvelope
 import com.dramafactory.core.orchestrate.ActionIntent
+import com.dramafactory.core.orchestrate.ActionResult
+import com.dramafactory.core.orchestrate.ActionStatus
+import com.dramafactory.core.orchestrate.AiAgent
 import com.dramafactory.core.orchestrate.DialogueTurn
 import com.dramafactory.core.orchestrate.StreamChunk
 import com.dramafactory.core.orchestrate.StreamingAssistant
@@ -164,6 +170,10 @@ class AiAssistantViewModel : ViewModel() {
     private suspend fun handleAction(act: ActionIntent, onNotice: (String) -> Unit = {}): String? {
         val dao = AppGraph.dao
         val ctx = AppGraph.appContext()
+        // P0 存储闸门：不可用立即返回失败，不触达 DAO/Provider，绝不返回"已保存/已生成"假成功
+        AppGraph.requireStorageReady()?.let { gate ->
+            return "（存储不可用：${gate.userMessage}，诊断 ${gate.diagnosticId}，动作已中止，未写入任何数据）"
+        }
         val projectId = currentProjectId
         val epId = currentEpisodeId ?: projectId?.let { "${it}_ep1" }
 
@@ -171,12 +181,7 @@ class AiAssistantViewModel : ViewModel() {
             // ===== 项目 / 剧本 =====
             "new_project" -> {
                 val name = act.param("name") ?: act.param("title") ?: "AI项目"
-                val id = withContext(Dispatchers.IO) {
-                    val pid = "p_${System.currentTimeMillis()}"
-                    dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
-                        project_id = pid, name = name, created_at = System.currentTimeMillis()))
-                    pid
-                }
+                val id = PersistenceActionExecutor.writeProject(dao, AppGraph.storageGuard, name, "new_project").entityIds.single()
                 currentProjectId = id
                 currentEpisodeId = "${id}_ep1"
                 "已建项目：$name（id=$id）"
@@ -185,12 +190,11 @@ class AiAssistantViewModel : ViewModel() {
                 val pid = projectId ?: return "（请先建或打开一个项目）"
                 val text = act.param("text") ?: act.param("script") ?: return "（请给我剧本文本，例如 text=…）"
                 val eid = "${pid}_ep1"
-                withContext(Dispatchers.IO) {
-                    val cur = dao.episode(eid)
-                    if (cur != null) dao.upsertEpisode(cur.copy(script_json = text.take(100_000)))
-                    else dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
-                        episode_id = eid, project_id = pid, ep_no = 1, script_json = text.take(100_000)))
-                }
+                val cur = withContext(Dispatchers.IO) { dao.episode(eid) }
+                PersistenceActionExecutor.writeEpisode(dao, AppGraph.storageGuard,
+                    cur?.copy(script_json = text.take(100_000)) ?: com.dramafactory.app.data.EpisodeEntity(
+                        episode_id = eid, project_id = pid, ep_no = 1, script_json = text.take(100_000)),
+                    "set_script", expectedScript = text.take(100_000))
                 "已把剧本存入项目（${text.length}字）"
             }
             "open_project" -> {
@@ -204,13 +208,12 @@ class AiAssistantViewModel : ViewModel() {
                 val script = act.param("script")?.trim().takeUnless { it.isNullOrBlank() }
                     ?: return "（测试短剧需要 script=剧本文本；请把测试内容一起发给我）"
                 val id = withContext(Dispatchers.IO) {
-                    val pid = "p_test_${System.currentTimeMillis()}"
-                    dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
-                        project_id = pid, name = if (name.startsWith("测试")) name else "测试-$name",
-                        created_at = System.currentTimeMillis()))
+                    val pid = PersistenceActionExecutor.writeProject(dao, AppGraph.storageGuard,
+                        if (name.startsWith("测试")) name else "测试-$name", "test_drama").entityIds.single()
                     val eid = "${pid}_ep1"
-                    dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
-                        episode_id = eid, project_id = pid, ep_no = 1, script_json = script.take(100_000)))
+                    PersistenceActionExecutor.writeEpisode(dao, AppGraph.storageGuard,
+                        com.dramafactory.app.data.EpisodeEntity(eid, pid, 1, script_json = script.take(100_000)),
+                        "test_drama", expectedScript = script.take(100_000))
                     pid to eid
                 }
                 currentProjectId = id.first
@@ -232,13 +235,13 @@ class AiAssistantViewModel : ViewModel() {
                 val script = withContext(Dispatchers.IO) { dao.episode(e)?.script_json } ?: ""
                 if (script.isBlank()) return "（当前集还没有剧本/小说文本，先『上传剧本』或跟我说『剧本是：…』）"
                 onNotice("正在从剧本提取角色/场景/道具资产…")
-                val assets = runCatching { AppGraph.extractAssetsFor(script) }.getOrElse { emptyList() }
+                val assets = runCatching { AppGraph.extractAssetsFor(script) }
+                    .getOrElse { throw IllegalStateException("资产提取失败", it) }
                 withContext(Dispatchers.IO) {
-                    assets.forEach { a ->
-                        dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
-                            asset_id = a.assetId, project_id = pid, kind = a.kind,
-                            prompt = a.name + "：" + a.prompt, updated_at = System.currentTimeMillis()))
-                    }
+                    val entities = assets.map { a -> com.dramafactory.app.data.AssetEntity(
+                        asset_id = a.assetId, project_id = pid, kind = a.kind,
+                        prompt = a.name + "：" + a.prompt, updated_at = System.currentTimeMillis()) }
+                    PersistenceActionExecutor.writeAssetsBatch(dao, AppGraph.storageGuard, pid, entities, "extract_assets")
                 }
                 "已提取 ${assets.size} 张资产卡（去「资产」标签可看/手改）"
             }
@@ -258,7 +261,7 @@ class AiAssistantViewModel : ViewModel() {
                         provider = AppGraph.image, kind = row.kind,
                         basePrompt = row.prompt, preset = AppGraph.currentPreset())
                 }.getOrNull() ?: return "（图像生成失败：请确认图像/视频模型 Key 与网络）"
-                withContext(Dispatchers.IO) { runCatching { dao.setAssetRemoteUrl(id, url, System.currentTimeMillis()) } }
+                PersistenceActionExecutor.setAssetRemoteUrlVerified(dao, AppGraph.storageGuard, id, url, "generate:$id")
                 "已重新生成资产 $id 的图像"
             }
             "stop_generate" -> {
@@ -271,7 +274,7 @@ class AiAssistantViewModel : ViewModel() {
                 val removed = withContext(Dispatchers.IO) {
                     val all = dao.assetsAllOf(pid)
                     val cascade = all.filter { it.asset_id == id || it.parent_id == id }.map { it.asset_id }
-                    cascade.forEach { runCatching { dao.deleteAsset(it) } }
+                    PersistenceActionExecutor.deleteAssetsVerified(dao, AppGraph.storageGuard, pid, cascade, "remove_asset")
                     cascade.size
                 }
                 if (removed == 0) "（找不到资产 $id）"
@@ -284,8 +287,7 @@ class AiAssistantViewModel : ViewModel() {
                 val ok = withContext(Dispatchers.IO) {
                     val cur = dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
                     if (cur != null) {
-                        dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
-                            cur.reference_image_uri, newPrompt, System.currentTimeMillis())
+                        PersistenceActionExecutor.updateAssetPromptVerified(dao, AppGraph.storageGuard, cur, newPrompt, "edit_asset")
                         true
                     } else false
                 }
@@ -293,14 +295,14 @@ class AiAssistantViewModel : ViewModel() {
             }
             "review_pass" -> {
                 val id = act.param("assetId") ?: return null
-                withContext(Dispatchers.IO) { runCatching { dao.setReviewState(id, "keep") } }
+                PersistenceActionExecutor.setReviewStateVerified(dao, AppGraph.storageGuard, id, "keep", projectId ?: return "（请先打开项目）", "review_pass")
                 "已标记通过评审：$id"
             }
             "review_all_pass" -> {
                 val pid = projectId ?: return "（请先打开项目）"
                 val n = withContext(Dispatchers.IO) {
                     val all = dao.assetsAllOf(pid)
-                    all.forEach { runCatching { dao.setReviewState(it.asset_id, "keep") } }
+                    all.forEach { PersistenceActionExecutor.setReviewStateVerified(dao, AppGraph.storageGuard, it.asset_id, "keep", pid, "review_all_pass") }
                     all.size
                 }
                 "已全部通过评审（$n 个资产）"
@@ -319,13 +321,12 @@ class AiAssistantViewModel : ViewModel() {
                         val subId = "ref_${System.currentTimeMillis()}_${System.nanoTime()}"
                         val subPrompt = com.dramafactory.core.quality.AssetPromptBuilder
                             .finalReferencePrompt(preset, parent.prompt, shot)
-                        runCatching {
-                            dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
-                                asset_id = subId, project_id = pid, kind = "character",
-                                parent_id = cid, pose_role = shot.key, prompt = subPrompt,
-                                updated_at = System.currentTimeMillis()))
-                            added++
-                        }
+                        PersistenceActionExecutor.writeAsset(dao, AppGraph.storageGuard,
+                            com.dramafactory.app.data.AssetEntity(
+                            asset_id = subId, project_id = pid, kind = "character",
+                            parent_id = cid, pose_role = shot.key, prompt = subPrompt,
+                            updated_at = System.currentTimeMillis()), "build_pose_pack")
+                        added++
                     }
                     added
                 }
@@ -337,6 +338,8 @@ class AiAssistantViewModel : ViewModel() {
                 if (allowed.isEmpty()) return "（请告诉我放开的器物，例如 allowed=手机,眼镜）"
                 withContext(Dispatchers.IO) {
                     dao.setEpisodeAllowedCrossEra(e, "[" + allowed.joinToString(",") { "\"$it\"" } + "]")
+                    val saved = dao.episodeAllowedCrossEra(e)
+                    check(saved == "[" + allowed.joinToString(",") { "\"$it\"" } + "]") { "时代红线写入后读回不一致" }
                 }
                 "已放开跨时代器物：${allowed.joinToString("、")}"
             }
@@ -362,23 +365,23 @@ class AiAssistantViewModel : ViewModel() {
                         script, chat = { req -> AppGraph.text.chat(req) }, assets = catalog)
                 }.getOrElse { return "（分镜生成失败：${it.message?.take(80)}）" }
                 if (result.shots.isEmpty()) return "（AI 未能从剧本拆出镜头，请检查剧本内容后重试）"
-                withContext(Dispatchers.IO) {
-                    runCatching { dao.deleteShotsOf(e) }
-                    for (s in result.shots) {
-                        runCatching {
-                            dao.upsertShot(com.dramafactory.app.data.ShotEntity(
-                                shot_id = "${e}_shot${s.shotNo}", episode_id = e, project_id = pid,
-                                shot_no = s.shotNo, dialogue = s.dialogue, narration = s.narration,
-                                action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
-                                beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
-                                first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
-                                last_asset_ids = "[]",
-                                visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
-                                sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
-                                           else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}"))
-                        }
-                    }
+                // P0：分镜替换禁止"先删旧镜后半写失败"的不可恢复窗口。
+                // 改为先写新镜（upsert 同 id 覆盖）→ 按 episode 读回校验通过 → 才清理多余旧镜。
+                val gate = AppGraph.requireStorageReady()
+                if (gate != null) return "（存储不可用：${gate.userMessage}，诊断 ${gate.diagnosticId}，分镜未落库）"
+                val newShots = result.shots.map { s ->
+                    com.dramafactory.app.data.ShotEntity(
+                        shot_id = "${e}_shot${s.shotNo}", episode_id = e, project_id = pid,
+                        shot_no = s.shotNo, dialogue = s.dialogue, narration = s.narration,
+                        action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
+                        beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
+                        first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
+                        last_asset_ids = "[]",
+                        visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
+                        sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
+                                    else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}")
                 }
+                PersistenceActionExecutor.writeShotsBatch(dao, AppGraph.storageGuard, e, newShots, "gen_shots")
                 val noAssetNote = if (catalog.isEmpty())
                     "；⚠ 本项目还没有已生成图像的角色/场景资产，分镜未引用任何资产（渲染将回退项目级前4张），请先到资产页把资产图生成出来再重生成" else ""
                 "已生成 ${result.shots.size} 条分镜$noAssetNote（去「分镜」标签查看）"
@@ -475,6 +478,37 @@ class AiAssistantViewModel : ViewModel() {
         }
     }
 
+    /**
+     * P0 动作可靠性：结构化信封执行入口（流式路径经 [ActionEnvelope] 路由）。
+     * 先过存储闸门（被阻断返回 BLOCKED），再走 [handleAction]，任何异常转为 FAILED，
+     * 绝不把"存储不可用 / 写入未验证"伪装成成功文案。
+     */
+    private suspend fun handleEnvelope(env: ActionEnvelope): ActionResult {
+        AppGraph.requireStorageReady()?.let { gate ->
+            return ActionResult(
+                env.actionId, ActionStatus.BLOCKED,
+                "（存储不可用：${gate.userMessage}，诊断 ${gate.diagnosticId}，动作已中止，未写入任何数据）",
+                errorCode = gate.code,
+            )
+        }
+        val intent = ActionIntent(env.verb, env.args)
+        val outcome = runCatching { handleAction(intent) }
+        val message = outcome.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: if (outcome.isFailure) "（动作执行失败：${outcome.exceptionOrNull()?.message?.take(120) ?: "未知异常"}）"
+            else "（无法执行：${env.verb}）"
+        val isFailure = outcome.isFailure || message.startsWith("（") || message.startsWith("⚠")
+        return ActionResult(
+            actionId = env.actionId,
+            status = if (isFailure) ActionStatus.FAILED else ActionStatus.SUCCEEDED,
+            message = message,
+            errorCode = when {
+                outcome.isFailure -> "ACTION_EXCEPTION"
+                message.startsWith("（") || message.startsWith("⚠") -> "ACTION_FAILED"
+                else -> null
+            },
+        )
+    }
+
     /** 流式发送：逐段更新气泡，并把 App 动作结果放入卡片流。 */
     fun sendStreamingMessage(text: String) {
         if (text.isBlank() || isThinking) return
@@ -496,6 +530,9 @@ class AiAssistantViewModel : ViewModel() {
             }
             val streaming = streamingAssistant ?: StreamingAssistant(
                 AppGraph.textProviderFor(), "",
+                actionContext = ActionContext(currentProjectId, currentEpisodeId),
+                idempotencyStore = com.dramafactory.app.data.RoomActionIdempotencyStore(AppGraph.dao),
+                envelopeHandler = { env -> handleEnvelope(env) },
                 actionHandler = { act -> handleAction(act) },
             ).also { streamingAssistant = it }
             runCatching {

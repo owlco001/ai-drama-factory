@@ -75,6 +75,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dramafactory.core.orchestrate.*
+import com.dramafactory.app.data.PersistenceActionExecutor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.Dispatchers
@@ -188,6 +189,10 @@ class AiPipelineViewModel : ViewModel() {
     /** AI 大脑指令 → 调用 App 能力（端侧执行，返回回显文案；null=无法执行） */
     private suspend fun handleAction(act: ActionIntent, onNotice: (String) -> Unit = {}): String? {
         val dao = com.dramafactory.app.AppGraph.dao
+        // P0 存储闸门：不可用立即失败，不触达 DAO/Provider
+        com.dramafactory.app.AppGraph.requireStorageReady()?.let { gate ->
+            return "（存储不可用：${gate.userMessage}，诊断 ${gate.diagnosticId}，动作已中止，未写入任何数据）"
+        }
         val projectId = _currentProjectId
         val epId = _currentEpisodeId
         return when (act.verb) {
@@ -195,9 +200,13 @@ class AiPipelineViewModel : ViewModel() {
                 val proj = projectId ?: return "（还没有项目，先开工建项目后再设时代红线）"
                 val allowed = act.paramList("allowed")
                 if (allowed.isEmpty()) return "（请告知要放开的器物，例如 allowed=手机,眼镜）"
+                val episode = "${proj}_ep1"
+                val value = "[" + allowed.joinToString(",") { "\"$it\"" } + "]"
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    dao.setEpisodeAllowedCrossEra("${proj}_ep1",
-                        "[" + allowed.joinToString(",") { "\"$it\"" } + "]")
+                    dao.setEpisodeAllowedCrossEra(episode, value)
+                    if (dao.episodeAllowedCrossEra(episode) != value) {
+                        throw IllegalStateException("跨时代设置写入后读回不一致")
+                    }
                 }
                 "已放开跨时代器物：${allowed.joinToString("、")}"
             }
@@ -224,25 +233,23 @@ class AiPipelineViewModel : ViewModel() {
             "remove_asset" -> {
                 val id = act.param("assetId") ?: return null
                 val ids = assetsLogic.removeAssetsCascade(listOf(id))
-                withContext(kotlinx.coroutines.Dispatchers.IO) { for (i in ids) runCatching { dao.deleteAsset(i) } }
+                PersistenceActionExecutor.deleteAssetsVerified(dao, com.dramafactory.app.AppGraph.storageGuard, projectId ?: return "（请先打开项目）", ids, "ai.remove_asset")
                 "已删除资产：$id${if (ids.size > 1) "（含 ${ids.size - 1} 张子卡）" else ""}"
             }
             "remove_asset_batch" -> {
                 val ids = act.paramList("assetIds").ifEmpty { act.paramList("assetId") }
                 if (ids.isEmpty()) return null
                 val all = assetsLogic.removeAssetsCascade(ids)
-                withContext(kotlinx.coroutines.Dispatchers.IO) { for (i in all) runCatching { dao.deleteAsset(i) } }
+                PersistenceActionExecutor.deleteAssetsVerified(dao, com.dramafactory.app.AppGraph.storageGuard, projectId ?: return "（请先打开项目）", all, "ai.remove_asset_batch")
                 "已批量删除 ${all.size} 个资产"
             }
             "edit_asset" -> {
                 val id = act.param("assetId") ?: return null
                 val newPrompt = act.param("prompt") ?: return "（请告知新的描述，例如 prompt=穿红衣的少女）"
                 val pid = projectId ?: return "（还没有项目，先开工建项目）"
-                withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val cur = dao.assetsAllOf(pid).firstOrNull { it.asset_id == id }
-                    if (cur != null) dao.updateAssetLocal(id, cur.source, cur.image_uri, cur.video_uri,
-                        cur.reference_image_uri, newPrompt, System.currentTimeMillis())
-                }
+                val cur = withContext(kotlinx.coroutines.Dispatchers.IO) { dao.assetsAllOf(pid).firstOrNull { it.asset_id == id } }
+                    ?: return "（找不到资产：$id）"
+                PersistenceActionExecutor.updateAssetPromptVerified(dao, com.dramafactory.app.AppGraph.storageGuard, cur, newPrompt, "ai.edit_asset")
                 "已更新资产描述：$id → $newPrompt"
             }
             "review_pass" -> {
@@ -361,6 +368,14 @@ class AiPipelineViewModel : ViewModel() {
             statusMsg = statusErr("运行异常：" + (e.message ?: e.javaClass.simpleName))
             isRunning = false
         }) {
+            // P0 存储闸门：流水线落库前置检查，被阻断直接失败，绝不启动空跑写库
+            val gate = com.dramafactory.app.AppGraph.requireStorageReady()
+            if (gate != null) {
+                statusMsg = statusErr("存储不可用：${gate.userMessage}（诊断 ${gate.diagnosticId}），流水线未启动，未写入任何数据")
+                isRunning = false
+                onFinish(null)
+                return@launch
+            }
             val orchestrator = com.dramafactory.app.AppGraph.aiOrchestrator
             val res = orchestrator.run(script, brief = brief, onAutoCreatedProject = { p, e ->
                 _currentProjectId = p
@@ -371,11 +386,15 @@ class AiPipelineViewModel : ViewModel() {
                 android.util.Log.d("DramaAI", "run onSuccess ep=${run.episodeId} success=${run.success} errs=${run.errors.size}")
                 statusMsg = if (run.success) statusOk("全流程完成，共 ${run.errors.size} 条异常")
                 else statusErr("流水线异常：" + run.errors.firstOrNull()?.msg)
-                finishedEpId = run.episodeId.takeIf { it.isNotBlank() }
-                onFinish(finishedEpId)
-                // 自动接力：等渲染完成 → 合成成片 → 展示
-                if (finishedEpId != null) pollRenderAndCompose(finishedEpId!!)
-                else android.util.Log.w("DramaAI", "finishedEpId 为空，未启动渲染轮询")
+                if (run.success) {
+                    finishedEpId = run.episodeId.takeIf { it.isNotBlank() }
+                    onFinish(finishedEpId)
+                    if (finishedEpId != null) pollRenderAndCompose(finishedEpId!!)
+                    else android.util.Log.w("DramaAI", "finishedEpId 为空，未启动渲染轮询")
+                } else {
+                    finishedEpId = null
+                    onFinish(null)
+                }
             }.onFailure { e ->
                 android.util.Log.e("DramaAI", "run onFailure", e)
                 statusMsg = when (e) {

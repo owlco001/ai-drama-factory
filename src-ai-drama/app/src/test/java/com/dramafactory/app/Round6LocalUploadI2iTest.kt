@@ -44,6 +44,9 @@ class Round6LocalUploadI2iTest {
         val shots = mutableListOf<com.dramafactory.app.data.ShotEntity>()
         var episode: com.dramafactory.app.data.EpisodeEntity? = null
 
+        override suspend fun reserveAction(key: com.dramafactory.app.data.ActionIdempotencyEntity): Long = 1L
+        override suspend fun completeAction(key: String, updatedAt: Long) {}
+        override suspend fun releaseAction(key: String) {}
         override suspend fun upsertProject(p: com.dramafactory.app.data.ProjectEntity) {}
         override suspend fun listProjects() = emptyList<com.dramafactory.app.data.ProjectEntity>()
         override suspend fun project(id: String): com.dramafactory.app.data.ProjectEntity? = null

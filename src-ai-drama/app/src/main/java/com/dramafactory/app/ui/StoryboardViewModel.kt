@@ -3,6 +3,7 @@ package com.dramafactory.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dramafactory.app.AppGraph
+import com.dramafactory.app.data.PersistenceActionExecutor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -107,35 +108,21 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
 
-        // 落库：清旧镜 → 写新镜（assetIds 落 first_asset_ids JSON 数组，渲染时据此拉图入锁脸）
-        val deleteError = withContext(Dispatchers.IO) {
-            runCatching { AppGraph.dao.deleteShotsOf(episodeId) }.exceptionOrNull()
-        }
-        if (deleteError != null) {
-            _state.value = _state.value.copy(generating = false,
-                message = "清理旧分镜失败，已停止保存新结果：${deleteError.message ?: deleteError.javaClass.simpleName}")
+        val entities = result.shots.map { s -> com.dramafactory.app.data.ShotEntity(
+            shot_id = "${episodeId}_shot${s.shotNo}",
+            episode_id = episodeId, project_id = projectId, shot_no = s.shotNo,
+            dialogue = s.dialogue, narration = s.narration,
+            action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
+            beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
+            first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds), last_asset_ids = "[]",
+            visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
+            sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass" else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}",
+        ) }
+        try {
+            PersistenceActionExecutor.writeShotsBatch(AppGraph.dao, AppGraph.storageGuard, episodeId, entities, "storyboard.generate")
+        } catch (e: Throwable) {
+            _state.value = _state.value.copy(generating = false, message = "分镜保存失败：${e.message ?: e.javaClass.simpleName}")
             return@launch
-        }
-        for (s in result.shots) {
-            val saveError = withContext(Dispatchers.IO) {
-                runCatching { AppGraph.dao.upsertShot(com.dramafactory.app.data.ShotEntity(
-                    shot_id = "${episodeId}_shot${s.shotNo}",
-                    episode_id = episodeId, project_id = projectId, shot_no = s.shotNo,
-                    dialogue = s.dialogue, narration = s.narration,
-                    action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
-                    beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
-                    first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
-                    last_asset_ids = "[]",
-                    visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
-                    sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass"
-                               else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}",
-                )) }.exceptionOrNull()
-            }
-            if (saveError != null) {
-                _state.value = _state.value.copy(generating = false,
-                    message = "分镜已生成但保存第${s.shotNo}镜失败：${saveError.message ?: saveError.javaClass.simpleName}")
-                return@launch
-            }
         }
         refresh()
         val errCount = result.gateErrors.size
@@ -170,27 +157,32 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         shotId: String, action: String, dialogue: String?, narration: String?,
         visualPrompt: String?, durationSeconds: Double,
     ) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            runCatching {
-                AppGraph.dao.shotKeyframes(shotId)?.let { row ->
-                    AppGraph.dao.upsertShot(row.copy(
-                        action = action.trim(),
-                        dialogue = dialogue?.trim()?.ifBlank { null },
-                        narration = narration?.trim()?.ifBlank { null },
-                        visual_prompt = visualPrompt?.trim()?.ifBlank { null },
-                        duration_seconds = durationSeconds.coerceIn(1.0, 60.0),
-                    ))
-                }
+        val failure = runCatching {
+            withContext(Dispatchers.IO) {
+                val row = AppGraph.dao.shotKeyframes(shotId)
+                    ?: error("找不到分镜：$shotId")
+                AppGraph.dao.upsertShot(row.copy(
+                    action = action.trim(), dialogue = dialogue?.trim()?.ifBlank { null },
+                    narration = narration?.trim()?.ifBlank { null }, visual_prompt = visualPrompt?.trim()?.ifBlank { null },
+                    duration_seconds = durationSeconds.coerceIn(1.0, 60.0)))
+                val back = AppGraph.dao.shotKeyframes(shotId)
+                check(back?.action == action.trim()) { "分镜编辑后读回不一致：$shotId" }
             }
-        }
+        }.exceptionOrNull()
         refresh()
-        _state.value = _state.value.copy(message = "已保存镜头修改✓")
+        _state.value = _state.value.copy(message = failure?.let { "保存分镜失败：${it.message}" } ?: "已保存镜头修改✓")
     }
 
     /** 删除单镜 */
     fun deleteShot(shotId: String) = viewModelScope.launch {
-        withContext(Dispatchers.IO) { runCatching { AppGraph.dao.deleteShot(shotId) } }
+        val failure = runCatching {
+            withContext(Dispatchers.IO) {
+                AppGraph.dao.deleteShot(shotId)
+                check(AppGraph.dao.shotKeyframes(shotId) == null) { "分镜删除后仍可读回：$shotId" }
+            }
+        }.exceptionOrNull()
         refresh()
+        if (failure != null) _state.value = _state.value.copy(message = "删除分镜失败：${failure.message}")
     }
 
     /**

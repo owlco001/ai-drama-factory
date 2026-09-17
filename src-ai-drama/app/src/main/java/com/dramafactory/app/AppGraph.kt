@@ -9,7 +9,11 @@ import com.dramafactory.app.data.BrokenMovieLibraryDao
 import com.dramafactory.app.data.DramaDatabase
 import com.dramafactory.app.data.MovieLibraryDao
 import com.dramafactory.app.data.RoomCheckpointStore
+import com.dramafactory.app.data.PersistenceActionExecutor
 import com.dramafactory.app.security.AndroidKeyVault
+import com.dramafactory.app.storage.DefaultStorageGuard
+import com.dramafactory.app.storage.StorageGuard
+import com.dramafactory.app.storage.StorageState
 import com.dramafactory.core.assemble.MovieAssembler
 import com.dramafactory.core.assemble.MovieAssemblerImpl
 import com.dramafactory.core.assemble.androidFfmpegKitExecutor
@@ -164,6 +168,16 @@ object AppGraph {
     fun applyAgnesRegion() = rebuildAgnes()
     lateinit var dao: com.dramafactory.app.data.DramaDao; internal set
     lateinit var movieLibraryDao: MovieLibraryDao; internal set
+
+    /**
+     * P0 持久化可靠性：存储闸门。Room 初始化失败时发布 [StorageState.Blocked]，
+     * 所有 AI/渲染入口在触达 DAO/Provider 前调用 [requireStorageReady]，被阻断即返回失败、
+     * 不得发起任何写入或 Provider 请求。
+     */
+    val storageGuard: StorageGuard = DefaultStorageGuard()
+
+    /** 非 Ready 返回阻断状态（null = Ready）。入口据此返回结构化失败而不抛异常。 */
+    fun requireStorageReady(): StorageState.Blocked? = storageGuard.blockedState()
 
     /**
      * v1.9.2：App 生命周期级的后台协程作用域（SupervisorJob + IO）。
@@ -381,6 +395,10 @@ object AppGraph {
     /** 入渲染队（按分镜生成视频任务） */
     internal suspend fun enqueueRenderFor(episodeId: String, shots: List<DefaultAiOrchestrator.AiShot>): Int {
         val projectId = episodeId.substringBeforeLast("_ep").ifBlank { episodeId }
+        // P0 存储闸门：渲染入口前置检查，被阻断直接失败，不触达 DAO/Provider
+        requireStorageReady()?.let { gate ->
+            throw com.dramafactory.app.storage.StorageUnavailableException(gate.code, gate.userMessage, gate.diagnosticId)
+        }
         // v1.7.2：问题1b——渲染前确保角色/场景资产已生图，否则各镜失去参考图→长相漂移。
         // 缺失 remote_url 的资产在此补齐生成（走 Agnes 生图），保证一致性锁脸有图可注入。
         runCatching {
@@ -396,7 +414,7 @@ object AppGraph {
                         provider = agnes, kind = a.kind,
                         basePrompt = enrichAssetPrompt(a.kind, a.prompt), preset = preset)
                 }.getOrNull() ?: continue
-                runCatching { dao.setAssetRemoteUrl(a.asset_id, url, System.currentTimeMillis()) }
+                PersistenceActionExecutor.setAssetRemoteUrlVerified(dao, storageGuard, a.asset_id, url, "render.asset:${a.asset_id}")
             }
         }
         val metas = shots.map {
@@ -408,8 +426,13 @@ object AppGraph {
     }
 
     /** 合成成片（渲染任务齐全后） */
-    internal suspend fun composeFilmFor(episodeId: String, ctx: Context): java.io.File? =
-        composeFilmIfReady(episodeId, ctx)
+    internal suspend fun composeFilmFor(episodeId: String, ctx: Context): java.io.File? {
+        // P0 存储闸门：AI 成片入口前置检查
+        requireStorageReady()?.let { gate ->
+            throw com.dramafactory.app.storage.StorageUnavailableException(gate.code, gate.userMessage, gate.diagnosticId)
+        }
+        return composeFilmIfReady(episodeId, ctx)
+    }
 
     /** 完整流水线：用户说"开工/生成整部短剧"时调用（自动建项目+集、跑提取→图→分镜→渲染）
      * @param onEvent 五阶段实时进度回调（每条 ProgressEvent.message 推给 UI，实现"主动汇报进度"） */
@@ -510,15 +533,28 @@ object AppGraph {
                 }
             try {
                 val db = DramaDatabase.get(app)
+                db.openHelper.writableDatabase
                 dao = db.dao()
                 movieLibraryDao = db.movieLibraryDao()
                 checkpointStore = RoomCheckpointStore(dao)
+                (storageGuard as? DefaultStorageGuard)?.let { it.ready() }
             } catch (t: Throwable) {
-                Log.e("AppGraph", "room init failed, fallback in-memory", t)
+                // P0：Room 初始化失败不再以 no-op 的 Broken DAO 静默运行——发布 StorageState.Blocked，
+                // 只记录脱敏诊断 id；dao 仍是显式失败的 BrokenDramaDao（第二道安全网），
+                // 任何绕过闸门的写入都会立刻抛 StorageUnavailableException 而非假成功。
+                val diag = "diag_" + System.currentTimeMillis()
+                Log.e("AppGraph", "room init failed, storage blocked ($diag)", t)
                 dao = BrokenDramaDao()
                 movieLibraryDao = BrokenMovieLibraryDao()
                 checkpointStore = com.dramafactory.core.storage.InMemoryCheckpointStore()
                 roomInitError = t.message ?: t.javaClass.name
+                (storageGuard as? DefaultStorageGuard)?.let {
+                    it.block(
+                        code = "ROOM_INIT_FAILED",
+                        userMessage = "本地存储初始化失败，AI 助手无法保存项目/剧本/资产/分镜，请重启应用后重试",
+                        diagnosticId = diag,
+                    )
+                }
             }
             // v1.8.8：预热 Agnes 服务站点（中国站/国际站），再按当前 region 构建 video/image provider
             com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion = kotlinx.coroutines.runBlocking {

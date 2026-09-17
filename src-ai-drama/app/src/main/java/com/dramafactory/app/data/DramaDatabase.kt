@@ -7,6 +7,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Transaction
 
 /**
  * Room实体×6 —— 与架构§5建表SQL逐句对应（drama_factory.db, WAL）。
@@ -143,6 +144,13 @@ data class EpisodeEntity(
     val allowed_cross_era: String = "[]",
 )
 
+@Entity(tableName = "action_idempotency")
+data class ActionIdempotencyEntity(
+    @PrimaryKey val idempotency_key: String,
+    val state: String = "RESERVED",
+    val updated_at: Long,
+)
+
 /** 第十三轮：分镜预览用渲染状态投影 */
 data class RenderStateRow(
     @ColumnInfo(name = "shot_id") val shotId: String,
@@ -163,6 +171,12 @@ data class AssetQualityRow(
 
 @Dao
 interface DramaDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun reserveAction(key: ActionIdempotencyEntity): Long
+    @Query("UPDATE action_idempotency SET state='COMPLETED', updated_at=:updatedAt WHERE idempotency_key=:key")
+    suspend fun completeAction(key: String, updatedAt: Long)
+    @Query("DELETE FROM action_idempotency WHERE idempotency_key=:key AND state='RESERVED'")
+    suspend fun releaseAction(key: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertProject(p: ProjectEntity)
     @Query("SELECT * FROM projects ORDER BY created_at DESC") suspend fun listProjects(): List<ProjectEntity>
     @Query("SELECT * FROM projects WHERE project_id=:id") suspend fun project(id: String): ProjectEntity?
@@ -226,6 +240,13 @@ interface DramaDao {
     @Query("DELETE FROM shots WHERE episode_id=:episodeId") suspend fun deleteShotsOf(episodeId: String)
     /** 第十二轮：删除单镜 */
     @Query("DELETE FROM shots WHERE shot_id=:shotId") suspend fun deleteShot(shotId: String)
+
+    @Transaction
+    suspend fun replaceShotsAtomically(episodeId: String, shots: List<ShotEntity>) {
+        shots.forEach { upsertShot(it) }
+        val keep = shots.map { it.shot_id }.toSet()
+        shotsOf(episodeId).filter { it.shot_id !in keep }.forEach { deleteShot(it.shot_id) }
+    }
 
     /** 第十三轮：本集全部镜的渲染结果（分镜页预览用） */
     @Query("SELECT shot_id, state, local_file_uri FROM render_tasks WHERE episode_id=:episodeId")

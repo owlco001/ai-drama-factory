@@ -19,15 +19,18 @@ package com.dramafactory.core.quality
  */
 object AssetPromptEnricher {
 
-    /** 各类型扩写的侧重点（注入系统指令），只描述主体自身 */
+    /** 各类型扩写的侧重点（注入系统指令），只描述主体自身。
+     * 朝代信息由 [instruction] 的 eraLabel 注入，这里不再写死汉代服饰/器物——
+     * 避免与 eraLabel（唐代/宋代等）冲突，成为跨朝代污染源。
+     */
     private fun kindFocus(kind: String): String = when (kind.lowercase()) {
         AssetPromptBuilder.KIND_CHARACTER ->
-            "人物：汉代衣冠形制（深衣/曲裾/直裾/冠巾）、发式、面料质地（麻葛/丝帛）、体型年龄神态、单人平视；" +
+            "人物：符合当前时代设定的服饰形制与发式、面料质地、体型年龄神态、单人平视；" +
             "只考虑这一个人本身；双手必须空置、自然下垂，不描述任何手持的器物、兵器、刀剑、简牍、书卷、杯盏、杖或道具"
         AssetPromptBuilder.KIND_SCENE ->
-            "场景：木构与夯土建筑、空间陈设、道具器物、时辰天光与氛围；这是空场空镜，绝不出现任何人物"
+            "场景：符合当前时代设定的建筑形制、空间陈设、道具器物、时辰天光与氛围；这是空场空镜，绝不出现任何人物"
         AssetPromptBuilder.KIND_PROP ->
-            "器物：形制、材质与工艺（简牍竹简/青铜/漆木/陶器/麻葛丝帛）、尺寸比例、孤立单件；绝不出现人物或手持的人手"
+            "器物：符合当前时代设定的形制、材质与工艺、尺寸比例、孤立单件；绝不出现人物或手持的人手"
         else -> "主体本身"
     }
 

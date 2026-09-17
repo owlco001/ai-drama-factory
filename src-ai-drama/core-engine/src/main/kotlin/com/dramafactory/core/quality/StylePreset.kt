@@ -205,7 +205,7 @@ data class StylePreset(
         val pos = if (suffixOverride.isNullOrBlank()) listOf(globalPromptSuffix, eraPos).filter { it.isNotBlank() }.joinToString(" ")
                   else listOf(eraPos, suffixOverride).filter { it.isNotBlank() }.joinToString(" ")
         val allowedNote = if (allowed.isNotEmpty())
-            "。本镜依剧本设定允许出现跨时代器物：${allowed.joinToString("、")}；其余仍须符合西汉风貌" else ""
+            "。本镜依剧本设定允许出现跨时代器物：${allowed.joinToString("、")}；其余仍须符合本剧时代风貌" else ""
         return buildString {
             append(basePrompt)
             if (pos.isNotBlank()) append("。$pos")
@@ -221,6 +221,37 @@ data class StylePreset(
         (globalNegativePrompt + effectiveForbidden(allowed)).distinct().joinToString(", ")
 
     /**
+     * 资产图正向红线（随当前 preset 的朝代动态生成）。
+     *
+     * ★污染修复：此前的 [eraPositiveScene]/[eraPositiveCharacter]/[eraPositiveProp] 写死为
+     * 西汉常量，而 [EraDetector.PRESETS] 里唐/宋/明/清等 preset 构造时只覆盖了 [era.positive]
+     * （完整版，走视频端），**未覆盖这三段资产图分家版** → 这些朝代的场景/角色/道具卡红线
+     * 仍是「西汉末年至新莽」，与剧本朝代冲突，正是「场景卡时代红线污染」的根因。
+     *
+     * 本方法以 [era.label] 为唯一事实源：
+     * - 西汉（默认 cinema）仍走精编详细常量，保留木构/简牍/青铜等正向引导，避免回归。
+     * - 其余朝代用「本剧设定为 {era.label} …该时代风貌」通用版，彻底消除跨朝代污染。
+     * - 「无电力、无工业、无现代器物」仅在 [era.negative] 非空时附加（modern/fantasy 不禁现代物）。
+     */
+    fun eraPositiveFor(kind: String): String {
+        val label = era.label
+        val isHan = label.contains("西汉") || label.contains("新莽")
+        val noModern = if (era.negative.isEmpty()) "" else "；无电力、无工业、无现代器物"
+        return when (kind.trim().lowercase()) {
+            AssetPromptBuilder.KIND_CHARACTER ->
+                if (isHan) eraPositiveCharacter else
+                    "【严格历史时代约束】本剧设定为$label，图中人物的服饰形制、发式冠巾、面料质地必须严格符合该时代风貌$noModern。只描绘这一个人本身：不得描绘任何背景、环境、建筑、陈设、器物、火光或其他角色；双手自然垂于身侧且完全空置，不持握任何器物、兵器、刀剑、简牍、书卷、杯盏、杖或其他物件。"
+            AssetPromptBuilder.KIND_SCENE ->
+                if (isHan) eraPositiveScene else
+                    "【严格历史时代约束】本剧设定为$label，画面中的建筑形制、空间陈设与道具器物必须严格符合该时代风貌$noModern。这是空场空镜，画面中不得出现任何人物。"
+            AssetPromptBuilder.KIND_PROP ->
+                if (isHan) eraPositiveProp else
+                    "【严格历史时代约束】本剧设定为$label，该器物的形制、材质与工艺必须严格符合该时代风貌$noModern。只描绘这一件器物本身：不得描绘任何人物、服饰、背景、环境、建筑或其他物件。"
+            else -> era.positive
+        }
+    }
+
+    /**
      * 角色棚拍专用约束（T014 任务1）：在 era 正向约束之外，额外追加纯色无干扰背景指令，
      * 使角色资产与场景/环境解耦。仅用于 [AssetsLogic.Kind.CHARACTER] 类资产。
      */
@@ -229,7 +260,7 @@ data class StylePreset(
         val eraConstrained = withEraConstraints(
             basePrompt, allowed,
             suffixOverride = characterStudioSuffix,
-            eraPositiveOverride = eraPositiveCharacter,
+            eraPositiveOverride = eraPositiveFor(AssetPromptBuilder.KIND_CHARACTER),
         )
         return buildString {
             append(eraConstrained.trimEnd('。', '.', ' ', '　'))
@@ -246,7 +277,7 @@ data class StylePreset(
         val eraConstrained = withEraConstraints(
             basePrompt, allowed,
             suffixOverride = sceneSuffix,
-            eraPositiveOverride = eraPositiveScene)
+            eraPositiveOverride = eraPositiveFor(AssetPromptBuilder.KIND_SCENE))
         return buildString {
             // v1.7.21：era 正文以「。」结尾，直接再拼「。empty location…」会出双句号
             append(eraConstrained.trimEnd('。', '.', ' ', '　'))
@@ -266,7 +297,7 @@ data class StylePreset(
         val eraConstrained = withEraConstraints(
             basePrompt, allowed,
             suffixOverride = propStudioSuffix,
-            eraPositiveOverride = eraPositiveProp,
+            eraPositiveOverride = eraPositiveFor(AssetPromptBuilder.KIND_PROP),
         )
         return buildString {
             append(eraConstrained.trimEnd('。', '.', ' ', '　'))

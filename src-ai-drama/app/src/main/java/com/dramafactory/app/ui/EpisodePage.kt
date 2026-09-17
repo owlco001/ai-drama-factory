@@ -22,6 +22,7 @@ import androidx.compose.ui.res.painterResource
 import com.dramafactory.app.R
 import com.dramafactory.app.ui.components.DramaCard
 import com.dramafactory.app.ui.components.EmptyState
+import com.dramafactory.app.data.PersistenceActionExecutor
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -41,11 +42,10 @@ fun EpisodePage(
 ) {
     val episodes = remember { mutableStateOf<List<com.dramafactory.app.data.EpisodeEntity>>(emptyList()) }
     var creating by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
 
     suspend fun reload() {
-        episodes.value = runCatching {
-            com.dramafactory.app.AppGraph.dao.episodesOf(projectId)
-        }.getOrDefault(emptyList())
+        episodes.value = com.dramafactory.app.AppGraph.dao.episodesOf(projectId)
     }
     LaunchedEffect(projectId) { reload() }
 
@@ -81,17 +81,26 @@ fun EpisodePage(
         }
 
         val scope = androidx.compose.runtime.rememberCoroutineScope()
+        if (createError != null) {
+            Text("新增剧集失败：${createError}", color = MaterialTheme.colorScheme.error)
+        }
         OutlinedButton(
             onClick = {
                 creating = true
                 scope.launch {
-                    runCatching {
+                    try {
                         val nextNo = (com.dramafactory.app.AppGraph.dao.episodesOf(projectId)
                             .maxOfOrNull { it.ep_no } ?: 0) + 1
-                        com.dramafactory.app.AppGraph.dao.upsertEpisode(
+                        PersistenceActionExecutor.writeEpisode(
+                            com.dramafactory.app.AppGraph.dao,
+                            com.dramafactory.app.AppGraph.storageGuard,
                             com.dramafactory.app.data.EpisodeEntity(
                                 episode_id = "${projectId}_ep$nextNo",
-                                project_id = projectId, ep_no = nextNo))
+                                project_id = projectId, ep_no = nextNo),
+                            "episode.create")
+                    } catch (e: Throwable) {
+                        createError = e.message ?: e.javaClass.simpleName
+                        android.util.Log.e("EpisodePage", "create episode failed", e)
                     }
                     reload()
                     creating = false

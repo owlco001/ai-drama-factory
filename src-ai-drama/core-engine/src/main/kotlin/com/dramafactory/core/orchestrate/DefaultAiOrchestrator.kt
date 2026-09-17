@@ -162,9 +162,11 @@ class DefaultAiOrchestrator(
             throw AiOrchestrator.AiError.StageFailed("当前无进行中的编排", fromStage, "no running episode")
         }
         // ★F4 修复：续跑时读回真实剧本（episodes.script_json），不再用 "RETRY_STUB" 占位。
-        // 若读不到真实脚本（如 :app 层未接线 / 记录缺失）才退化为占位，避免对空脚本烧 token。
-        val script = runCatching { readScript(epId) }.getOrElse { "" }.ifBlank { "RETRY_STUB".repeat(10) }
-        return runStages(script, "default",
+        val script = try { readScript(epId) } catch (t: Throwable) {
+            return Result.failure(AiOrchestrator.AiError.StageFailed("续跑剧本读取失败", fromStage, t.message ?: t.javaClass.simpleName))
+        }
+        if (script.isBlank()) return Result.failure(AiOrchestrator.AiError.StageFailed("续跑剧本为空", fromStage, "empty script"))
+        return runStages(script, activeTextModelIdProvider(),
             { _, _ -> }, fromStage)
     }
 
@@ -218,8 +220,16 @@ class DefaultAiOrchestrator(
                 emit(PipelineStage5.GENERATE_IMAGES, 0, "开始生成图像…", stG)
                 var imgOk = 0
                 for ((i, a) in assets.withIndex()) {
-                    val imageResult = runCatching { generateImage(a) }
-                        .getOrElse { Result.failure(it) }
+                    // P0：生成回调返回 Result.failure（如网络/模型失败）→ 标红放行；
+                    // 但**抛出**的异常（如 URL 回填读回不一致、存储闸门拦截）必须向上传播，
+                    // 让 PipelineRun 进入失败契约，绝不把持久化失败当成可忽略的图像失败继续。
+                    val imageResult = try {
+                        generateImage(a)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t: Throwable) {
+                        throw t
+                    }
                     if (imageResult.isSuccess) imgOk++
                     else {
                         val cause = imageResult.exceptionOrNull()?.message ?: "unknown image generation failure"

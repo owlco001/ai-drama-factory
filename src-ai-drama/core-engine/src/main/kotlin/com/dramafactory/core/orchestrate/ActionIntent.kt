@@ -56,10 +56,12 @@ fun parseActions(text: String): List<ActionIntent> {
     return out
 }
 
-/** 已知的动作 verb（用于系统 prompt 提示 LLM，覆盖全部可调控功能） */
+/** 已知的动作 verb（用于系统 prompt 提示 LLM，覆盖全部可调控功能）。
+ * P0 动作可靠性：未知 verb 在信封解码层 fail-closed（BLOCKED），这里必须是白名单全集。 */
 val KNOWN_ACTIONS: List<String> = listOf(
-    "new_project", "open_project", "set_script",
+    "new_project", "open_project", "set_script", "test_drama",
     "extract_assets", "generate", "stop_generate", "remove_asset", "edit_asset",
     "review_pass", "review_all_pass", "build_pose_pack", "set_cross_era", "list_assets",
-    "gen_shots", "render", "compose_film", "run_pipeline", "goto",
+    "gen_shots", "render", "render_status", "render_pause", "render_resume",
+    "compose_film", "run_pipeline", "model_status", "goto",
 )

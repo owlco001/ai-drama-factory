@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 103
-        versionName = "1.9.33"  // v1.9.33：AI 编排阶段异常隔离与流水线稳定性修复
+        versionCode = 104
+        versionName = "1.9.34"  // v1.9.34：AI 助手持久化可靠性（写后读回）+ 动作协议 + 跨朝代红线修复
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -173,6 +173,8 @@ dependencies {
     // 否则 espresso 会往测试 APK 注入 <uses-library android.test.mock required=true>，
     // MuMu 模拟器不暴露该共享库，导致 INSTALL_FAILED_MISSING_SHARED_LIBRARY。
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    // Room真实迁移辅助器（androidTest）：用于验证旧schema数据保留
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
 }
 
 // v1.7.13：导出 Room schema 历史到 app/schemas/。

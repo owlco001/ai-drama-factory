@@ -486,18 +486,18 @@ class ProjectsViewModel : ViewModel() {
 
     // ---- Room IO ----
     private suspend fun ioPersist(name: String, novel: String?): String = withContext(Dispatchers.IO) {
-        val projectId = "p_${System.currentTimeMillis()}"
-        AppGraph.dao.upsertProject(com.dramafactory.app.data.ProjectEntity(
-            project_id = projectId, name = name, created_at = System.currentTimeMillis()))
+        val projectId = com.dramafactory.app.data.PersistenceActionExecutor
+            .writeProject(AppGraph.dao, AppGraph.storageGuard, name, "projects.create").entityIds.single()
         if (novel != null) {
             val epId = "${projectId}_ep1"
             // 剧本模式：script_json存剧本原文；stage_flags标记SCRIPT_MODE，
             // 资产页据此跳过文本分析直接进分镜编辑（AssetsViewModel读取该标志）
             val isScript = logic.state.value.importMode == ProjectsLogic.ImportMode.SCRIPT
             val flags = if (isScript) """{"script_mode":true,"scene_hint":${logic.state.value.sceneHint}}""" else "{}"
-            AppGraph.dao.upsertEpisode(com.dramafactory.app.data.EpisodeEntity(
-                episode_id = epId, project_id = projectId, ep_no = 1,
-                script_json = novel.take(100_000), stage_flags = flags))
+            com.dramafactory.app.data.PersistenceActionExecutor.writeEpisode(AppGraph.dao, AppGraph.storageGuard,
+                com.dramafactory.app.data.EpisodeEntity(episode_id = epId, project_id = projectId, ep_no = 1,
+                    script_json = novel.take(100_000), stage_flags = flags), "projects.create.episode",
+                expectedScript = novel.take(100_000))
         }
         projectId
     }
@@ -556,6 +556,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         // 资产卡 LLM 扩写：把裸名词扩成符合时代红线的视觉描述（core 的 AssetPromptEnricher + 已接好的文本模型）。
         enrichHandler = { card ->
             withContext(Dispatchers.IO) {
+                AppGraph.storageGuard.requireReady()
                 val preset = eraPreset
                 val kindKey = when (card.kind) {
                     AssetsLogic.Kind.CHARACTER -> "character"
@@ -565,7 +566,6 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 }
                 val enriched = com.dramafactory.core.quality.AssetPromptEnricher.enrich(
                     chat = { msg ->
-                        // chat(): ChatResponse（非 Result）——用 runCatching 兜住 401/超时等，避免抛穿
                         runCatching {
                             AppGraph.text.chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
                                 com.dramafactory.core.model.ChatMessage("user", msg))))
@@ -577,18 +577,25 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             }
         }
         reviewPersist = { assetId, st ->
-            withContext(Dispatchers.IO) { AppGraph.dao.setReviewState(assetId, st) }
+            withContext(Dispatchers.IO) {
+                com.dramafactory.app.data.PersistenceActionExecutor.setReviewStateVerified(
+                    AppGraph.dao, AppGraph.storageGuard, assetId, st, projectId, "asset.review")
+            }
         }
         // ★第十一轮：生成结果落盘——内存卡与assets表双写，进程被杀不丢图
         generateResultPersist = { assetId, url ->
             withContext(Dispatchers.IO) {
-                runCatching { AppGraph.dao.setAssetRemoteUrl(assetId, url, System.currentTimeMillis()) }
+                com.dramafactory.app.data.PersistenceActionExecutor.setAssetRemoteUrlVerified(
+                    AppGraph.dao, AppGraph.storageGuard, assetId, url, "asset.remote_url")
             }
         }
         // v1.9.12：LLM 扩写视觉描述落盘（assets.enriched_prompt）——ensureEnriched/polish 实时扩写后双写
         enrichedPersist = { assetId, text ->
             withContext(Dispatchers.IO) {
-                runCatching { AppGraph.dao.setAssetEnrichedPrompt(assetId, text, System.currentTimeMillis()) }
+                AppGraph.storageGuard.requireReady()
+                AppGraph.dao.setAssetEnrichedPrompt(assetId, text, System.currentTimeMillis())
+                val saved = AppGraph.dao.assetsAllOf(projectId).firstOrNull { it.asset_id == assetId }
+                check(saved?.enriched_prompt == text) { "扩写提示词写入后读回不一致：$assetId" }
             }
         }
     }
@@ -780,7 +787,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         // 第十轮：大模型自动提取优先（agnes-2.5-flash 出结构化JSON），正则兜底
         _extractMessage.value = "正在用大模型分析文本提取资产…"
         var seq = 0
-        val idGen = { "sa_${System.currentTimeMillis()}_${seq++}" }
+        val idGen = { "sa_${java.util.UUID.randomUUID()}_${seq++}" }
         // LLM 提取仅在引擎就绪时启用（测试/未配置key环境直接走正则兜底，不发起网络）
         val llmReady = AppGraph.isInitialized && AppGraph.agnesKeyReady()
         val llm = if (llmReady) runCatching {
@@ -816,9 +823,10 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         // 对新增且未生成的卡片触发生成并落库（v1.9.2：生成挂后台scope，切走也不丢）
         for (card in logic.assets.value.filter { it.remoteUrl == null && it.assetId.startsWith("sa_") }) {
             withContext(Dispatchers.IO) {
-                AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                com.dramafactory.app.data.PersistenceActionExecutor.writeAsset(AppGraph.dao, AppGraph.storageGuard,
+                    com.dramafactory.app.data.AssetEntity(
                     asset_id = card.assetId, project_id = projectId, kind = card.kind.name.lowercase(),
-                    prompt = card.prompt, updated_at = System.currentTimeMillis()))
+                    prompt = card.prompt, updated_at = System.currentTimeMillis()), "asset.extract")
             }
             AppGraph.backgroundScope.launch { logic.generate(card.assetId) }
         }
@@ -834,9 +842,10 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     fun add(assetId: String, kind: AssetsLogic.Kind, prompt: String) = viewModelScope.launch {
         logic.addAsset(assetId, kind, prompt)
         withContext(Dispatchers.IO) {
-            AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+            com.dramafactory.app.data.PersistenceActionExecutor.writeAsset(AppGraph.dao, AppGraph.storageGuard,
+                com.dramafactory.app.data.AssetEntity(
                 asset_id = assetId, project_id = projectId, kind = kind.name.lowercase(),
-                prompt = prompt.trim(), updated_at = System.currentTimeMillis()))
+                prompt = prompt.trim(), updated_at = System.currentTimeMillis()), "asset.add")
         }
         AppGraph.backgroundScope.launch { logic.generate(assetId) }   // 添加即触发生成（后台）
     }
@@ -844,7 +853,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     fun remove(assetId: String) = viewModelScope.launch {
         val ids = logic.removeAssetCascade(assetId)
         withContext(Dispatchers.IO) {
-            for (id in ids) runCatching { AppGraph.dao.deleteAsset(id) }
+            com.dramafactory.app.data.PersistenceActionExecutor.deleteAssetsVerified(
+                AppGraph.dao, AppGraph.storageGuard, projectId, ids, "asset.remove")
         }
     }
     /** 第十一轮：停止进行中的生成 */
@@ -854,11 +864,15 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
     fun removeBatch(assetIds: List<String>) = viewModelScope.launch {
         val ids = logic.removeAssetsCascade(assetIds)
         withContext(Dispatchers.IO) {
-            for (id in ids) runCatching { AppGraph.dao.deleteAsset(id) }
+            com.dramafactory.app.data.PersistenceActionExecutor.deleteAssetsVerified(
+                AppGraph.dao, AppGraph.storageGuard, projectId, ids, "asset.remove")
         }
     }
     /** v1.9.2：资产生成挂 AppGraph.backgroundScope——切走标签/离开页面也不打断，跑完即落库 */
-    fun generate(assetId: String) = AppGraph.backgroundScope.launch { logic.generate(assetId) }
+    fun generate(assetId: String) = AppGraph.backgroundScope.launch {
+        AppGraph.storageGuard.requireReady()
+        logic.generate(assetId)
+    }
     /**
      * v1.9.10：手动「润色」——强制用 LLM 重新扩写该资产卡的视觉描述，结果缓存回卡片。
      * 返回扩写文本（供编辑弹窗回填），扩写失败回退裸词时返回 null。
@@ -886,12 +900,12 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             var seq = 0
             logic.buildReferenceSheet(characterId) { "ref_${System.currentTimeMillis()}_${seq++}" }
             for (child in logic.referenceChildrenOf(characterId)) {
-                withContext(Dispatchers.IO) {
-                    AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                val asset = com.dramafactory.app.data.AssetEntity(
                         asset_id = child.assetId, project_id = projectId, kind = "character",
                         parent_id = child.parentId, pose_role = child.poseRole,
-                        prompt = child.prompt, updated_at = System.currentTimeMillis()))
-                }
+                        prompt = child.prompt, updated_at = System.currentTimeMillis())
+                com.dramafactory.app.data.PersistenceActionExecutor.writeAsset(
+                    AppGraph.dao, AppGraph.storageGuard, asset, "build_pose_pack")
                 AppGraph.backgroundScope.launch { logic.generate(child.assetId) }
             }
         }
@@ -903,6 +917,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         val json = "[" + allowed.joinToString(",") { "\"$it\"" } + "]"
         withContext(Dispatchers.IO) {
             AppGraph.dao.setEpisodeAllowedCrossEra("${projectId}_ep1", json)
+            check(AppGraph.dao.episodeAllowedCrossEra("${projectId}_ep1") == json) { "跨时代设置写入后读回不一致" }
         }
     }
 
@@ -929,14 +944,16 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                 // 先 upsert 整行（INSERT OR REPLACE：行不存在也能建卡），再局部UPDATE落URI——
                 // 纯 UPDATE 在行不存在时静默无操作，导致本地上传资产永不持久化（真机刷新即丢）。
                 val promptText = prompt.ifBlank { logic.assets.value.firstOrNull { it.assetId == created }?.prompt } ?: ""
-                AppGraph.dao.upsertAsset(com.dramafactory.app.data.AssetEntity(
+                com.dramafactory.app.data.PersistenceActionExecutor.writeAsset(AppGraph.dao, AppGraph.storageGuard,
+                    com.dramafactory.app.data.AssetEntity(
                     asset_id = created, project_id = projectId, kind = "local",
-                    prompt = promptText, updated_at = System.currentTimeMillis()))
-                AppGraph.dao.updateAssetLocal(
-                    assetId = created, source = "local",
-                    imageUri = imageUri, videoUri = videoUri,
-                    referenceImageUri = null, prompt = promptText,
-                    updatedAt = System.currentTimeMillis())
+                    prompt = promptText, updated_at = System.currentTimeMillis()), "asset.local")
+                com.dramafactory.app.data.PersistenceActionExecutor.updateAssetLocalVerified(
+                    AppGraph.dao, AppGraph.storageGuard,
+                    com.dramafactory.app.data.AssetEntity(
+                        asset_id = created, project_id = projectId, kind = "local",
+                        prompt = promptText, updated_at = System.currentTimeMillis()),
+                    "asset.local", "local", imageUri, videoUri, null, promptText)
             }
         }
         return created
@@ -970,7 +987,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         val changed = logic.editAsset(assetId, newPrompt)
         if (changed) {
             withContext(Dispatchers.IO) {
-                runCatching { AppGraph.dao.updateAssetPrompt(assetId, newPrompt.trim(), System.currentTimeMillis()) }
+                AppGraph.storageGuard.requireReady()
+                AppGraph.dao.updateAssetPrompt(assetId, newPrompt.trim(), System.currentTimeMillis())
             }
         }
         onResult(changed)
