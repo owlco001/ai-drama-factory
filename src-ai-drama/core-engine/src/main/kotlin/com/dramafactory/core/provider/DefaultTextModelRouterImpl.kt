@@ -5,10 +5,11 @@ import com.dramafactory.core.model.ConnectionInfo
 
 /** v1.8.9 隔离实例实现，便于测试与多端隔离 */
 class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelRouter {
-    private var _agnesRegion = AgnesRegion.INTERNATIONAL
+
+    /** v1.8.8：Agnes 服务站点。构造后由 AppGraph/hydrate 同步持久值，保证冷启动正确。 */
+    private var _agnesRegion: AgnesRegion = AgnesRegion.INTERNATIONAL
 
     override fun registeredTextModels(): List<TextModelEntry> {
-        // 拷贝 DefaultTextModelRouter 的 CANDIDATES 逻辑
         val candidates = listOf(
             TextModelEntry(AgnesProvider.MODEL_TEXT, "Agnes 文本 2.5 Flash", "agnes", AgnesProvider.BASE_URL, null, false),
             TextModelEntry(DeepSeekProvider.MODEL, "DeepSeek Chat", DeepSeekProvider.PROVIDER_ID, DeepSeekProvider.BASE_URL, null, false)
@@ -48,7 +49,7 @@ class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelR
             runCatching { store.loadKey(entry.providerId) }.getOrNull()?.isNotBlank() == true
         }
 
-    override suspend fun validate(modelId: String, key: String?): Result<com.dramafactory.core.model.ConnectionInfo> {
+    override suspend fun validate(modelId: String, key: String?): Result<ConnectionInfo> {
         val entry = registeredTextModels().firstOrNull { it.providerId == modelId || it.modelId == modelId }
             ?: return Result.failure(ProviderError.ValidationError("未知的文本模型: $modelId"))
         val useKey = key ?: store.loadKey(entry.providerId)
@@ -63,7 +64,7 @@ class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelR
         return result
     }
 
-    override suspend fun resolve(modelId: String): com.dramafactory.core.provider.TextProvider {
+    override suspend fun resolve(modelId: String): TextProvider {
         val entry = registeredTextModels().firstOrNull { it.providerId == modelId || it.modelId == modelId }
             ?: throw ProviderError.ValidationError("未知的文本模型: $modelId")
         return when (entry.providerId) {

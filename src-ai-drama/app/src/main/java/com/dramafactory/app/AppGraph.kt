@@ -75,7 +75,8 @@ object AppGraph {
      * v1.8.9：Key 按 region 分池（中国站读 agnes-cn-* 候选），并补回 custom-* 候选
      * （v1.8.8 合并构建逻辑时曾丢失，custom 模式 Key 兜底受影响）。 */
     private fun rebuildAgnes() {
-        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        val region = if (::textModelRouter.isInitialized) textModelRouter.currentRegion()
+            else com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL
         agnes = com.dramafactory.core.provider.AgnesProvider(
             apiKeyProvider = {
                 // v1.9.9：KeyVault.load 在 key 不存在时抛 NoSuchElementException，必须吞掉并继续
@@ -98,8 +99,8 @@ object AppGraph {
 
     /** v1.8.9：当前 region 池下是否已配置任一 Agnes Key（LLM 检测/审计闸门的 llmReady 判据） */
     suspend fun agnesKeyReady(): Boolean {
-        if (!::keyVault.isInitialized) return false
-        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        if (!::keyVault.isInitialized || !::textModelRouter.isInitialized) return false
+        val region = textModelRouter.currentRegion()
         return listOf(CONFIG_VIDEO, CONFIG_IMAGE, CONFIG_TEXT, "agnes").any { c ->
             runCatching {
                 keyVault.load(com.dramafactory.core.provider.agnesScopedConfigId(c, region))
@@ -109,8 +110,8 @@ object AppGraph {
 
     /** v1.9.9：当前激活视频供应商是否已配置有效 Key（与 AgnesProvider 运行时 apiKeyProvider 同源） */
     suspend fun hasVideoKey(): Boolean {
-        if (!::keyVault.isInitialized) return false
-        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        if (!::keyVault.isInitialized || !::textModelRouter.isInitialized) return false
+        val region = textModelRouter.currentRegion()
         val active = VideoProviderRouter.activeVideoProviderId()
         val candidates = if (active == "agnes" || active == "custom") {
             // 与 rebuildAgnes 的 apiKeyProvider 完全一致：custom-* → agnes-*
@@ -132,8 +133,8 @@ object AppGraph {
 
     /** v1.9.9：图像通道是否具备可用 Key（与 AgnesProvider 运行时 apiKeyProvider 同源） */
     suspend fun hasImageKey(): Boolean {
-        if (!::keyVault.isInitialized) return false
-        val region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion
+        if (!::keyVault.isInitialized || !::textModelRouter.isInitialized) return false
+        val region = textModelRouter.currentRegion()
         val active = VideoProviderRouter.activeVideoProviderId()
         val candidates = if (active == "agnes" || active == "custom") {
             // 与 rebuildAgnes 的 apiKeyProvider 一致，但图像通道优先 custom-image/agnes-image
@@ -155,7 +156,9 @@ object AppGraph {
 
     /** v1.9.0：视频供应商 configId（按 region 分池，供设置页保存/读取 Key 用） */
     fun videoConfigIdFor(providerId: String): String =
-        VideoProviderRouter.configIdFor(providerId, com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion)
+        VideoProviderRouter.configIdFor(providerId,
+            if (::textModelRouter.isInitialized) textModelRouter.currentRegion()
+            else com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL)
 
     /** v1.9.0：按指定供应商 id 解析 VideoProvider（设置页测试连通/保存候选 Key 用） */
     fun resolveVideoProviderFor(providerId: String, overrideKey: String? = null): com.dramafactory.core.provider.VideoProvider =
@@ -372,7 +375,8 @@ object AppGraph {
         val active = textModelRouter.activeTextModelId()
         return resolveTextProviderFor(active, { cfgId ->
             runCatching { keyVault.load(cfgId) }.getOrNull()?.takeIf { it.isNotBlank() }
-        }, region = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion)
+        }, region = if (::textModelRouter.isInitialized) textModelRouter.currentRegion()
+            else com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL)
     }
 
     /** 从剧本文本提取资产（文字模型走用户自选 DeepSeek 等，key 多候选兜底） */
@@ -556,20 +560,21 @@ object AppGraph {
                     )
                 }
             }
-            // v1.8.8：预热 Agnes 服务站点（中国站/国际站），再按当前 region 构建 video/image provider
-            com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion = kotlinx.coroutines.runBlocking {
-                runCatching { keyVault.load(com.dramafactory.core.provider.PREF_AGNES_REGION) }
-                    .getOrNull()?.takeIf { it.isNotBlank() }
-                    ?.let { runCatching { com.dramafactory.core.provider.AgnesRegion.valueOf(it) }.getOrNull() }
-                    ?: com.dramafactory.core.provider.AgnesRegion.INTERNATIONAL
-            }
-            // 图像/视频统一走 Agnes：key 可能在设置页被存到 agnes / agnes-video / agnes-image 任一 configId，
-            // 这里按候选顺序取第一个非空，避免"设了key但读不到"导致图像/视频生成401失败
+            // v1.8.8：预热 Agnes 服务站点（中国站/国际站），再按当前 region 构建 video/image provider。
+            // v1.8.9：改为经 TextModelRouterFactory 创建隔离实例并 hydrate region，
+            // 消除对 object DefaultTextModelRouter 单例的依赖（测试/多端隔离）。
+            textModelStore = runCatching { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault) }
+                .getOrElse { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = com.dramafactory.core.storage.InMemoryKeyVault()) }
+            textModelRouter = com.dramafactory.core.provider.TextModelRouterFactory.create(
+                keyVault = keyVault, initialStore = textModelStore)
+            // 兼容保留：单例 store/region 跟随实例（迁移期旧引用仍可用）
+            com.dramafactory.core.provider.DefaultTextModelRouter.store = textModelStore
+            com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion = textModelRouter.currentRegion()
             rebuildAgnes()
             // v1.9.0：视频通道供应商路由——按激活供应商动态选适配器（Kling/即梦/Runway/Luma/Pika/agnes/custom）
             VideoProviderRouter.init(
                 keyVault = keyVault,
-                regionProvider = { com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion },
+                regionProvider = { textModelRouter.currentRegion() },
                 agnesProviderProvider = { agnes },
             )
             // v1.9.1：图像通道路由——激活 Agnes 走原生 image 端点，激活其他家退化为 image2video 首帧
@@ -582,28 +587,12 @@ object AppGraph {
             // v1.7.18：按 provider_configs 里已保存的自定义模型重建 provider（"添加后能用"）。
             // 设置页保存自定义模型只落库 + KeyVault，此前运行时从不读表 → 自定义配置形同虚设。
             // 必须在 initialized=true 之后跑（refreshConfiguredProviders 内部早退保护），
-            // 故挂 ioScope 异步执行；init 同步跑到 548 行置位后才轮到它调度。
+            // 故挂 ioScope 异步执行；init 同步跑到置位后才轮到它调度。
             ioScope.launch { refreshConfiguredProviders() }
             budgetGuard = DefaultBudgetGuard()
 
-            textModelStore = runCatching { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = keyVault) }
-                .getOrElse { com.dramafactory.core.provider.InMemoryTextModelStore(keyVault = com.dramafactory.core.storage.InMemoryKeyVault()) }
-            textModelRouter = com.dramafactory.core.provider.DefaultTextModelRouter
-            com.dramafactory.core.provider.DefaultTextModelRouter.store = textModelStore
-            // v1.8.4：激活文本模型已落盘（saveActiveModel 写 KeyVault），这里在 init 同步预热进内存，
+            // v1.8.4：激活文本模型已落盘（saveActiveModel 写 KeyVault），factory 已同步预热进内存，
             // 保证 initialized=true 之前内存已是持久值，避免任何 UI 首帧读到默认 agnes 再跳变。
-            kotlinx.coroutines.runBlocking {
-                runCatching { textModelStore.hydrateActive() }
-                // v1.9.5 修复：Agnes 站点此前只预热了 DefaultTextModelRouter.agnesRegion，
-                // store 内部 region 缓存恒为构造默认值 INTERNATIONAL。冷启动后若持久值为中国站，
-                // 走 router.resolve() 的路径会出现「provider 打中国站 URL，Key 却从国际站池
-                // text-agnes 读取」的错配 → 鉴权失败。这里将已预热的 router 值同步进 store，
-                // 保证两处副本一致（设置页手动切换时本就会同时更新两者，仅冷启动路径缺失）。
-                runCatching {
-                    textModelStore.saveAgnesRegion(
-                        com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion)
-                }
-            }
 
             try {
                 movieAssembler = MovieAssemblerImpl(executor = androidFfmpegKitExecutor())
