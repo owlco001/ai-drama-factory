@@ -77,7 +77,8 @@ object AiStoryboardDirector {
 - 室外→室内、室内→室外或跨地点切换，carry_over 必须写明进入/离开/推门/转场等因果；没有转场依据时保持上一镜环境，不得跳变。
 - 除第一镜外，每镜必须填写 carry_over：明确写出上一镜结束后仍在场的角色、空间、道具状态，或写明可理解的转场因果。禁止从室外无解释跳到室内、从角色无解释跳到静物。
 - asset_ids：剧本或 action/narration 中出现的每个角色、场景、道具，必须且只能从下方【资产目录】的 asset_id 中挑选并写入；不要自己造新名。若文本提及堂屋、庭院、烛台等元素但目录没有对应资产，仍保留镜头并让 carry_over 说明转场，不得编造 asset_id。
-- action 中引用角色时使用资产目录中的“名字”（中文），便于人工对账。"""
+- action 中引用角色时使用资产目录中的“名字”（中文），便于人工对账。
+- 音效、环境声、拟声词（叮、咚、砰、哗啦、嗡嗡、马蹄声等）严禁写入 dialogue 或 narration——dialogue 只能是角色开口说的话；音效写进 action（如"门铃响起，江雪抬头"）。配音会把 dialogue 里的每个字读出来，写"叮咚"角色就会念"叮咚"。"""
 
     private const val DIRECTOR_PROMPT = """你是短剧摄影导演。为每个镜头写一条中文视觉指令（visual字段）。
 只输出严格 JSON：{"visuals":[{"shot_no":1,"visual":"景别+运镜+构图，20-40字"}]}
@@ -258,10 +259,23 @@ $script"""
                 else rawAssetIds.filter { it in validIds }.distinct()
             rawRefs += rawAssetIds.size
             keptRefs += assetIds.size
+            // v1.9.35 音效守卫：AI 把环境音（叮咚等）写进 dialogue/narration 时，
+            // 配音会朗读出来（角色念"叮咚"）——纯音效剥离出对话，降级并入 action。
+            var actionFinal = action
+            val dialogueRaw = str("dialogue").ifBlank { null }
+            val dialogue = when (val d = SoundEffectFilter.classify(dialogueRaw)) {
+                is SoundEffectFilter.Verdict.Strip -> { actionFinal = "$actionFinal（音效：${d.text}）"; null }
+                else -> dialogueRaw
+            }
+            val narrationRaw = str("narration").ifBlank { null }
+            val narration = when (val d = SoundEffectFilter.classify(narrationRaw)) {
+                is SoundEffectFilter.Verdict.Strip -> { actionFinal = "$actionFinal（音效：${d.text}）"; null }
+                else -> narrationRaw
+            }
             out += Shot(
-                shotNo = no, action = action,
-                dialogue = str("dialogue").ifBlank { null },
-                narration = str("narration").ifBlank { null },
+                shotNo = no, action = actionFinal,
+                dialogue = dialogue,
+                narration = narration,
                 durationSeconds = (o["duration_seconds"] as? JsonPrimitive)?.content?.toDoubleOrNull() ?: 6.0,
                 characterNames = chars,
                 assetIds = assetIds,
