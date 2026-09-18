@@ -261,15 +261,28 @@ $script"""
             keptRefs += assetIds.size
             // v1.9.35 音效守卫：AI 把环境音（叮咚等）写进 dialogue/narration 时，
             // 配音会朗读出来（角色念"叮咚"）——纯音效剥离出对话，降级并入 action。
+            // v1.9.37 守卫v2：分类规则扩展（旁白/叠字/BGM 提示），StripPartial 表示
+            // 只剥离括号标注、保留残留真实台词（kept 非空 → dialogue 置 kept）。
             var actionFinal = action
+            fun stripToAction(v: SoundEffectFilter.Verdict.Strip) {
+                actionFinal = "$actionFinal（音效：${v.text}）"
+            }
             val dialogueRaw = str("dialogue").ifBlank { null }
             val dialogue = when (val d = SoundEffectFilter.classify(dialogueRaw)) {
-                is SoundEffectFilter.Verdict.Strip -> { actionFinal = "$actionFinal（音效：${d.text}）"; null }
+                is SoundEffectFilter.Verdict.Strip -> { stripToAction(d); null }
+                is SoundEffectFilter.Verdict.StripPartial -> {
+                    stripToAction(d.let { SoundEffectFilter.Verdict.Strip(it.stripped) })
+                    if (d.kept.isBlank()) null else d.kept
+                }
                 else -> dialogueRaw
             }
             val narrationRaw = str("narration").ifBlank { null }
             val narration = when (val d = SoundEffectFilter.classify(narrationRaw)) {
-                is SoundEffectFilter.Verdict.Strip -> { actionFinal = "$actionFinal（音效：${d.text}）"; null }
+                is SoundEffectFilter.Verdict.Strip -> { stripToAction(d); null }
+                is SoundEffectFilter.Verdict.StripPartial -> {
+                    stripToAction(d.let { SoundEffectFilter.Verdict.Strip(it.stripped) })
+                    if (d.kept.isBlank()) null else d.kept
+                }
                 else -> narrationRaw
             }
             out += Shot(
