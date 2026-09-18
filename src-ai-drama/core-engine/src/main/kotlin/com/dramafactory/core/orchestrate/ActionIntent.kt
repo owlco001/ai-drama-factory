@@ -31,29 +31,58 @@ data class ActionIntent(
     }
 }
 
-/** 从 AI 回复文本里解析所有 [ACT] 指令（容错：坏行跳过不抛） */
+/** 从 AI 回复文本里解析所有 [ACT] 指令（容错：坏行跳过不抛）。
+ * v1.9.35：仅对带长文本参数（script/text）的剧本类指令做跨行延续——
+ * `[ACT] test_drama | script=第一幕…` 后的非 [ACT] 行拼进 script 值，
+ * 避免 AI 自动生成的多行长剧本被截短；其余指令不拼（防叙述行混入）。 */
 fun parseActions(text: String): List<ActionIntent> {
     val out = mutableListOf<ActionIntent>()
-    for (rawLine in text.lines()) {
+    val lines = text.lines()
+    var i = 0
+    while (i < lines.size) {
+        val rawLine = lines[i]
         val line = rawLine.trim()
-        if (!line.startsWith(ActionIntent.MARK)) continue
+        if (!line.startsWith(ActionIntent.MARK)) { i++; continue }
         val body = line.removePrefix(ActionIntent.MARK).trim()
-        if (body.isBlank()) continue
-        val parts = body.split("|").map { it.trim() }.filter { it.isNotEmpty() }
-        if (parts.isEmpty()) continue
-        val verb = parts[0]
-        if (verb.isBlank()) continue
-        val params = mutableMapOf<String, String>()
-        for (kv in parts.drop(1)) {
-            val eq = kv.indexOf('=')
-            if (eq <= 0) continue
-            val k = kv.substring(0, eq).trim()
-            val v = kv.substring(eq + 1).trim()
-            if (k.isNotEmpty()) params[k] = v
-        }
-        out.add(ActionIntent(verb = verb, params = params))
+        if (body.isBlank()) { i++; continue }
+        val verb = body.substringBefore('|').trim()
+        // 剧本类动词：后续非 [ACT] 行作为长值参数延续
+        val continuation = if (verb in SCRIPT_VERBS) {
+            val buf = mutableListOf<String>()
+            var j = i + 1
+            while (j < lines.size && !lines[j].trim().startsWith(ActionIntent.MARK)) {
+                if (lines[j].trim().isNotBlank()) buf += lines[j]
+                j++
+            }
+            i = j - 1  // 循环末尾 i++ 落到下一条 [ACT]
+            buf
+        } else emptyList()
+        val fullBody = if (continuation.isEmpty()) body
+            else body + "\n" + continuation.joinToString("\n")
+        parseActionLine(fullBody, out)
+        i++
     }
     return out
+}
+
+/** 带长文本参数（script/text）的剧本类动词：支持跨行延续 */
+private val SCRIPT_VERBS = setOf("test_drama", "set_script", "run_pipeline")
+
+/** 解析单条 [ACT] body（verb + key=value），追加进 out。 */
+private fun parseActionLine(body: String, out: MutableList<ActionIntent>) {
+    val parts = body.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+    if (parts.isEmpty()) return
+    val verb = parts[0]
+    if (verb.isBlank()) return
+    val params = mutableMapOf<String, String>()
+    for (kv in parts.drop(1)) {
+        val eq = kv.indexOf('=')
+        if (eq <= 0) continue
+        val k = kv.substring(0, eq).trim()
+        val v = kv.substring(eq + 1).trim()
+        if (k.isNotEmpty()) params[k] = v
+    }
+    out.add(ActionIntent(verb = verb, params = params))
 }
 
 /** 已知的动作 verb（用于系统 prompt 提示 LLM，覆盖全部可调控功能）。
