@@ -51,11 +51,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import com.dramafactory.app.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dramafactory.app.ui.AiAssistantFloating
 import com.dramafactory.app.ui.AiAssistantViewModel
 import java.io.File
+import kotlinx.coroutines.launch
 
 /**
  * 七阶段主导航（架构§4.1）：
@@ -89,6 +93,30 @@ class AppNavState {
 
 /** 第十一轮：开屏动画显示时长（ms） */
 private const val SPLASH_MS = 2600L
+private const val SPLASH_FADE_MS = 280L
+
+/** Pure timing/seam for the splash exit; kept independent of Compose for JVM tests. */
+internal data class SplashTiming(val fadeStartMs: Long, val fadeDurationMs: Long, val totalMs: Long)
+
+internal fun splashTiming(totalMs: Long = SPLASH_MS, fadeDurationMs: Long = SPLASH_FADE_MS): SplashTiming {
+    require(totalMs >= 0L) { "totalMs must not be negative" }
+    require(fadeDurationMs >= 0L) { "fadeDurationMs must not be negative" }
+    return SplashTiming(
+        fadeStartMs = (totalMs - fadeDurationMs).coerceAtLeast(0L),
+        fadeDurationMs = fadeDurationMs.coerceAtMost(totalMs),
+        totalMs = totalMs,
+    )
+}
+
+/** Idempotent completion gate: recomposition/cancellation cannot finish twice. */
+internal class SplashCompletionGate {
+    private var completed = false
+
+    fun complete(): Boolean = if (completed) false else {
+        completed = true
+        true
+    }
+}
 
 /**
  * 第十一轮：开屏动画——「一枝独秀不是春，百花齐放更添香。开源你的梦境」。
@@ -96,46 +124,114 @@ private const val SPLASH_MS = 2600L
  */
 @Composable
 private fun SplashScreen(onDone: () -> Unit) {
-    var visible by remember { mutableStateOf(true) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(SPLASH_MS)
-        visible = false
+    val rootAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
+    val ambientAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    val ambientScale = remember { androidx.compose.animation.core.Animatable(.82f) }
+    val glowAlpha = remember { androidx.compose.animation.core.Animatable(.05f) }
+    val glowScale = remember { androidx.compose.animation.core.Animatable(.82f) }
+    val flowerAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    val flowerScale = remember { androidx.compose.animation.core.Animatable(.82f) }
+    val lineAlphas = remember {
+        listOf(
+            androidx.compose.animation.core.Animatable(0f),
+            androidx.compose.animation.core.Animatable(0f),
+            androidx.compose.animation.core.Animatable(0f),
+        )
     }
-    if (!visible) { onDone(); return }
+    val completionGate = remember { SplashCompletionGate() }
+    val timing = splashTiming()
+
+    // One lifecycle-bound timeline keeps the exit callback out of composition.
+    LaunchedEffect(Unit) {
+        launch {
+            ambientAlpha.animateTo(.9f, androidx.compose.animation.core.tween(180))
+            ambientScale.animateTo(1f, androidx.compose.animation.core.tween(720))
+        }
+        launch {
+            kotlinx.coroutines.delay(150L)
+            flowerAlpha.animateTo(1f, androidx.compose.animation.core.tween(750))
+            flowerScale.animateTo(1f, androidx.compose.animation.core.tween(750))
+        }
+        launch {
+            kotlinx.coroutines.delay(260L)
+            glowAlpha.animateTo(.18f, androidx.compose.animation.core.tween(700))
+            glowScale.animateTo(1.08f, androidx.compose.animation.core.tween(700))
+            glowScale.animateTo(1.16f, androidx.compose.animation.core.tween(300))
+            glowScale.animateTo(1.08f, androidx.compose.animation.core.tween(300))
+        }
+        lineAlphas.forEachIndexed { index, alpha ->
+            launch {
+                kotlinx.coroutines.delay(1050L + index * 380L)
+                alpha.animateTo(1f, androidx.compose.animation.core.tween(450))
+            }
+        }
+        kotlinx.coroutines.delay(timing.fadeStartMs)
+        rootAlpha.animateTo(0f, androidx.compose.animation.core.tween(timing.fadeDurationMs.toInt()))
+        if (completionGate.complete()) {
+            onDone()
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+            .graphicsLayer { alpha = rootAlpha.value }
+            .background(Brush.verticalGradient(
                 // 开屏底色：由表面高层级渐变到基底，走设计系统令牌（原为硬编码 0xFF1A1030/0xFF0D0A1A）
                 listOf(DramaColor.SurfaceContainerHigh, DramaColor.Background))),
-        contentAlignment = androidx.compose.ui.Alignment.Center,
+        contentAlignment = Alignment.Center,
     ) {
+        // Keep the fusion layers local to the artwork instead of brightening the full screen.
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(280.dp)
+                .graphicsLayer {
+                    alpha = ambientAlpha.value
+                    scaleX = ambientScale.value
+                    scaleY = ambientScale.value
+                }
+                .background(
+                    Brush.radialGradient(
+                        0f to DramaColor.Primary.copy(alpha = .22f),
+                        .42f to DramaColor.Secondary.copy(alpha = .10f),
+                        1f to Color.Transparent,
+                    )
+                )
+        )
         Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-            // v1.7.14：用 Agnes 生成的霓虹五瓣花作为开屏主视觉（替代emoji🌸），紫→青渐变发光
-            val flowerA = remember { androidx.compose.animation.core.Animatable(0f) }
-            val flowerS = remember { androidx.compose.animation.core.Animatable(0.5f) }
-            LaunchedEffect(Unit) {
-                kotlinx.coroutines.delay(150L)
-                flowerA.animateTo(1f, androidx.compose.animation.core.tween(700))
-                flowerS.animateTo(1f, androidx.compose.animation.core.tween(700))
-            }
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(R.drawable.ui_splash_flower),
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(150.dp)
+                        .graphicsLayer {
+                            alpha = glowAlpha.value
+                            scaleX = glowScale.value
+                            scaleY = glowScale.value
+                        }
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    DramaColor.Secondary.copy(alpha = .20f),
+                                    DramaColor.Primary.copy(alpha = .08f),
+                                    Color.Transparent,
+                                )
+                            )
+                        )
+                )
+                Image(
+                    painter = painterResource(R.drawable.ui_splash_flower),
                 contentDescription = "AI短剧工厂",
                 modifier = Modifier.size(96.dp)
-                    .alpha(flowerA.value)
-                    .scale(flowerS.value)
-            )
+                    .alpha(flowerAlpha.value)
+                    .scale(flowerScale.value)
+                )
+            }
             Spacer(Modifier.size(18.dp))
             val lines = listOf("一枝独秀不是春，", "百花齐放更添香。", "开源你的梦境 · AI短剧工厂")
             for ((i, line) in lines.withIndex()) {
-                val ta = remember { androidx.compose.animation.core.Animatable(0f) }
-                LaunchedEffect(Unit) {
-                    kotlinx.coroutines.delay(1100L + i * 380L)
-                    ta.animateTo(1f, androidx.compose.animation.core.tween(450))
-                }
                 Text(line,
                     style = MaterialTheme.typography.titleMedium,
-                    color = DramaColor.OnPrimaryContainer.copy(alpha = ta.value),
+                    color = DramaColor.OnPrimaryContainer.copy(alpha = lineAlphas[i].value),
                     modifier = Modifier.padding(vertical = 2.dp))
             }
         }
