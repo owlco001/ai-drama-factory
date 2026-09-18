@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 105
-        versionName = "1.9.35"  // v1.9.35：音效/拟声词台词守卫（叮咚不再被角色朗读）
+        versionCode = 106
+        versionName = "1.9.36"  // v1.9.36：开屏辉光与透明主图融合修复
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
