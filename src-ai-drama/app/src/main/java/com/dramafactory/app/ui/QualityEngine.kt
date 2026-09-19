@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
  * QualityEngine（App 侧编排，第九轮）：对齐 pavo 质量方法论的端上接入层。
  *
  * 职责：
- * - A. 资产质量闸门：G1 文件级硬校验（纯 Kotlin，不调 API）+ G2 多模态打分（agnes-2.5-flash 带图，
+ * - A. 资产质量闸门：G1 文件级硬校验（纯 Kotlin，不调 API）+ G2 多模态打分（Agnes 文本 3.0 Flash 带图，
  *   defects 非空直接拒，失败重试 ≤3 次）；结果落库 assets 表 quality_score/audit_state/defects。
  * - B. 角色参考图套装（由 AssetsLogic.buildReferenceSheet 生成子卡）。
  * - C. 时代红线：内置西汉预设（StylePreset.HAN_DEFAULT），negative/suffix 折叠进生成 prompt；

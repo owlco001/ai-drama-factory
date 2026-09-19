@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 107
-        versionName = "1.9.37"  // v1.9.37：音效/拟声词台词守卫v2——旁白与叠字类剥离
+        versionCode = 108
+        versionName = "1.9.38"  // v1.9.38：Agnes 最新文字模型（中国站/国际站）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

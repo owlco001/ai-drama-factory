@@ -609,12 +609,12 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
         logic.refreshFromDb(this.projectId)
     }
 
-    // 第九轮：G2 多模态审计 describer（agnes-2.5-flash 带图，enable_thinking=false）
+    // 第九轮：G2 多模态审计 describer（Agnes 文本 3.0 Flash 带图，enable_thinking=false）
     private val describer = AssetAuditor.agnesDescriber(AppGraph.text)
 
     /**
      * 对生成结果执行 G1+G2 资产质量闸门，并落库质量状态（A 子模块）。
-     * G1 失败直接 rejected（零模型成本）；G2 调 agnes-2.5-flash 打分，defects 非空直接拒。
+     * G1 失败直接 rejected（零模型成本）；G2 调 Agnes 文本 3.0 Flash 打分，defects 非空直接拒。
      */
     private suspend fun auditGeneratedAsset(assetId: String, imageUrl: String, prompt: String, card: AssetsLogic.AssetCard) {
         // 仅对可下载的 http(s)/data uri 执行（本地 file:// 跳过网络解码，仅记 pending）
@@ -784,7 +784,7 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             _extractMessage.value = "未能读取剧本文本（请确认已导入剧本）"
             return@launch
         }
-        // 第十轮：大模型自动提取优先（agnes-2.5-flash 出结构化JSON），正则兜底
+        // 第十轮：大模型自动提取优先（Agnes 文本 3.0 Flash 出结构化JSON），正则兜底
         _extractMessage.value = "正在用大模型分析文本提取资产…"
         var seq = 0
         val idGen = { "sa_${java.util.UUID.randomUUID()}_${seq++}" }

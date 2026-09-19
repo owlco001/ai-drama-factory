@@ -11,7 +11,7 @@ class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelR
 
     override fun registeredTextModels(): List<TextModelEntry> {
         val candidates = listOf(
-            TextModelEntry(AgnesProvider.MODEL_TEXT, "Agnes 文本 2.5 Flash", "agnes", AgnesProvider.BASE_URL, null, false),
+            TextModelEntry(AgnesProvider.MODEL_TEXT, "Agnes 文本 3.0 Flash", "agnes", AgnesProvider.BASE_URL, null, false),
             TextModelEntry(DeepSeekProvider.MODEL, "DeepSeek Chat", DeepSeekProvider.PROVIDER_ID, DeepSeekProvider.BASE_URL, null, false)
         )
         return candidates.map { base ->

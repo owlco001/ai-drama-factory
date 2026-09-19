@@ -6,7 +6,7 @@ package com.dramafactory.core.quality
  * 旧实现（AssetsLogic.ScriptAssetExtractor）为纯正则，只能识别
  * 「角色：/场景：/道具：」清单行——小说原文没有这种结构化标签时提取为 0。
  *
- * 新实现：把文本交给 TextProvider（agnes-2.5-flash），要求输出严格 JSON：
+ * 新实现：把文本交给 TextProvider（Agnes 文本 3.0 Flash，按输入规模自动降级），要求输出严格 JSON：
  *   {"characters":[{"name":"...","desc":"..."}],"scenes":[...],"props":[...]}
  * 解析失败/超时回退到正则提取（保底不空手而归）。TextProvider 注入可测。
  */

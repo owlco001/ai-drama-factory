@@ -525,7 +525,7 @@ fun TextModelSettingsBlock(agnesRegion: AgnesRegion) {
             }
             if (saved) Text("已加密保存至 Keystore（Key 与视频通道独立）",
                 color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-            Text("提示：DeepSeek Chat 支持中文原生、上下文充足；Agnes 文本按输入规模自动选模（2.5/2.0/1.5 Flash）。",
+            Text("提示：DeepSeek Chat 支持中文原生、上下文充足；Agnes 文本默认 3.0 Flash，并按输入规模自动降级（2.5/2.0 Flash）。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         }
     }

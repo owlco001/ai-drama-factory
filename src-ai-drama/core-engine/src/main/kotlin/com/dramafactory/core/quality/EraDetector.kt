@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * 旧实现写死西汉预设——现代剧/清宫剧也会被禁手机、被要求穿深衣曲裾。
  * 新流程：
- *   1. [detect] 用 LLM 判断剧本朝代（agnes-2.5-flash，输出严格JSON），失败回退规则关键词匹配
+ *   1. [detect] 用 LLM 判断剧本朝代（Agnes 文本 3.0 Flash，输出严格JSON），失败回退规则关键词匹配
  *   2. [presetFor] 从内置多朝代预设表取对应 StylePreset
  *   3. 生成链路用该 preset 组装 positive/negative
  *

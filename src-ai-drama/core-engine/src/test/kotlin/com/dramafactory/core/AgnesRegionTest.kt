@@ -39,6 +39,15 @@ class AgnesRegionTest {
     }
 
     @Test
+    fun `两区域共用最新文本模型链`() {
+        assertEquals("agnes-3.0-flash", AgnesProvider.MODEL_TEXT)
+        assertEquals(AgnesProvider.MODEL_TEXT, AgnesProvider(region = AgnesRegion.INTERNATIONAL)
+            .listModels().first { it.id == AgnesProvider.MODEL_TEXT }.id)
+        assertEquals(AgnesProvider.MODEL_TEXT, AgnesProvider(region = AgnesRegion.CHINA)
+            .listModels().first { it.id == AgnesProvider.MODEL_TEXT }.id)
+    }
+
+    @Test
     fun `自定义 override 优先于中国站（显式自定义不被动覆盖）`() {
         val p = AgnesProvider(region = AgnesRegion.CHINA, baseUrlOverride = "https://example.com/v1")
         assertEquals("https://example.com/v1", p.resolvedBaseUrl)

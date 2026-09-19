@@ -107,18 +107,18 @@ class AgnesProvider(
         /** v1.8.8：中国站网关（官方国内镜像，覆盖文本/视频/图像全部官方端点） */
         const val BASE_URL_CN = "https://api.agnes-ai.cn/v1"
         const val VIDEO_RESULT_URL_CN = "https://api.agnes-ai.cn/agnesapi" // ?video_id=...
-        const val MODEL_TEXT = "agnes-2.5-flash"
-        const val MODEL_TEXT_MID = "agnes-2.0-flash"     // 256K 上下文
-        const val MODEL_TEXT_LIGHT = "agnes-1.5-flash"   // 256K，低延迟
+        const val MODEL_TEXT = "agnes-3.0-flash"
+        const val MODEL_TEXT_MID = "agnes-2.5-flash"     // 中等输入降级
+        const val MODEL_TEXT_LIGHT = "agnes-2.0-flash"   // 大输入安全降级
         /** 第十轮：熔断阈值——估算token超过此值不发API（官方上限512K，预留输出） */
         const val TEXT_INPUT_TOKEN_LIMIT = 230_000L
 
         /**
          * 按输入规模自动选型（第十轮「自动选择对应模型」）：
          * 中文≈1字符1token、ASCII≈4字符1token 的保守估算。
-         * <100K → agnes-2.5-flash（512K窗口，质量优先）
-         * <200K → agnes-2.0-flash（256K窗口）
-         * <230K → agnes-1.5-flash（低延迟兜底）
+         * <100K → agnes-3.0-flash（最新默认模型）
+         * <200K → agnes-2.5-flash（中等输入降级）
+         * <230K → agnes-2.0-flash（大输入安全降级）
          * ≥230K → 熔断抛 ValidationError，绝不发必爆请求
          */
         fun estimateTokens(text: String): Long {
@@ -133,9 +133,9 @@ class AgnesProvider(
                 throw ProviderError.ValidationError(
                     "context overload: ~${total}K tokens exceeds ${TEXT_INPUT_TOKEN_LIMIT / 1000}K safe limit; 请精简输入或缩小图片")
             return when {
-                total < 100_000 -> MODEL_TEXT          // agnes-2.5-flash
-                total < 200_000 -> MODEL_TEXT_MID      // agnes-2.0-flash
-                else -> MODEL_TEXT_LIGHT               // agnes-1.5-flash
+                total < 100_000 -> MODEL_TEXT
+                total < 200_000 -> MODEL_TEXT_MID
+                else -> MODEL_TEXT_LIGHT
             }
         }
         const val MODEL_IMAGE = "agnes-image-2.1-flash"
@@ -404,9 +404,7 @@ class AgnesProvider(
         return videoModels.map { (id, label) ->
             ModelSpec(id, label).apply { supportsVideoReference = true }
         } + listOf(
-            ModelSpec(MODEL_TEXT, "Agnes 文本 2.5 Flash"),
-            ModelSpec(MODEL_TEXT_MID, "Agnes 文本 2.0 Flash"),
-            ModelSpec(MODEL_TEXT_LIGHT, "Agnes 文本 1.5 Flash"),
+            ModelSpec(MODEL_TEXT, "Agnes 文本 3.0 Flash"),
             ModelSpec(MODEL_IMAGE, "Agnes 图像 2.1 Flash"),
         )
     }

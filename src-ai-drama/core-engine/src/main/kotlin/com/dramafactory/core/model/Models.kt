@@ -125,7 +125,7 @@ sealed interface PollResult {
 @Serializable
 data class ChatRequest(
     val messages: List<ChatMessage>,
-    val model: String = "agnes-2.5-flash",
+    val model: String = "agnes-3.0-flash",
     val temperature: Double = 0.7,
     val maxTokens: Int? = null,
     val enableThinking: Boolean = false, // 默认false：避免reasoning吃空content的静默空响应

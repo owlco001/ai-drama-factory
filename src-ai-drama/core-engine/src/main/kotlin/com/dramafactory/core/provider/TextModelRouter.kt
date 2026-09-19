@@ -32,8 +32,8 @@ fun agnesScopedConfigId(configId: String, region: AgnesRegion): String =
 
 /** 已注册文本模型条目（T014 §2.3） */
 data class TextModelEntry(
-    val modelId: String,         // "deepseek-chat" / "agnes-2.5-flash" / ...
-    val label: String,           // UI 展示：DeepSeek / Agnes 文本 2.5 Flash
+    val modelId: String,         // "deepseek-chat" / "agnes-3.0-flash" / ...
+    val label: String,           // UI 展示：DeepSeek / Agnes 文本 3.0 Flash
     val providerId: String,      // "deepseek" / "agnes" / "openai_compat"
     val baseUrl: String,         // "https://api.deepseek.com/v1"
     val keyMasked: String?,      // 已存 Key 掩码；null=未配置
@@ -90,7 +90,7 @@ object DefaultTextModelRouter : TextModelRouter {
     private val CANDIDATES = listOf(
         TextModelEntry(
             modelId = AgnesProvider.MODEL_TEXT,
-            label = "Agnes 文本 2.5 Flash",
+            label = "Agnes 文本 3.0 Flash",
             providerId = "agnes",
             baseUrl = AgnesProvider.BASE_URL,
             keyMasked = null,

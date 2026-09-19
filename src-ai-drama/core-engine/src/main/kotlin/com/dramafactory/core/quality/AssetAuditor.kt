@@ -8,11 +8,11 @@ import com.dramafactory.core.provider.TextProvider
  * G2 多模态审计（对齐 pavo asset_auditor.py，Stage 1.5 G2 闸门）。
  *
  * 先硬后软：G1 [AssetInspector] 失败直接 rejected（零模型成本）；
- * 通过后再调 agnes-2.5-flash（带图）打分，返回 {score, defects, face_ratio}；
+ * 通过后再调 Agnes 文本 3.0 Flash（带图，按输入规模自动降级）打分，返回 {score, defects, face_ratio}；
  * **defects 非空即 DEFECT_DETECTED 硬惩罚直接拒**（不被总分稀释）；失败重试 ≤3 次。
  *
  * 纯逻辑 + 注入 [ImageDescriber]（即 AgnesProvider.chat 适配），便于 JVM 单测用假实现；
- * 不引入 Android / GPU 依赖。MVP 在手机端调用 agnes-2.5-flash 多模态理解（云端，非端侧模型）。
+ * 不引入 Android / GPU 依赖。MVP 在手机端调用 Agnes 文本 3.0 Flash 多模态理解（云端，非端侧模型）。
  */
 object AssetAuditor {
 
@@ -315,7 +315,7 @@ object AssetAuditor {
      */
     fun agnesDescriber(provider: TextProvider, model: String = ""): ImageDescriber =
         ImageDescriber { prompt, imageDataUri ->
-            // model留空 → Provider 按输入规模自动选择 agnes-2.5-flash / 2.0 / 1.5
+            // model留空 → Provider 按输入规模自动选择 3.0 / 2.5 / 2.0 Flash
             val resp = provider.chat(
                 ChatRequest(
                     messages = listOf(

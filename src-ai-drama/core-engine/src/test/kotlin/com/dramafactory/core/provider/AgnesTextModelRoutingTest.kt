@@ -19,7 +19,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class AgnesTextModelRoutingTest {
 
@@ -55,7 +57,7 @@ class AgnesTextModelRoutingTest {
         provider(api.client()).chat(
             ChatRequest(messages = listOf(ChatMessage("user", "你好")), model = "agnes"))
         assertNotEquals("agnes", api.sentModel, "providerId 非合法模型 ID，不得原样发往网关")
-        assertEquals(AgnesProvider.MODEL_TEXT, api.sentModel, "短输入自动选 agnes-2.5-flash")
+        assertEquals(AgnesProvider.MODEL_TEXT, api.sentModel, "短输入自动选 agnes-3.0-flash")
     }
 
     @Test
@@ -94,7 +96,7 @@ class AgnesTextModelRoutingTest {
         assertEquals(AgnesProvider.MODEL_TEXT, api.sentModel)
     }
 
-    /** 自动选模仍按输入规模降级（100K~200K → 2.0-flash） */
+    /** 自动选模仍按输入规模降级（100K~200K → 2.5-flash） */
     @Test
     fun `超长输入自动降级到中等模型`() = runBlocking {
         val api = MockApi()
@@ -102,6 +104,23 @@ class AgnesTextModelRoutingTest {
         provider(api.client()).chat(
             ChatRequest(messages = listOf(ChatMessage("user", long)), model = ""))
         assertEquals(AgnesProvider.MODEL_TEXT_MID, api.sentModel,
-            "100K~200K token 应降级为 agnes-2.0-flash")
+            "100K~200K token 应降级为 agnes-2.5-flash")
+    }
+
+    @Test
+    fun `超大输入自动降级到2_0且不再暴露1_5`() = runBlocking {
+        val api = MockApi()
+        provider(api.client()).chat(
+            ChatRequest(messages = listOf(ChatMessage("user", "汉".repeat(210_000))), model = ""))
+        assertEquals(AgnesProvider.MODEL_TEXT_LIGHT, api.sentModel)
+        val listedIds = provider(api.client()).listModels().map { it.id }
+        assertTrue(listedIds.contains(AgnesProvider.MODEL_TEXT))
+        assertFalse(listedIds.contains("agnes-1.5-flash"))
+        assertNotEquals("agnes-1.5-flash", api.sentModel)
+    }
+
+    @Test
+    fun `ChatRequest默认模型为3_0`() {
+        assertEquals(AgnesProvider.MODEL_TEXT, ChatRequest(messages = listOf(ChatMessage("user", "hi"))).model)
     }
 }
