@@ -629,8 +629,9 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                 .clickable { expanded = !expanded },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_sparkle), contentDescription = "AI 助手",
-                tint = DramaColor.OnPrimary, modifier = Modifier.size(26.dp))
+            // 复用 APP launcher 前景图，保持悬浮球气泡形态；不再使用独立 sparkle 图标。
+            Icon(painterResource(R.drawable.ic_launcher_fg), contentDescription = "AI 助手",
+                modifier = Modifier.size(34.dp))
         }
 
         if (expanded) {
@@ -733,6 +734,22 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                         Button(onClick = { if (input.isNotBlank()) { vm.sendStreamingMessage(input); input = "" } }) { Text("发送") }
                     }
                 }
+            }
+        }
+        // 展开后仍把同一个 APP 图标置于面板之上，点击气泡即可缩回；不是只能依赖右上角关闭按钮。
+        if (expanded) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd).padding(16.dp)
+                    .size(56.dp)
+                    .shadow(elevation = 8.dp, spotColor = DramaColor.GlowShadow, shape = CircleShape)
+                    .clip(CircleShape)
+                    .background(DramaGradient.ai())
+                    .clickable { expanded = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_launcher_fg), contentDescription = "收起 AI 助手",
+                    modifier = Modifier.size(34.dp))
             }
         }
     }
