@@ -635,23 +635,34 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
             .align(Alignment.BottomEnd).padding(16.dp)
             .size(56.dp)
             .graphicsLayer { scaleX = ringScale; scaleY = ringScale; alpha = ringAlpha }
-            .clip(CircleShape)
-            .background(DramaColor.Tertiary.copy(alpha = 1f)))
-        // 透明气泡：只提供玻璃感、辉光和脉冲边缘，不给 launcher 图标叠加渐变或 tint。
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFB388FF).copy(alpha = 0.58f),
+                            Color(0xFF00E5FF).copy(alpha = 0.30f),
+                            Color(0xFFFF4FD8).copy(alpha = 0.18f),
+                            Color.Transparent,
+                        ),
+                        radius = size.minDimension * 0.5f,
+                    ),
+                )
+            })
+        // 透明气泡：仅保留炫彩辉光，不绘制圆圈边框，不给 launcher 图标叠加 tint。
         val bubbleModifier = Modifier
             .align(Alignment.BottomEnd).padding(16.dp)
             .size(64.dp)
             .drawBehind {
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(DramaColor.Tertiary.copy(alpha = 0.24f), Color.Transparent),
+                        colors = listOf(
+                            Color(0xFFB388FF).copy(alpha = 0.58f),
+                            Color(0xFF00E5FF).copy(alpha = 0.30f),
+                            Color(0xFFFF4FD8).copy(alpha = 0.18f),
+                            Color.Transparent,
+                        ),
                         radius = size.minDimension * 0.62f,
                     ),
-                )
-                drawCircle(
-                    color = DramaColor.Tertiary.copy(alpha = 0.72f),
-                    radius = size.minDimension * 0.39f,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
                 )
             }
             .shadow(elevation = 10.dp, spotColor = DramaColor.GlowShadow.copy(alpha = 0.72f), shape = CircleShape)
@@ -781,14 +792,14 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                     .drawBehind {
                         drawCircle(
                             brush = Brush.radialGradient(
-                                colors = listOf(DramaColor.Tertiary.copy(alpha = 0.24f), Color.Transparent),
+                                colors = listOf(
+                                    Color(0xFFB388FF).copy(alpha = 0.58f),
+                                    Color(0xFF00E5FF).copy(alpha = 0.30f),
+                                    Color(0xFFFF4FD8).copy(alpha = 0.18f),
+                                    Color.Transparent,
+                                ),
                                 radius = size.minDimension * 0.62f,
                             ),
-                        )
-                        drawCircle(
-                            color = DramaColor.Tertiary.copy(alpha = 0.72f),
-                            radius = size.minDimension * 0.39f,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
                         )
                     }
                     .shadow(elevation = 10.dp, spotColor = DramaColor.GlowShadow.copy(alpha = 0.72f), shape = CircleShape)
