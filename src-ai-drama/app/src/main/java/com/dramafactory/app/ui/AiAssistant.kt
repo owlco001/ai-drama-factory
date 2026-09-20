@@ -1,6 +1,7 @@
 package com.dramafactory.app.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -14,8 +15,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.shadow
@@ -634,20 +637,37 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
             .graphicsLayer { scaleX = ringScale; scaleY = ringScale; alpha = ringAlpha }
             .clip(CircleShape)
             .background(DramaColor.Tertiary.copy(alpha = 1f)))
-        // 主球
+        // 透明气泡：只提供玻璃感、辉光和脉冲边缘，不给 launcher 图标叠加渐变或 tint。
+        val bubbleModifier = Modifier
+            .align(Alignment.BottomEnd).padding(16.dp)
+            .size(64.dp)
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(DramaColor.Tertiary.copy(alpha = 0.24f), Color.Transparent),
+                        radius = size.minDimension * 0.62f,
+                    ),
+                )
+                drawCircle(
+                    color = DramaColor.Tertiary.copy(alpha = 0.72f),
+                    radius = size.minDimension * 0.39f,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+                )
+            }
+            .shadow(elevation = 10.dp, spotColor = DramaColor.GlowShadow.copy(alpha = 0.72f), shape = CircleShape)
+            .clip(CircleShape)
+            .clickable { expanded = !expanded }
         Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd).padding(16.dp)
-                .size(56.dp)
-                .shadow(elevation = 8.dp, spotColor = DramaColor.GlowShadow, shape = CircleShape)
-                .clip(CircleShape)
-                .background(DramaGradient.ai())
-                .clickable { expanded = !expanded },
+            modifier = bubbleModifier,
             contentAlignment = Alignment.Center,
         ) {
-            // 复用 APP launcher 前景图，保持悬浮球气泡形态；不再使用独立 sparkle 图标。
-            Icon(painterResource(R.drawable.ic_launcher_fg), contentDescription = "AI 助手",
-                modifier = Modifier.size(34.dp))
+            // 原始 launcher 前景图直接绘制：不 tint、不裁剪、不缩放变形，保持图标本来形态。
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_fg),
+                contentDescription = "AI 助手",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(42.dp),
+            )
         }
 
         if (expanded) {
@@ -757,15 +777,31 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd).padding(16.dp)
-                    .size(56.dp)
-                    .shadow(elevation = 8.dp, spotColor = DramaColor.GlowShadow, shape = CircleShape)
+                    .size(64.dp)
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(DramaColor.Tertiary.copy(alpha = 0.24f), Color.Transparent),
+                                radius = size.minDimension * 0.62f,
+                            ),
+                        )
+                        drawCircle(
+                            color = DramaColor.Tertiary.copy(alpha = 0.72f),
+                            radius = size.minDimension * 0.39f,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+                        )
+                    }
+                    .shadow(elevation = 10.dp, spotColor = DramaColor.GlowShadow.copy(alpha = 0.72f), shape = CircleShape)
                     .clip(CircleShape)
-                    .background(DramaGradient.ai())
                     .clickable { expanded = false },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(painterResource(R.drawable.ic_launcher_fg), contentDescription = "收起 AI 助手",
-                    modifier = Modifier.size(34.dp))
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_fg),
+                    contentDescription = "收起 AI 助手",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(42.dp),
+                )
             }
         }
     }
