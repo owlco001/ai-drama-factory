@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 111
-        versionName = "1.9.41"  // v1.9.41：AI助手炫彩辉光无圆圈
+        versionCode = 112
+        versionName = "1.9.42"  // v1.9.42：AI助手炫彩流动光雾
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

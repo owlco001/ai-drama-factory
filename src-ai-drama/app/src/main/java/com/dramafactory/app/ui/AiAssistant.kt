@@ -30,6 +30,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import com.dramafactory.app.ui.theme.DramaGradient
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.PI
 import com.dramafactory.app.ui.theme.DramaColor
 import com.dramafactory.app.ui.theme.BubbleAiShape
 import com.dramafactory.app.ui.theme.BubbleUserShape
@@ -618,54 +621,46 @@ class AiAssistantViewModel : ViewModel() {
 fun AiAssistantFloating(vm: AiAssistantViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
-        // 走查P0-3：AI 悬浮球 = 56dp 正圆 + 紫→品红渐变 + 外发光 + 脉冲环 + sparkle
-        val pulse = rememberInfiniteTransition()
-        val ringScale by pulse.animateFloat(
-            initialValue = 1f, targetValue = 1.6f,
+        // 炫彩流动光雾：多色光团持续漂移，容器不绘制圆圈/六角阴影。
+        val glowTransition = rememberInfiniteTransition(label = "assistantRainbowGlow")
+        val glowPhase by glowTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2f * PI).toFloat(),
             animationSpec = infiniteRepeatable(
-                animation = keyframes { durationMillis = 1500; 1.6f at 1500 },
-                repeatMode = androidx.compose.animation.core.RepeatMode.Restart))
-        val ringAlpha by pulse.animateFloat(
-            initialValue = 0.35f, targetValue = 0f,
-            animationSpec = infiniteRepeatable(
-                animation = keyframes { durationMillis = 1500; 0f at 1500 },
-                repeatMode = androidx.compose.animation.core.RepeatMode.Restart))
-        // 脉冲外环
-        Box(Modifier
-            .align(Alignment.BottomEnd).padding(16.dp)
-            .size(56.dp)
-            .graphicsLayer { scaleX = ringScale; scaleY = ringScale; alpha = ringAlpha }
-            .drawBehind {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFB388FF).copy(alpha = 0.58f),
-                            Color(0xFF00E5FF).copy(alpha = 0.30f),
-                            Color(0xFFFF4FD8).copy(alpha = 0.18f),
-                            Color.Transparent,
-                        ),
-                        radius = size.minDimension * 0.5f,
-                    ),
-                )
-            })
-        // 透明气泡：仅保留炫彩辉光，不绘制圆圈边框，不给 launcher 图标叠加 tint。
+                animation = keyframes { durationMillis = 4200; (2f * PI).toFloat() at 4200 },
+                repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+            ),
+            label = "assistantRainbowGlowPhase"
+        )
         val bubbleModifier = Modifier
             .align(Alignment.BottomEnd).padding(16.dp)
             .size(64.dp)
             .drawBehind {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFB388FF).copy(alpha = 0.58f),
-                            Color(0xFF00E5FF).copy(alpha = 0.30f),
-                            Color(0xFFFF4FD8).copy(alpha = 0.18f),
-                            Color.Transparent,
-                        ),
-                        radius = size.minDimension * 0.62f,
-                    ),
+                val w = size.width
+                val h = size.height
+                val drift = glowPhase
+                val blobs = listOf(
+                    Triple(Color(0xFFFF3CAC), 0.28f, 0.24f),
+                    Triple(Color(0xFF784BA0), 0.72f, 0.26f),
+                    Triple(Color(0xFF2AFADF), 0.30f, 0.70f),
+                    Triple(Color(0xFFFFD86F), 0.72f, 0.72f),
+                    Triple(Color(0xFF4FACFE), 0.50f, 0.50f),
                 )
+                blobs.forEachIndexed { index, (color, x, y) ->
+                    val angle = drift + index * 1.22f
+                    val cx = (x + 0.13f * sin(angle * 1.17f + index)).coerceIn(0.08f, 0.92f) * w
+                    val cy = (y + 0.13f * cos(angle * 0.91f + index * 0.7f)).coerceIn(0.08f, 0.92f) * h
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(color.copy(alpha = 0.64f), color.copy(alpha = 0.18f), Color.Transparent),
+                            center = androidx.compose.ui.geometry.Offset(cx, cy),
+                            radius = w * 0.48f,
+                        ),
+                        radius = w * 0.52f,
+                        center = androidx.compose.ui.geometry.Offset(cx, cy),
+                    )
+                }
             }
-            .shadow(elevation = 10.dp, spotColor = DramaColor.GlowShadow.copy(alpha = 0.72f), shape = CircleShape)
             .clip(CircleShape)
             .clickable { expanded = !expanded }
         Box(
@@ -790,19 +785,31 @@ fun AiAssistantFloating(vm: AiAssistantViewModel) {
                     .align(Alignment.BottomEnd).padding(16.dp)
                     .size(64.dp)
                     .drawBehind {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0xFFB388FF).copy(alpha = 0.58f),
-                                    Color(0xFF00E5FF).copy(alpha = 0.30f),
-                                    Color(0xFFFF4FD8).copy(alpha = 0.18f),
-                                    Color.Transparent,
-                                ),
-                                radius = size.minDimension * 0.62f,
-                            ),
+                        val w = size.width
+                        val h = size.height
+                        val drift = glowPhase + 0.8f
+                        val blobs = listOf(
+                            Triple(Color(0xFFFF3CAC), 0.28f, 0.24f),
+                            Triple(Color(0xFF784BA0), 0.72f, 0.26f),
+                            Triple(Color(0xFF2AFADF), 0.30f, 0.70f),
+                            Triple(Color(0xFFFFD86F), 0.72f, 0.72f),
+                            Triple(Color(0xFF4FACFE), 0.50f, 0.50f),
                         )
+                        blobs.forEachIndexed { index, (color, x, y) ->
+                            val angle = drift + index * 1.22f
+                            val cx = (x + 0.13f * sin(angle * 1.17f + index)).coerceIn(0.08f, 0.92f) * w
+                            val cy = (y + 0.13f * cos(angle * 0.91f + index * 0.7f)).coerceIn(0.08f, 0.92f) * h
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(color.copy(alpha = 0.64f), color.copy(alpha = 0.18f), Color.Transparent),
+                                    center = androidx.compose.ui.geometry.Offset(cx, cy),
+                                    radius = w * 0.48f,
+                                ),
+                                radius = w * 0.52f,
+                                center = androidx.compose.ui.geometry.Offset(cx, cy),
+                            )
+                        }
                     }
-                    .shadow(elevation = 10.dp, spotColor = DramaColor.GlowShadow.copy(alpha = 0.72f), shape = CircleShape)
                     .clip(CircleShape)
                     .clickable { expanded = false },
                 contentAlignment = Alignment.Center,
