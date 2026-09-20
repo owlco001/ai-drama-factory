@@ -54,6 +54,16 @@ class Round6LocalUploadI2iTest {
         override suspend fun upsertAsset(a: com.dramafactory.app.data.AssetEntity) { assets.removeIf { it.asset_id == a.asset_id }; assets.add(a) }
         override suspend fun assetsOf(projectId: String, kind: String) = assets.filter { it.project_id == projectId && it.kind == kind }
         override suspend fun assetsAllOf(projectId: String) = assets.filter { it.project_id == projectId }
+        override suspend fun updateAssetKind(assetId: String, projectId: String, kind: String, updatedAt: Long): Int {
+            val a = assets.firstOrNull { it.asset_id == assetId } ?: return 0
+            if (a.project_id != projectId) return 0
+            assets.removeIf { it.asset_id == assetId }
+            assets.add(a.copy(kind = kind, audit_state = "pending", quality_score = null, defects_json = null,
+                q_reject_reason = null, g1_error_code = null, face_ratio = null, pose_role = null,
+                g1_state = "none", g2_score = null, g2_defects = null, review_state = "none", reject_reason = null,
+                updated_at = updatedAt))
+            return 1
+        }
         override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) {
             val a = assets.firstOrNull { it.asset_id == assetId }
             if (a != null) {

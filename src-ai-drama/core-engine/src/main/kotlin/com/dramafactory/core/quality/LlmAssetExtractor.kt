@@ -66,11 +66,27 @@ object LlmAssetExtractor {
                         (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim() ?: ""
                     val name = str("name")
                     if (name.isEmpty()) continue
-                    out += Asset(kind, name, str("desc"))
+                    val desc = str("desc")
+                    // LLM 偶尔会把无人机等可操作物体塞进 characters；这类资产没有人格，
+                    // 必须在进入 App 资产库前纠正为道具，避免角色棚拍/锁脸流程误处理。
+                    val normalizedKind = normalizeKind(kind, name, desc)
+                    out += Asset(normalizedKind, name, desc)
                 }
             }
             out
         } catch (_: Throwable) { emptyList() }
+    }
+
+    /** 把明显的非人格实体从 LLM 的 character 误分类中纠正为 prop。 */
+    private fun normalizeKind(kind: String, name: String, desc: String): String {
+        if (kind != "character") return kind
+        val value = "$name $desc"
+        val objectTerms = listOf(
+            "无人机", "机器人", "摄像机", "相机", "手机", "电脑", "汽车", "车辆",
+            "摩托车", "飞机", "直升机", "武器", "手枪", "步枪", "炸弹", "外卖盒"
+        )
+        val personalityTerms = listOf("角色", "驾驶员", "飞行员", "队长", "将军", "小姐", "先生")
+        return if (objectTerms.any(value::contains) && personalityTerms.none(value::contains)) "prop" else kind
     }
 
     /**

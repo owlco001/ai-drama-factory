@@ -223,6 +223,7 @@ class AssetsLogic {
     /** 第十一轮：生成结果落库回调——App层注入Room UPDATE assets SET remote_url+file_uri。
      * 旧实现只更内存不落盘：杀进程/重进项目后生成图全部丢失（"资产没落盘"根因）。 */
     var generateResultPersist: suspend (assetId: String, remoteUrl: String) -> Unit = { _, _ -> }
+    var kindPersist: suspend (assetId: String, kind: Kind) -> Boolean = { _, _ -> false }
 
     fun setAssets(list: List<AssetCard>) { _assets.value = list }
 
@@ -242,7 +243,13 @@ class AssetsLogic {
             if (e.asset_id.isNullOrBlank()) return@mapNotNull null
             AssetCard(
                 assetId = e.asset_id,
-                kind = runCatching { Kind.valueOf(e.kind.uppercase()) }.getOrDefault(Kind.CHARACTER),
+                kind = when (e.kind.trim().lowercase()) {
+                    "character" -> Kind.CHARACTER
+                    "scene" -> Kind.SCENE
+                    "prop" -> Kind.PROP
+                    // 未知/历史类型安全降级为道具，绝不伪装成角色。
+                    else -> Kind.PROP
+                },
                 prompt = e.prompt ?: "",
                 remoteUrl = e.remote_url,
                 reviewState = e.review_state ?: "none",
@@ -262,6 +269,16 @@ class AssetsLogic {
         // 合并：DB卡为主，但内存里正在生成的同id卡(gen)覆盖DB空图卡，保留转圈态
         val merged = (dbCards + memGenerating).distinctBy { it.assetId }
         _assets.value = merged
+    }
+
+    /** 新增资产（输入prompt后点「添加」） */
+    suspend fun changeKind(assetId: String, kind: Kind): Boolean {
+        if (kind == Kind.LOCAL) return false
+        val card = _assets.value.firstOrNull { it.assetId == assetId } ?: return false
+        if (card.kind == kind) return true
+        if (!kindPersist(assetId, kind)) return false
+        update(assetId) { it.copy(kind = kind, auditState = "pending", qualityScore = null, rejectReason = null, defectsJson = null) }
+        return true
     }
 
     /** 新增资产（输入prompt后点「添加」） */

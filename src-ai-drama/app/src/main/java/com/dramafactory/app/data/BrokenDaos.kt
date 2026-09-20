@@ -27,6 +27,7 @@ internal class BrokenDramaDao : DramaDao {
     override suspend fun upsertAsset(a: AssetEntity) = noStorage()
     override suspend fun assetsOf(projectId: String, kind: String): List<AssetEntity> = noStorage()
     override suspend fun assetsAllOf(projectId: String): List<AssetEntity> = noStorage()
+    override suspend fun updateAssetKind(assetId: String, projectId: String, kind: String, updatedAt: Long): Int = noStorage()
     override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) = noStorage()
     override suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long) = noStorage()
     override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) = noStorage()

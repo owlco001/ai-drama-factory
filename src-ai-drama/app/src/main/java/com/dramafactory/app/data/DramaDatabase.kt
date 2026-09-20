@@ -187,6 +187,14 @@ interface DramaDao {
 
     /** 第十一轮：项目全部资产（重进项目回填用） */
     @Query("SELECT * FROM assets WHERE project_id=:projectId ORDER BY updated_at") suspend fun assetsAllOf(projectId: String): List<AssetEntity>
+    @Query("""
+        UPDATE assets SET kind=:kind, audit_state='pending', quality_score=NULL,
+        defects_json=NULL, q_reject_reason=NULL, g1_error_code=NULL, face_ratio=NULL,
+        pose_role=NULL, g1_state='none', g2_score=NULL, g2_defects=NULL,
+        review_state='none', reject_reason=NULL, updated_at=:updatedAt
+        WHERE asset_id=:assetId AND project_id=:projectId
+    """)
+    suspend fun updateAssetKind(assetId: String, projectId: String, kind: String, updatedAt: Long): Int
     @Query("UPDATE assets SET review_state=:state WHERE asset_id=:assetId") suspend fun setReviewState(assetId: String, state: String)
     /** 第六轮：本地上传/图生图/视频参考 字段落库更新（局部UPDATE，避免整行重建） */
     @Query("UPDATE assets SET source=:source, image_uri=:imageUri, video_uri=:videoUri, reference_image_uri=:referenceImageUri, prompt=:prompt, updated_at=:updatedAt WHERE asset_id=:assetId")

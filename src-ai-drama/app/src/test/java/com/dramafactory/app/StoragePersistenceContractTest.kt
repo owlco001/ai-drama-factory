@@ -288,6 +288,15 @@ class StoragePersistenceContractTest {
             assets.values.filter { it.project_id == projectId && it.kind == kind }
         override suspend fun assetsAllOf(projectId: String): List<AssetEntity> =
             assets.values.filter { it.project_id == projectId }
+        override suspend fun updateAssetKind(assetId: String, projectId: String, kind: String, updatedAt: Long): Int {
+            val a = assets[assetId] ?: return 0
+            if (a.project_id != projectId) return 0
+            assets[assetId] = a.copy(kind = kind, audit_state = "pending", quality_score = null, defects_json = null,
+                q_reject_reason = null, g1_error_code = null, face_ratio = null, pose_role = null,
+                g1_state = "none", g2_score = null, g2_defects = null, review_state = "none", reject_reason = null,
+                updated_at = updatedAt)
+            return 1
+        }
         override suspend fun updateAssetLocal(assetId: String, source: String, imageUri: String?, videoUri: String?, referenceImageUri: String?, prompt: String, updatedAt: Long) {}
         override suspend fun setAssetReferenceImage(assetId: String, referenceImageUri: String?, updatedAt: Long) {}
         override suspend fun setAssetQuality(assetId: String, qualityScore: Double?, auditState: String, defectsJson: String?, rejectReason: String?, g1ErrorCode: String?, faceRatio: Double?, poseRole: String?, updatedAt: Long) {}

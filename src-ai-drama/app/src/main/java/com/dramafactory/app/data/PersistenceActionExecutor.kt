@@ -274,6 +274,32 @@ object PersistenceActionExecutor {
         return WriteReceipt("asset.local", listOf(asset.asset_id), true)
     }
 
+    suspend fun updateAssetKindVerified(
+        dao: DramaDao, guard: StorageGuard, assetId: String, projectId: String, kind: String, actionId: String,
+    ): WriteReceipt {
+        guard.requireReady()
+        val normalized = kind.trim().lowercase()
+        if (normalized !in setOf("character", "scene", "prop"))
+            fail(actionId, "asset.kind", assetId, "不允许的资产类型：$kind")
+        onIo {
+            val before = dao.assetsAllOf(projectId).firstOrNull { it.asset_id == assetId }
+                ?: fail(actionId, "asset.kind", assetId, "资产不存在或不属于当前项目")
+            if (before.source == "local" || before.kind == "local")
+                fail(actionId, "asset.kind", assetId, "本地资产不支持转换类型")
+            val affected = try { dao.updateAssetKind(assetId, projectId, normalized, System.currentTimeMillis()) }
+            catch (e: Throwable) { fail(actionId, "asset.kind", assetId, "资产类型写入异常", e) }
+            if (affected != 1) fail(actionId, "asset.kind", assetId, "资产类型写入影响行数异常：$affected（资产不存在或项目不匹配）")
+            val back = dao.assetsAllOf(projectId).firstOrNull { it.asset_id == assetId }
+            if (back == null || back.project_id != projectId || back.kind != normalized ||
+                back.audit_state != "pending" || back.quality_score != null || back.defects_json != null ||
+                back.q_reject_reason != null || back.g1_error_code != null || back.face_ratio != null ||
+                back.pose_role != null || back.g1_state != "none" || back.g2_score != null ||
+                back.g2_defects != null || back.review_state != "none" || back.reject_reason != null)
+                fail(actionId, "asset.kind", assetId, "资产类型写入后重置字段读回不一致")
+        }
+        return WriteReceipt("asset.kind", listOf(assetId), true)
+    }
+
     suspend fun setReviewStateVerified(
         dao: DramaDao, guard: StorageGuard, assetId: String, state: String, projectId: String,
         actionId: String,

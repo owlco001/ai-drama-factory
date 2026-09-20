@@ -89,7 +89,7 @@ private fun parseActionLine(body: String, out: MutableList<ActionIntent>) {
  * P0 动作可靠性：未知 verb 在信封解码层 fail-closed（BLOCKED），这里必须是白名单全集。 */
 val KNOWN_ACTIONS: List<String> = listOf(
     "new_project", "open_project", "set_script", "test_drama",
-    "extract_assets", "generate", "stop_generate", "remove_asset", "edit_asset",
+    "extract_assets", "generate", "stop_generate", "remove_asset", "edit_asset", "change_asset_kind",
     "review_pass", "review_all_pass", "build_pose_pack", "set_cross_era", "list_assets",
     "gen_shots", "render", "render_status", "render_pause", "render_resume",
     "compose_film", "run_pipeline", "model_status", "goto",

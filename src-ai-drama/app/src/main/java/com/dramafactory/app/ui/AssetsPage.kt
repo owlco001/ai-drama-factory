@@ -555,6 +555,7 @@ fun AssetsPage(
         }
         if (editorCard != null) {
             var editPrompt by remember(editorCard.assetId) { mutableStateOf(editorCard.prompt) }
+            var editKind by remember(editorCard.assetId) { mutableStateOf(editorCard.kind) }
             // v1.9.10：LLM 扩写结果（可编辑）；初始回填卡片已缓存的扩写，否则留空
             var editEnriched by remember(editorCard.assetId) { mutableStateOf(editorCard.enrichedPrompt ?: "") }
             var editorPolishing by remember(editorCard.assetId) { mutableStateOf(false) }
@@ -564,6 +565,12 @@ fun AssetsPage(
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         AssetThumb(editorCard)
+                        Text("资产类型", style = MaterialTheme.typography.labelMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(AssetsLogic.Kind.CHARACTER, AssetsLogic.Kind.SCENE, AssetsLogic.Kind.PROP).forEach { option ->
+                                AssistChip(onClick = { editKind = option }, label = { Text(if (editKind == option) "✓ ${option.label}" else option.label) })
+                            }
+                        }
                         OutlinedTextField(
                             value = editPrompt,
                             onValueChange = { editPrompt = it },
@@ -624,8 +631,10 @@ fun AssetsPage(
                             // editAsset 是异步的（viewModelScope.launch），名称写回后在回调里
                             // 再写扩写结果并按新描述重新出图，避免与未落地的改名竞争。
                             v.editAsset(editorCard.assetId, editPrompt) { _ ->
-                                v.setEnrichedPrompt(editorCard.assetId, editEnriched)
-                                v.generate(editorCard.assetId)
+                                if (v.changeKindResult(editorCard.assetId, editKind)) {
+                                    v.setEnrichedPrompt(editorCard.assetId, editEnriched)
+                                    v.generate(editorCard.assetId).join()
+                                }
                             }
                         }
                         editingAssetId = null

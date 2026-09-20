@@ -74,7 +74,7 @@ private val RESERVED_PARAMS = setOf("actionId", "idempotencyKey", "projectId", "
 
 /** 需要项目上下文的动作（缺 projectId 即 FAILED，fail-closed）。 */
 private val CONTEXT_REQUIRED = setOf(
-    "set_script", "extract_assets", "generate", "edit_asset", "remove_asset",
+    "set_script", "extract_assets", "generate", "edit_asset", "change_asset_kind", "remove_asset",
     "review_pass", "review_all_pass", "build_pose_pack", "gen_shots", "render",
     "render_status", "render_pause", "render_resume", "compose_film", "run_pipeline",
     "list_assets", "set_cross_era",
@@ -162,6 +162,9 @@ private fun validationError(intent: ActionIntent, context: ActionContext): Strin
             if (p("assetId").isNullOrBlank()) "assetId"
             else if (p("prompt").isNullOrBlank()) "prompt"
             else null
+        "change_asset_kind" ->
+            if (p("assetId").isNullOrBlank()) "assetId"
+            else if (p("kind").isNullOrBlank()) "kind" else null
         "remove_asset" -> if (p("assetId").isNullOrBlank()) "assetId" else null
         "review_pass" -> if (p("assetId").isNullOrBlank()) "assetId" else null
         "build_pose_pack" ->

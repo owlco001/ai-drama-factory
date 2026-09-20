@@ -293,6 +293,22 @@ class AiAssistantViewModel : ViewModel() {
                 }
                 if (ok) "已更新资产描述：$id → $newPrompt" else "（找不到资产 $id）"
             }
+            "change_asset_kind" -> {
+                val id = act.param("assetId") ?: return null
+                val raw = act.param("kind") ?: return "（请提供类型：character/scene/prop，或角色/场景/道具）"
+                val kind = when (raw.trim().lowercase()) {
+                    "character", "角色", "人物" -> "character"
+                    "scene", "场景" -> "scene"
+                    "prop", "道具" -> "prop"
+                    else -> return "（不支持的资产类型：$raw，仅支持角色/场景/道具）"
+                }
+                val pid = projectId ?: return "（请先打开项目）"
+                withContext(Dispatchers.IO) { dao.assetsAllOf(pid).firstOrNull { it.asset_id == id } }
+                    ?: return "（找不到资产 $id，或资产不属于当前项目）"
+                PersistenceActionExecutor.updateAssetKindVerified(dao, AppGraph.storageGuard, id, pid, kind, "change_asset_kind")
+                AssetsViewModel.activeInstance?.refreshFromDb(pid)
+                "已将资产类型修改为${mapOf("character" to "角色", "scene" to "场景", "prop" to "道具")[kind]}：$id"
+            }
             "review_pass" -> {
                 val id = act.param("assetId") ?: return null
                 PersistenceActionExecutor.setReviewStateVerified(dao, AppGraph.storageGuard, id, "keep", projectId ?: return "（请先打开项目）", "review_pass")

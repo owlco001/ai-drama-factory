@@ -516,6 +516,9 @@ class ProjectsViewModel : ViewModel() {
  * projectId 由 episodeId 推导（{projectId}_ep{n}）。
  */
 class AssetsViewModel(private val episodeId: String) : ViewModel() {
+    companion object {
+        var activeInstance: AssetsViewModel? = null
+    }
     private val projectId: String = episodeId.substringBeforeLast("_ep")
 
     // 显式类型：generateHandler/enrichHandler 内部需引用本实例，避免 apply 内自引用导致循环类型推断
@@ -589,6 +592,13 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
                     AppGraph.dao, AppGraph.storageGuard, assetId, url, "asset.remote_url")
             }
         }
+        kindPersist = { assetId, kind ->
+            runCatching {
+                com.dramafactory.app.data.PersistenceActionExecutor.updateAssetKindVerified(
+                    AppGraph.dao, AppGraph.storageGuard, assetId, projectId, kind.name.lowercase(), "asset.kind")
+                true
+            }.getOrDefault(false)
+        }
         // v1.9.12：LLM 扩写视觉描述落盘（assets.enriched_prompt）——ensureEnriched/polish 实时扩写后双写
         enrichedPersist = { assetId, text ->
             withContext(Dispatchers.IO) {
@@ -599,6 +609,8 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
             }
         }
     }
+    init { activeInstance = this }
+
     val assets: StateFlow<List<AssetsLogic.AssetCard>> get() = logic.assets
 
     /** v1.7.1 实时联动：进入资产页/切项目时从 Room 重读，让 AI 写入的资产立刻可见。
@@ -879,6 +891,12 @@ class AssetsViewModel(private val episodeId: String) : ViewModel() {
      */
     suspend fun polish(assetId: String): String? = logic.polish(assetId)
     fun review(assetId: String, keep: Boolean) = viewModelScope.launch { logic.review(assetId, keep) }
+    suspend fun changeKindResult(assetId: String, kind: AssetsLogic.Kind): Boolean =
+        logic.changeKind(assetId, kind)
+
+    fun changeKind(assetId: String, kind: AssetsLogic.Kind, onResult: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        onResult(changeKindResult(assetId, kind))
+    }
     fun reviewAllPassed() = logic.reviewAllPassed()
     /** v1.9.10：编辑弹窗写回 LLM 扩写结果（空文本=清空扩写、回到裸词）。内存+DB 双写（持久化在 AssetsLogic 内）。 */
     suspend fun setEnrichedPrompt(assetId: String, text: String) = logic.setEnrichedPrompt(assetId, text)
