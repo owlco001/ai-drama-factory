@@ -96,6 +96,7 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         script: String,
         chat: suspend (com.dramafactory.core.model.ChatRequest) -> com.dramafactory.core.model.ChatResponse,
         assets: List<AssetSnapshot> = emptyList(),
+        targetShotNo: Int? = null,
     ): Result {
         val clipped = if (script.length > 6000) script.take(6000) + "\n…(后文略)" else script
         val catalogBlock = renderCatalog(assets)
@@ -104,9 +105,9 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         // v1.9.17：parseShots 额外返回引用统计；空列表仍触发重试（对齐原 repeatRetry 语义）
         val parsed: Pair<List<Shot>, RefStats>? = repeatRetry {
             val writerMsg = if (catalogBlock.isNotBlank()) {
-                "$WRITER_PROMPT\n\n【资产目录】\n$catalogBlock\n\n【剧本】\n$clipped"
+                "$WRITER_PROMPT${targetShotNo?.let { "\n\n【单镜重生成】只输出镜头$it，禁止生成或改写其他镜头。" } ?: ""}\n\n【资产目录】\n$catalogBlock\n\n【剧本】\n$clipped"
             } else {
-                "$WRITER_PROMPT\n\n【剧本】\n$clipped"
+                "$WRITER_PROMPT${targetShotNo?.let { "\n\n【单镜重生成】只输出镜头$it，禁止生成或改写其他镜头。" } ?: ""}\n\n【剧本】\n$clipped"
             }
             val resp = chat(com.dramafactory.core.model.ChatRequest(messages = listOf(
                 com.dramafactory.core.model.ChatMessage("user", writerMsg))))
@@ -116,6 +117,10 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         var shots = parsed?.first ?: return Result(emptyList(), usedLlm = false, gateErrors = emptyMap(),
             refStats = RefStats(assets.size, 0, 0))
         val refStats = parsed.second
+        if (targetShotNo != null) {
+            shots = shots.filter { it.shotNo == targetShotNo }
+            if (shots.isEmpty()) return Result(emptyList(), usedLlm = true, gateErrors = emptyMap(), refStats = refStats)
+        }
 
         // 先做确定性连贯性校验；发现 carry_over/镜号/时长等问题时，
         // 把上一镜上下文和具体错误回传给模型，只修复问题镜头，最多两轮。

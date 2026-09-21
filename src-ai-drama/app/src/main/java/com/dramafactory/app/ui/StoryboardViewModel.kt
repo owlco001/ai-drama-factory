@@ -95,6 +95,10 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
         val mothersWithImage = motherCards.count {
             !it.remote_url.isNullOrBlank() || !it.image_uri.isNullOrBlank()
         }
+        val existingShots = runCatching {
+            withContext(Dispatchers.IO) { AppGraph.dao.shotsOf(episodeId) }
+        }.getOrDefault(emptyList())
+        val existingByNo = existingShots.associateBy { it.shot_no }
         val result = runCatching {
             com.dramafactory.core.quality.AiStoryboardDirector.generate(
                 script, chat = { req -> AppGraph.text.chat(req) }, assets = catalog)
@@ -108,16 +112,23 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             return@launch
         }
 
-        val entities = result.shots.map { s -> com.dramafactory.app.data.ShotEntity(
-            shot_id = "${episodeId}_shot${s.shotNo}",
-            episode_id = episodeId, project_id = projectId, shot_no = s.shotNo,
-            dialogue = s.dialogue, narration = s.narration,
-            action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
-            beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
-            first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds), last_asset_ids = "[]",
-            visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
-            sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass" else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}",
-        ) }
+        val generatedByNo = result.shots.associateBy { it.shotNo }
+        val shotsToPersist = (result.shots.map { it.shotNo } + existingShots.filter { it.sb_check == "pass" }.map { it.shot_no })
+            .distinct().sorted().mapNotNull { no ->
+                existingByNo[no]?.takeIf { it.sb_check == "pass" } ?: generatedByNo[no]?.let { s ->
+                    com.dramafactory.app.data.ShotEntity(
+                        shot_id = "${episodeId}_shot${s.shotNo}",
+                        episode_id = episodeId, project_id = projectId, shot_no = s.shotNo,
+                        dialogue = s.dialogue, narration = s.narration,
+                        action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
+                        beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
+                        first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds), last_asset_ids = "[]",
+                        visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
+                        sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass" else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}"
+                    )
+                }
+            }
+        val entities = shotsToPersist
         try {
             PersistenceActionExecutor.writeShotsBatch(AppGraph.dao, AppGraph.storageGuard, episodeId, entities, "storyboard.generate")
         } catch (e: Throwable) {
@@ -148,7 +159,56 @@ class StoryboardViewModel(private val episodeId: String) : ViewModel() {
             "已生成${result.shots.size}镜" + (if (errCount > 0) "（其中${errCount}镜校验有误，见列表标记）" else "，全部通过校验✓") + noAssetNote)
     }
 
-    fun clearMessage() { _state.value = _state.value.copy(message = null) }
+    /** 单镜重新生成：只生成指定镜头；已校验通过的镜头不允许覆盖。 */
+    fun regenerateShot(shotId: String) = viewModelScope.launch {
+        val old = withContext(Dispatchers.IO) { AppGraph.dao.shotKeyframes(shotId) }
+            ?: run { _state.value = _state.value.copy(message = "找不到镜头：$shotId"); return@launch }
+        if (old.sb_check == "pass") {
+            _state.value = _state.value.copy(message = "镜头 #${old.shot_no} 已校验通过，不再重新生成")
+            return@launch
+        }
+        _state.value = _state.value.copy(generating = true, message = "正在重新生成镜头 #${old.shot_no}…")
+        val script = withContext(Dispatchers.IO) { AppGraph.dao.episode(episodeId)?.script_json }
+        if (script.isNullOrBlank()) {
+            _state.value = _state.value.copy(generating = false, message = "本集没有剧本文本")
+            return@launch
+        }
+        val projectId = episodeId.substringBeforeLast("_ep")
+        val assets = withContext(Dispatchers.IO) { AppGraph.dao.assetsAllOf(projectId) }
+        val result = runCatching {
+            com.dramafactory.core.quality.AiStoryboardDirector.generate(
+                script, chat = { req -> AppGraph.text.chat(req) },
+                assets = AssetCatalog.build(assets), targetShotNo = old.shot_no)
+        }.getOrElse {
+            _state.value = _state.value.copy(generating = false, message = "单镜重生成失败：${it.message ?: it.javaClass.simpleName}")
+            return@launch
+        }
+        val s = result.shots.singleOrNull()
+        if (s == null) {
+            _state.value = _state.value.copy(generating = false, message = "单镜重生成失败：模型未返回镜头 #${old.shot_no}")
+            return@launch
+        }
+        val updated = old.copy(
+            dialogue = s.dialogue, narration = s.narration,
+            action = listOfNotNull(s.action, s.visualPrompt?.let { "［$it］" }).joinToString("；"),
+            beat_ref = s.beatRef, carry_over = s.carryOver, scene_context = s.sceneContext,
+            first_asset_ids = AssetCatalog.encodeRefIds(s.assetIds),
+            visual_prompt = s.visualPrompt, duration_seconds = s.durationSeconds,
+            sb_check = if (result.gateErrors[s.shotNo].isNullOrEmpty()) "pass" else "error:${result.gateErrors[s.shotNo]!!.joinToString(",")}"
+        )
+        runCatching {
+            withContext(Dispatchers.IO) {
+                AppGraph.dao.upsertShot(updated)
+                check(AppGraph.dao.shotKeyframes(shotId)?.sb_check == updated.sb_check) { "单镜重生成后读回不一致" }
+            }
+        }.onFailure {
+            _state.value = _state.value.copy(generating = false, message = "单镜保存失败：${it.message}")
+            return@launch
+        }
+        refresh()
+        _state.value = _state.value.copy(generating = false, message = "镜头 #${old.shot_no} 已重新生成并完成校验")
+    }
+
 
     // ---- 第十二轮：分镜可操作（编辑/删除/渲染）----
 

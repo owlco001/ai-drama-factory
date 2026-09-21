@@ -328,6 +328,14 @@ fun StoryboardPage(
                                 Text("预览")
                             }
                         }
+                        if (shot.sb_check != "pass") {
+                            OutlinedButton(onClick = { vm.regenerateShot(shot.shot_id) }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "重新生成",
+                                    modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("重新生成")
+                            }
+                        }
                         OutlinedButton(onClick = { editingShotId = shot.shot_id }) {
                             Icon(Icons.Default.Edit, contentDescription = "编辑",
                                 modifier = Modifier.size(18.dp))
