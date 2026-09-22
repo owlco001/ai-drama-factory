@@ -67,11 +67,13 @@ object AiStoryboardDirector {
         val refStats: RefStats = RefStats(0, 0, 0),
     )
 
+    private const val MAX_SCRIPT_CHARS = 24000
     private const val WRITER_PROMPT = """你是短剧分镜编剧。把给定的剧本/小说片段拆成视频镜头表。
 只输出严格 JSON，不要markdown代码块。格式：
 {"shots":[{"shot_no":1,"action":"画面中发生的具体动作（30字内，纯动作描述）","scene_context":"时间+天气+空间位置+光线状态，第一镜建立基准，后续镜头必须继承或写明变化原因","dialogue":"该镜台词原文（无台词则省略）","narration":"旁白（无则省略）","duration_seconds":6,"characters":["角色名"],"asset_ids":["a_xxx","a_yyy"],"beat_ref":"B01","carry_over":"本镜结束时角色/场景/道具的状态，供下一镜承接"}]}
 规则：
-- 每镜5-10秒；一场戏2-5镜；台词必须与原文逐字一致不得改写；shot_no从1连续递增；总镜数控制在4-12镜。
+- 每镜5-10秒；一场戏2-5镜；台词必须与原文逐字一致不得改写；shot_no从1连续递增。
+- 短剧片段通常4-12镜；如果输入是长剧本，必须覆盖提供文本中的全部关键事件，镜头数量可以超过12，绝不能为了满足数量上限而省略后半段。
 - 每镜必须填写 scene_context：明确时间、天气、空间位置、光线/明暗状态。第一镜建立全局基准；后续镜头默认继承上一镜，只有剧本明确或 carry_over 写明转场原因时才允许改变。
 - 严禁无解释地改变时间、天气、明暗、室内外或空间位置。后续镜头必须继承上一镜已明确的环境状态；只有剧本或转场因果明确要求时才允许改变，不得自行补全未提供的天气、时间或光线。
 - 室外→室内、室内→室外或跨地点切换，carry_over 必须写明进入/离开/推门/转场等因果；没有转场依据时保持上一镜环境，不得跳变。
@@ -98,7 +100,7 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         assets: List<AssetSnapshot> = emptyList(),
         targetShotNo: Int? = null,
     ): Result {
-        val clipped = if (script.length > 6000) script.take(6000) + "\n…(后文略)" else script
+        val clipped = if (script.length > MAX_SCRIPT_CHARS) script.take(MAX_SCRIPT_CHARS) + "\n…(后文略，已达单次生成上限，请分段生成)" else script
         val catalogBlock = renderCatalog(assets)
 
         // —— 编剧：拆镜 ——
@@ -125,6 +127,9 @@ asset_ids 已锁定：写 visual 时必须考虑该镜引用的资产（角色�
         // 先做确定性连贯性校验；发现 carry_over/镜号/时长等问题时，
         // 把上一镜上下文和具体错误回传给模型，只修复问题镜头，最多两轮。
         shots = repairCoherenceIfNeeded(shots, clipped, assets, chat)
+
+        // 模型在长文本中偶尔漏填承接字段；先做确定性归一化，再跑最终硬闸，避免同一错误反复让用户重试。
+        shots = if (targetShotNo == null) stabilizeShots(shots, assets.map { it.id }.toSet()) else shots
 
         // —— 导演：视觉指令 ——
         val visuals: Map<Int, String> = runCatching {
@@ -215,6 +220,23 @@ $script"""
         return current
     }
 
+
+    private fun stabilizeShots(shots: List<Shot>, approvedAssetIds: Set<String>): List<Shot> {
+        var previous: Shot? = null
+        return shots.sortedBy { it.shotNo }.mapIndexed { index, raw ->
+            val fixed = raw.copy(
+                shotNo = index + 1,
+                durationSeconds = raw.durationSeconds.coerceIn(5.0, 10.0),
+                assetIds = if (approvedAssetIds.isEmpty()) raw.assetIds else raw.assetIds.filter { it in approvedAssetIds }.distinct(),
+                carryOver = if (index == 0) raw.carryOver else raw.carryOver
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "承接上一镜：${previous?.action?.take(80).orEmpty()}",
+                sceneContext = raw.sceneContext?.takeIf { it.isNotBlank() }
+                    ?: previous?.sceneContext
+            ).also { previous = it }
+            fixed
+        }
+    }
 
     private fun renderCatalog(assets: List<AssetSnapshot>): String {
         if (assets.isEmpty()) return ""
