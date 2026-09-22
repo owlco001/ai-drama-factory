@@ -104,6 +104,14 @@ object DefaultTextModelRouter : TextModelRouter {
             keyMasked = null,
             isVerified = false,
         ),
+        TextModelEntry(
+            modelId = MiMoProvider.MODEL,
+            label = "小米 MiMo 2.6 Pro",
+            providerId = MiMoProvider.PROVIDER_ID,
+            baseUrl = MiMoProvider.BASE_URL,
+            keyMasked = null,
+            isVerified = false,
+        ),
     )
 
     private fun resolveId(id: String): TextModelEntry? =
@@ -147,6 +155,7 @@ object DefaultTextModelRouter : TextModelRouter {
         val result = when (entry.providerId) {
             "agnes" -> AgnesProvider(apiKeyProvider = { useKey }, region = agnesRegion).validateKey(useKey)
             DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { useKey }).validateKey(useKey)
+            MiMoProvider.PROVIDER_ID -> MiMoProvider(apiKeyProvider = { useKey }).validateKey(useKey)
             else -> Result.failure(ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}"))
         }
         result.onSuccess { store.markVerified(entry.providerId, true) }
@@ -160,6 +169,7 @@ object DefaultTextModelRouter : TextModelRouter {
         return when (entry.providerId) {
             "agnes" -> AgnesProvider(apiKeyProvider = { store.loadKey("agnes") }, region = agnesRegion)
             DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { store.loadKey(DeepSeekProvider.PROVIDER_ID) })
+            MiMoProvider.PROVIDER_ID -> MiMoProvider(apiKeyProvider = { store.loadKey(MiMoProvider.PROVIDER_ID) })
             else -> throw ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}")
         }
     }

@@ -12,7 +12,8 @@ class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelR
     override fun registeredTextModels(): List<TextModelEntry> {
         val candidates = listOf(
             TextModelEntry(AgnesProvider.MODEL_TEXT, "Agnes 文本 3.0 Flash", "agnes", AgnesProvider.BASE_URL, null, false),
-            TextModelEntry(DeepSeekProvider.MODEL, "DeepSeek Chat", DeepSeekProvider.PROVIDER_ID, DeepSeekProvider.BASE_URL, null, false)
+            TextModelEntry(DeepSeekProvider.MODEL, "DeepSeek Chat", DeepSeekProvider.PROVIDER_ID, DeepSeekProvider.BASE_URL, null, false),
+            TextModelEntry(MiMoProvider.MODEL, "小米 MiMo 2.6 Pro", MiMoProvider.PROVIDER_ID, MiMoProvider.BASE_URL, null, false)
         )
         return candidates.map { base ->
             base.copy(
@@ -57,6 +58,7 @@ class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelR
         val result = when (entry.providerId) {
             "agnes" -> AgnesProvider(apiKeyProvider = { useKey }, region = _agnesRegion).validateKey(useKey)
             DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { useKey }).validateKey(useKey)
+            MiMoProvider.PROVIDER_ID -> MiMoProvider(apiKeyProvider = { useKey }).validateKey(useKey)
             else -> Result.failure(ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}"))
         }
         result.onSuccess { store.markVerified(entry.providerId, true) }
@@ -70,6 +72,7 @@ class DefaultTextModelRouterImpl(private val store: TextModelStore) : TextModelR
         return when (entry.providerId) {
             "agnes" -> AgnesProvider(apiKeyProvider = { store.loadKey("agnes") }, region = _agnesRegion)
             DeepSeekProvider.PROVIDER_ID -> DeepSeekProvider(apiKeyProvider = { store.loadKey(DeepSeekProvider.PROVIDER_ID) })
+            MiMoProvider.PROVIDER_ID -> MiMoProvider(apiKeyProvider = { store.loadKey(MiMoProvider.PROVIDER_ID) })
             else -> throw ProviderError.ValidationError("暂不支持的 provider: ${entry.providerId}")
         }
     }

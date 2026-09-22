@@ -617,6 +617,7 @@ object AppGraph {
 private fun textKeyConfigIds(providerId: String, region: AgnesRegion): List<String> {
     val base = when (providerId) {
         "deepseek" -> listOf("text-deepseek", "deepseek", "deepseek-chat")
+        "mimo" -> listOf("text-mimo", "mimo", "mimo-chat")
         else -> listOf("text-agnes", "agnes", "agnes-text")
     }
     return base.map { agnesScopedConfigId(it, region) }
@@ -630,6 +631,7 @@ private fun buildTextProvider(
 ): com.dramafactory.core.provider.TextProvider =
     when (providerId) {
         "deepseek" -> com.dramafactory.core.provider.DeepSeekProvider(apiKeyProvider = { key })
+        "mimo" -> com.dramafactory.core.provider.MiMoProvider(apiKeyProvider = { key })
         else -> com.dramafactory.core.provider.AgnesProvider(apiKeyProvider = { key }, region = region)
     }
 
@@ -645,17 +647,29 @@ internal suspend fun resolveTextProviderFor(
     keyLoader: suspend (String) -> String?,
     region: AgnesRegion = com.dramafactory.core.provider.DefaultTextModelRouter.agnesRegion,
 ): com.dramafactory.core.provider.TextProvider {
-    val isDeepseek = active.startsWith("deepseek", ignoreCase = true)
-    val primary = if (isDeepseek) "deepseek" else "agnes"
-    val fallback = if (isDeepseek) "agnes" else "deepseek"
+    // 激活模型 → provider 家族（active 为 providerId：mimo / deepseek / agnes）
+    val primary = when {
+        active.startsWith("mimo", ignoreCase = true) -> "mimo"
+        active.startsWith("deepseek", ignoreCase = true) -> "deepseek"
+        else -> "agnes"
+    }
+    // 回退顺序：优先另一传统 provider（保持 agnes↔deepseek 语义），MiMo 作为额外兜底
+    val fallbackOrder = when (primary) {
+        "deepseek" -> listOf("agnes", "mimo")
+        "mimo" -> listOf("agnes", "deepseek")
+        else -> listOf("deepseek", "mimo")
+    }
 
     // 1) 优先激活 provider 的 key
-    val primaryKey = textKeyConfigIds(primary, region).firstNotNullOfOrNull { keyLoader(it) }
-    if (primaryKey != null) return buildTextProvider(primary, primaryKey, region)
+    textKeyConfigIds(primary, region).firstNotNullOfOrNull { keyLoader(it) }?.let {
+        return buildTextProvider(primary, it, region)
+    }
 
-    // 2) 激活 provider 无 key → 另一 provider 有 key 则临时优雅回退
-    val fbKey = textKeyConfigIds(fallback, region).firstNotNullOfOrNull { keyLoader(it) }
-    if (fbKey != null) return buildTextProvider(fallback, fbKey, region)
+    // 2) 激活 provider 无 key → 回退到有 key 的 provider，保证链路不中断
+    for (fb in fallbackOrder) {
+        val k = textKeyConfigIds(fb, region).firstNotNullOfOrNull { keyLoader(it) }
+        if (k != null) return buildTextProvider(fb, k, region)
+    }
 
     // 3) 都无 key → 空跑激活 provider，由上层提示去设置页配置
     return buildTextProvider(primary, "", region)

@@ -14,8 +14,8 @@ android {
         applicationId = "com.dramafactory.app"
         minSdk = 29            // PRD: Android 10+
         targetSdk = 34
-        versionCode = 114
-        versionName = "1.9.44"  // v1.9.44：长剧本分镜稳定生成、去除硬限制、上限 24000 字
+        versionCode = 115
+        versionName = "1.9.45"  // v1.9.45：新增小米 MiMo 文本模型（tp-/sk- 双站自动选站）
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

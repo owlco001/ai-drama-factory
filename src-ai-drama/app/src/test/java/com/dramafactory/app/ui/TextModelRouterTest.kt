@@ -9,6 +9,7 @@ import com.dramafactory.core.provider.AgnesProvider
 import com.dramafactory.core.provider.DeepSeekProvider
 import com.dramafactory.core.provider.DefaultTextModelRouter
 import com.dramafactory.core.provider.InMemoryTextModelStore
+import com.dramafactory.core.provider.MiMoProvider
 import com.dramafactory.core.provider.TextProvider
 import com.dramafactory.core.storage.InMemoryKeyVault
 import io.ktor.client.HttpClient
@@ -46,12 +47,13 @@ class TextModelRouterTest {
     // ---------- 默认注册 + 初始状态 ----------
 
     @Test
-    fun 注册默认值_Agnes和DeepSeek两个候选且默认激活Agnes() {
+    fun 注册默认值_Agnes和DeepSeek和MiMo三个候选且默认激活Agnes() {
         val r = freshRouter()
         val entries = r.registeredTextModels()
-        assertEquals(2, entries.size)
+        assertEquals(3, entries.size)
         assertTrue(entries.map { it.providerId }.contains("agnes"))
         assertTrue(entries.map { it.providerId }.contains("deepseek"))
+        assertTrue(entries.map { it.providerId }.contains("mimo"))
         assertEquals("agnes", r.activeTextModelId())
         // 未配置任何 Key，掩码均为 null，验证状态均为 false
         assertTrue(entries.all { it.keyMasked == null })
@@ -185,6 +187,55 @@ class TextModelRouterTest {
         val provider = DefaultTextModelRouter.resolve("agnes")
         assertNotNull(provider as AgnesProvider)
         assertEquals("agnes", provider.id)
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun resolve_MiMo返回带Key的MiMoProvider() = runTest {
+        val store = InMemoryTextModelStore()
+        DefaultTextModelRouter.store = store
+        store.saveKey("mimo", "tp-mimo-key")
+
+        val provider = DefaultTextModelRouter.resolve("mimo") as MiMoProvider
+        assertEquals(MiMoProvider.PROVIDER_ID, provider.id)
+        val resolvedKey = provider.apiKeyProvider()
+        assertEquals("tp-mimo-key", resolvedKey)
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun MiMo切换后activeTextModelId返回mimo() = runTest {
+        val store = InMemoryTextModelStore()
+        DefaultTextModelRouter.store = store
+        val res = DefaultTextModelRouter.setActiveTextModel("mimo")
+        assertTrue(res.isSuccess)
+        assertEquals("mimo", DefaultTextModelRouter.activeTextModelId())
+    }
+
+    @kotlinx.coroutines.ExperimentalCoroutinesApi
+    @Test
+    fun MiMo验证成功_200返回OK且isVerified置true() = runTest {
+        val engine = MockEngine { request ->
+            val auth = request.headers[HttpHeaders.Authorization] ?: "Bearer "
+            if (!auth.startsWith("Bearer ")) return@MockEngine respond("{}", HttpStatusCode.BadRequest)
+            respond(
+                """{"id":"c1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"pong"}}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}""",
+                status = HttpStatusCode.OK)
+        }
+        val provider = MiMoProvider(
+            apiKeyProvider = { "tp-mock" },
+            client = HttpClient(engine))
+        val r = provider.validateKey("tp-mock")
+        assertTrue(r.isSuccess)
+
+        // 模拟 validate 成功后路由侧写 store 状态
+        val store = InMemoryTextModelStore()
+        DefaultTextModelRouter.store = store
+        DefaultTextModelRouter.saveKey("mimo", "tp-mock")
+        store.markVerified("mimo", true)
+        val entry = DefaultTextModelRouter.registeredTextModels().first { it.providerId == "mimo" }
+        assertTrue(entry.isVerified)
+        assertNotNull(entry.keyMasked)
     }
 
     // ---------- 持久化（v1.8.4：重启后激活模型不回退默认） ----------
