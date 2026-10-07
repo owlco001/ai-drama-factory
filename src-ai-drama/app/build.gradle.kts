@@ -59,30 +59,36 @@ android {
             }
         }
     }
-    fun secret(name: String): String =
-        (keyProps[name] ?: System.getenv(name))
-            ?: error("缺少签名密钥配置：$name（请在 local.properties 或环境变量中设置，切勿提交到仓库）")
+    // 缺少签名配置时（如 CI 没有密钥）不再直接抛错，回退到默认 debug 签名，
+    // 否则整个 Gradle 配置阶段失败，连 :core-engine:test 都跑不起来。
+    fun secret(name: String): String? = keyProps[name] ?: System.getenv(name)
     val KEYSTORE_DIR = "keystore"
     val KEYSTORE_FILE = "drama-release.jks"
     val KEY_ALIAS = secret("AI_DRAMA_KEY_ALIAS")
     val STORE_PWD = secret("AI_DRAMA_STORE_PASSWORD")
     val KEY_PWD = secret("AI_DRAMA_KEY_PASSWORD")
-    signingConfigs {
-        create("releaseSigned") {
-            storeFile = file("$KEYSTORE_DIR/$KEYSTORE_FILE")
-            storePassword = STORE_PWD
-            keyAlias = KEY_ALIAS
-            keyPassword = KEY_PWD
+    val keystoreFile = file("$KEYSTORE_DIR/$KEYSTORE_FILE")
+    val hasSigning = KEY_ALIAS != null && STORE_PWD != null && KEY_PWD != null && keystoreFile.exists()
+    if (hasSigning) {
+        signingConfigs {
+            create("releaseSigned") {
+                storeFile = keystoreFile
+                storePassword = STORE_PWD
+                keyAlias = KEY_ALIAS
+                keyPassword = KEY_PWD
+            }
         }
+    } else {
+        logger.warn("未找到签名密钥配置，使用默认 debug 签名（仅适用于 CI / 本地测试）")
     }
     // debug 也用固定签名（与发布同 keystore），使 assembleDebug 产出可覆盖安装的包。
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("releaseSigned")
+            if (hasSigning) signingConfig = signingConfigs.getByName("releaseSigned")
             isDebuggable = true
         }
         release {
-            signingConfig = signingConfigs.getByName("releaseSigned")
+            if (hasSigning) signingConfig = signingConfigs.getByName("releaseSigned")
             isMinifyEnabled = false
         }
     }
