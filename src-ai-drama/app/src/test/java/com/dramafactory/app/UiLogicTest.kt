@@ -251,7 +251,7 @@ class UiLogicTest {
         val queue = FakeQueue()
         val budget = FakeBudget()
         val logic = QueueLogic(queue, budget)
-        logic.startWatching(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default))
+        logic.startWatching(backgroundScope)   // 与 runTest 共享虚拟时钟，delay(2200) 可确定性推进轮询
 
         // 模拟引擎因预算超限暂停
         queue.snapshot.value = com.dramafactory.core.model.QueueSnapshot(
